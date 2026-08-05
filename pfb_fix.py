@@ -79,11 +79,13 @@ def _parse_rsz(data: bytes):
     }
 
 
-def _resource_strings(data: bytes, rsz_off: int) -> set[str]:
+def _resource_strings_with_offsets(data: bytes, rsz_off: int) -> list[tuple[int, str]]:
     """UTF-16LE strings in the header/resource-table region before the RSZ
-    block -- resource paths, gameobject names, etc."""
+    block -- resource paths, gameobject names, etc -- paired with each
+    string's starting byte offset, so a caller can patch one specific
+    occurrence in place rather than a blind buffer-wide substring replace."""
     region = data[:rsz_off]
-    out = set()
+    out = []
     i = 0
     n = len(region)
     while i < n - 1:
@@ -94,11 +96,32 @@ def _resource_strings(data: bytes, rsz_off: int) -> set[str]:
                 chars.append(chr(region[j]))
                 j += 2
             if len(chars) > 2:
-                out.add("".join(chars))
+                out.append((i, "".join(chars)))
                 i = j
                 continue
         i += 1
     return out
+
+
+def _resource_strings(data: bytes, rsz_off: int) -> set[str]:
+    return {s for _, s in _resource_strings_with_offsets(data, rsz_off)}
+
+
+def _mod_provided_file_keys(mod_root: Path) -> set[str]:
+    """Lowercased '<stem>.<ext>' (trailing version number stripped) for
+    every file the mod actually ships, e.g. 'mh03_003_0011.jcns.5' on disk
+    becomes the key 'mh03_003_0011.jcns'. A pfb's resource strings never
+    carry the trailing version number, so this is what lets substitution
+    tell "the mod really does bundle a custom-slot copy of this specific
+    resource" apart from "the current donor references something newer
+    the mod predates and never shipped a copy of at all"."""
+    keys = set()
+    for p in mod_root.rglob("*"):
+        if not p.is_file():
+            continue
+        m = re.match(r"^(.+)\.(\d+)$", p.name)
+        keys.add((m.group(1) if m else p.name).lower())
+    return keys
 
 
 _MAX_STRING_DIFF = 2  # tolerate a couple of stray *genuine* differences
@@ -203,8 +226,43 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log) -> PfbPlan:
     return PfbPlan(rel, mod_path, None, None, None, False)
 
 
+def _apply_substitution(donor_bytes: bytes, rsz_off: int, donor_code: str, mod_code: str,
+                         mod_provided_keys: set[str]) -> bytes:
+    """Same-length in-place substitution, but ONLY for resource-string
+    occurrences whose substituted form actually corresponds to a file the
+    mod bundles -- confirmed necessary in practice: blindly substituting
+    every occurrence of the donor's character code (e.g. "ch03"->"mh03")
+    can turn a reference to a file the CURRENT donor needs but the mod
+    never shipped (e.g. a ".jcns" joint-constraint file introduced after
+    the mod was built) into a reference to a custom-slot path that simply
+    doesn't exist -- REFramework then reports it as "[Missing File]" and
+    the character fails to load. Left un-substituted, that reference
+    correctly falls back to the real, always-present vanilla file, which
+    is semantically fine for content (like joint physics constraints)
+    that isn't actually skin/texture-specific."""
+    result = bytearray(donor_bytes)
+    mod_code_bytes = mod_code.encode("utf-16-le")
+    for offset, s in _resource_strings_with_offsets(donor_bytes, rsz_off):
+        if donor_code not in s:
+            continue
+        candidate = s.replace(donor_code, mod_code)
+        key = Path(_strip_at(candidate)).name.lower()
+        if key not in mod_provided_keys:
+            continue
+        search_start = 0
+        while True:
+            idx = s.find(donor_code, search_start)
+            if idx == -1:
+                break
+            char_offset = offset + idx * 2  # UTF-16LE: 2 bytes per char
+            result[char_offset:char_offset + len(donor_code) * 2] = mod_code_bytes
+            search_start = idx + len(donor_code)
+    return bytes(result)
+
+
 def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, log) -> dict:
     stats = {"fixed": 0, "already_current": 0, "unresolved": 0}
+    mod_provided_keys = _mod_provided_file_keys(mod_root)
     for mod_path in sorted(find_pfb_files(mod_root)):
         plan = plan_pfb(mod_path, mod_root, game, log)
         if plan.donor_bytes is None:
@@ -217,8 +275,8 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         result = plan.donor_bytes
         if plan.substitution is not None:
             donor_code, mod_code = plan.substitution
-            result = result.replace(donor_code.encode("utf-16-le"), mod_code.encode("utf-16-le"))
-            assert len(result) == len(plan.donor_bytes), "substitution must be same-length"
+            donor_rsz_off = _parse_rsz(plan.donor_bytes)["rsz_off"]
+            result = _apply_substitution(plan.donor_bytes, donor_rsz_off, donor_code, mod_code, mod_provided_keys)
 
         out_path = output_root / plan.rel
         if result == mod_path.read_bytes():

@@ -134,6 +134,27 @@ investigation):
    Investigate by hand (see below) rather than loosening the tolerance
    blindly.
 
+**Substitution must be selective, not a blind global replace**: when a
+custom-slot fake character code (`mh03`) is substituted back into a
+donor's bytes, do NOT blindly replace every occurrence of the real code
+(`ch03`) throughout the buffer. Confirmed real case: a donor pfb
+referenced a `.jcns` (joint-constraint) file that didn't exist when the
+mod was originally built, so the mod never bundled a custom-slot copy of
+it. Blind substitution turned `ch03_..._0011.jcns` into
+`mh03_..._0011.jcns` — a path with no corresponding file at all —
+producing a NEW "[Missing File]" error (distinct from "[Invalid file]")
+and an invisible character. Fix (`pfb_fix.py`'s `_apply_substitution()`):
+for each resource string containing the donor code, only substitute it if
+a file matching the substituted path actually exists somewhere in the
+mod's own bundle (checked via `_mod_provided_file_keys()`, which strips
+each shipped file's trailing version number since resource strings never
+carry one); otherwise leave that specific occurrence pointing at the
+real, always-present vanilla path — correct for content (like joint
+physics) that isn't actually skin/texture-specific. This is a per-string,
+per-occurrence, in-place substitution now (offset-tracked via
+`_resource_strings_with_offsets()`), not a single buffer-wide
+`bytes.replace()`.
+
 **Known unsolved limitation**: some mods bundle a custom-named `.pfb`
 under `Art/VFX/effectprovider/weapon/...` (e.g. `GS.pfb`) that doesn't
 correspond to ANY real vanilla file path, for an optional ambient VFX
