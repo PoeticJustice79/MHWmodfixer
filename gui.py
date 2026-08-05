@@ -293,14 +293,32 @@ class App:
 
             queue_snapshot = list(self.mod_queue)
             total = len(queue_snapshot)
+            # Asked ONCE up front, not per mod -- with a multi-mod queue,
+            # a save-location prompt after every single file was the #1
+            # reported annoyance. Every fixed mod in this run lands in the
+            # same folder as its own "<name>_fixed.zip", so there's no
+            # collision risk even with many queued at once.
+            save_dir = self.ask_save_dir(t("dlg_choose_save_dir_batch"))
+            if not save_dir:
+                self.log("No save location chosen -- aborting batch.")
+                return
+
+            batch = {"fixed": 0, "already_current": 0, "unresolved": 0, "errors": 0, "textures_restored": 0}
             for i, mod_archive in enumerate(queue_snapshot, start=1):
                 self.set_status(t("status_processing", i=i, total=total, name=mod_archive.name))
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
                 try:
-                    self._run_one(mod_archive, game)
+                    outcome = self._run_one(mod_archive, game, save_dir)
+                    batch[outcome] = batch.get(outcome, 0) + 1
                 except Exception as e:
                     self.log(f"[error] {mod_archive.name}: {e}\n{traceback.format_exc()}")
-                    self.show_error(APP_TITLE, t("err_processing_mod", name=mod_archive.name, e=e))
+                    batch["errors"] += 1
+
+            self.show_info(APP_TITLE, t(
+                "msg_batch_done", total=total, fixed=batch["fixed"],
+                already_current=batch["already_current"], unresolved=batch["unresolved"],
+                errors=batch["errors"], out=save_dir,
+            ))
         except Exception as e:
             self.log(f"[error] {e}\n{traceback.format_exc()}")
             self.show_error(APP_TITLE, t("err_unhandled", e=e))
@@ -309,7 +327,9 @@ class App:
             self._run_on_main_thread(lambda: self.start_btn.configure(state="normal"))
             self.set_status(t("status_done"))
 
-    def _run_one(self, mod_archive: Path, game: GameArchive):
+    def _run_one(self, mod_archive: Path, game: GameArchive, save_dir: str) -> str:
+        """Fully unattended -- no per-mod prompts. Returns one of "fixed",
+        "already_current", "unresolved" for the caller to tally."""
         self.log(f"Extracting: {mod_archive.name}")
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
         mod_root = extract_archive(mod_archive, work_dir)
@@ -332,25 +352,14 @@ class App:
         # verify it).
         if not needs_fix and not unresolved_plans:
             shutil.rmtree(work_dir, ignore_errors=True)
-            self.show_info(APP_TITLE, t("msg_already_latest", name=mod_archive.name, summary=summary))
-            return
+            self.log(f"{mod_archive.name}: already up to date, nothing to fix.")
+            return "already_current"
 
         if not needs_fix and unresolved_plans:
             shutil.rmtree(work_dir, ignore_errors=True)
-            self.show_info(
-                APP_TITLE,
-                t("msg_cannot_verify", name=mod_archive.name, count=len(unresolved_plans), summary=summary),
-            )
-            return
-
-        confirm_msg = t("confirm_needs_fix", name=mod_archive.name, count=len(needs_fix))
-        if unresolved_plans:
-            confirm_msg += t("confirm_unresolved_note", count=len(unresolved_plans))
-        proceed = self.ask_yes_no(APP_TITLE, confirm_msg + "\n\n" + summary)
-        if not proceed:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            self.log(f"{mod_archive.name}: skipped (cancelled by user)")
-            return
+            self.log(f"{mod_archive.name}: nothing could be safely auto-repaired "
+                     f"({len(unresolved_plans)} unresolved) -- left untouched.")
+            return "unresolved"
 
         output_root = work_dir.parent / (work_dir.name + "_fixed")
         shutil.copytree(mod_root, output_root)
@@ -361,22 +370,13 @@ class App:
                  f"skipped={stats['skipped']} errors={stats['errors']} "
                  f"texture_paths_restored={stats['textures_restored']}")
 
-        save_dir = self.ask_save_dir(t("dlg_choose_save_dir", name=mod_archive.name))
-        if not save_dir:
-            self.log(f"{mod_archive.name}: no save location chosen, temp folder: {output_root}")
-            return
-
         out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
         self.log(f"Zipping: {out_zip}")
         zip_folder(output_root, out_zip)
 
         shutil.rmtree(work_dir, ignore_errors=True)
         shutil.rmtree(output_root, ignore_errors=True)
-
-        self.show_info(APP_TITLE, t(
-            "msg_repair_done", name=mod_archive.name, fixed=stats["fixed"],
-            restored=stats["textures_restored"], out=out_zip,
-        ))
+        return "fixed"
 
 
 def _acquire_single_instance_lock():

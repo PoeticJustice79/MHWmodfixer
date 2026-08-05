@@ -130,60 +130,24 @@ _STRINGS = {
         "zh_tw": "處理 {name} 時發生錯誤：\n{e}", "zh_cn": "处理 {name} 时发生错误：\n{e}",
         "ja": "{name} の処理中にエラーが発生しました：\n{e}",
     },
-    "msg_already_latest": {
-        "ko": "[{name}] 이미 최신 버전입니다. 고칠 게 없습니다.\n\n{summary}",
-        "en": "[{name}] Already up to date. Nothing to fix.\n\n{summary}",
-        "zh_tw": "[{name}] 已是最新版本，無需修復。\n\n{summary}",
-        "zh_cn": "[{name}] 已是最新版本，无需修复。\n\n{summary}",
-        "ja": "[{name}] すでに最新の状態です。修復の必要はありません。\n\n{summary}",
+    "dlg_choose_save_dir_batch": {
+        "ko": "복구된 모드를 저장할 폴더 선택 (목록의 모든 모드가 이 폴더에 저장됩니다)",
+        "en": "Select a folder to save repaired mods (all mods in the queue will be saved here)",
+        "zh_tw": "選擇要儲存修復後模組的資料夾（清單中所有模組都會儲存於此）",
+        "zh_cn": "选择要保存修复后模组的文件夹（列表中所有模组都会保存于此）",
+        "ja": "修復済みMODの保存先フォルダを選択（キュー内のすべてのMODがここに保存されます）",
     },
-    "msg_cannot_verify": {
-        "ko": "[{name}] 자동으로 안전하게 복구할 수 있는 부분이 없습니다.\n\n"
-              "{count}개 파일(또는 그 안의 일부 머티리얼)에서 안전하게 매칭되는 "
-              "바닐라 도너를 찾지 못해, 이미 최신인지조차 확인할 수 없습니다. "
-              "이 모드는 그대로 두었습니다.\n\n{summary}",
-        "en": "[{name}] Nothing could be safely auto-repaired.\n\n"
-              "{count} file(s) (or some materials within them) couldn't be safely matched "
-              "against a vanilla donor, so it's not even possible to tell whether they're "
-              "already up to date. This mod was left untouched.\n\n{summary}",
-        "zh_tw": "[{name}] 沒有可以安全自動修復的部分。\n\n"
-                 "{count} 個檔案（或其中部分材質）找不到可安全對應的原版素材，"
-                 "因此無法確認是否已是最新版本。此模組維持原狀未變更。\n\n{summary}",
-        "zh_cn": "[{name}] 没有可以安全自动修复的部分。\n\n"
-                 "{count} 个文件（或其中部分材质）找不到可安全对应的原版素材，"
-                 "因此无法确认是否已是最新版本。该模组保持原状未变更。\n\n{summary}",
-        "ja": "[{name}] 安全に自動修復できる箇所がありません。\n\n"
-              "{count} 個のファイル（またはその中の一部マテリアル）で安全に一致する"
-              "バニラドナーが見つからず、最新かどうかの確認すらできません。"
-              "このMODはそのままにしました。\n\n{summary}",
-    },
-    "confirm_needs_fix": {
-        "ko": "[{name}]\n{count}개 파일이 구버전입니다. 업데이트를 진행할까요?",
-        "en": "[{name}]\n{count} file(s) are outdated. Proceed with the update?",
-        "zh_tw": "[{name}]\n{count} 個檔案為舊版本，是否要進行更新？",
-        "zh_cn": "[{name}]\n{count} 个文件为旧版本，是否要进行更新？",
-        "ja": "[{name}]\n{count} 個のファイルが古いバージョンです。更新を進めますか？",
-    },
-    "confirm_unresolved_note": {
-        "ko": "\n(참고: {count}개는 도너를 찾지 못해 확인이 안 되어 그대로 둡니다)",
-        "en": "\n(Note: {count} couldn't be verified due to no donor match, and will be left as-is)",
-        "zh_tw": "\n（附註：{count} 個因找不到對應素材而無法確認，將維持原狀）",
-        "zh_cn": "\n（附注：{count} 个因找不到对应素材而无法确认，将保持原状）",
-        "ja": "\n（注：{count} 個はドナーが見つからず確認できないため、そのままにします）",
-    },
-    "dlg_choose_save_dir": {
-        "ko": "[{name}] 복구된 모드를 저장할 폴더 선택",
-        "en": "[{name}] Select a folder to save the repaired mod",
-        "zh_tw": "[{name}] 選擇要儲存修復後模組的資料夾",
-        "zh_cn": "[{name}] 选择要保存修复后模组的文件夹",
-        "ja": "[{name}] 修復済みMODの保存先フォルダを選択",
-    },
-    "msg_repair_done": {
-        "ko": "[{name}] 복구 완료!\n\n{fixed}개 파일 복구, {restored}개 텍스처 경로 복원.\n\n저장 위치:\n{out}",
-        "en": "[{name}] Repair complete!\n\n{fixed} file(s) fixed, {restored} texture path(s) restored.\n\nSaved to:\n{out}",
-        "zh_tw": "[{name}] 修復完成！\n\n已修復 {fixed} 個檔案，還原 {restored} 個材質路徑。\n\n儲存位置：\n{out}",
-        "zh_cn": "[{name}] 修复完成！\n\n已修复 {fixed} 个文件，还原 {restored} 个材质路径。\n\n保存位置：\n{out}",
-        "ja": "[{name}] 修復完了！\n\n{fixed} 個のファイルを修復、{restored} 個のテクスチャパスを復元。\n\n保存先：\n{out}",
+    "msg_batch_done": {
+        "ko": "복구 완료!\n\n총 {total}개 중 수정 {fixed}개, 이미 최신 {already_current}개, "
+              "확인 불가 {unresolved}개, 오류 {errors}개.\n\n저장 위치:\n{out}",
+        "en": "Repair complete!\n\n{fixed} fixed, {already_current} already up to date, "
+              "{unresolved} couldn't be verified, {errors} error(s), out of {total} total.\n\nSaved to:\n{out}",
+        "zh_tw": "修復完成！\n\n共 {total} 個，已修復 {fixed} 個、已是最新 {already_current} 個、"
+                 "無法確認 {unresolved} 個、錯誤 {errors} 個。\n\n儲存位置：\n{out}",
+        "zh_cn": "修复完成！\n\n共 {total} 个，已修复 {fixed} 个、已是最新 {already_current} 个、"
+                 "无法确认 {unresolved} 个、错误 {errors} 个。\n\n保存位置：\n{out}",
+        "ja": "修復完了！\n\n全 {total} 件中、修復 {fixed} 件、すでに最新 {already_current} 件、"
+              "確認不可 {unresolved} 件、エラー {errors} 件。\n\n保存先：\n{out}",
     },
     "warn_single_instance": {
         "ko": "이미 실행 중입니다.", "en": "already running.",
