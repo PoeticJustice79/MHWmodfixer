@@ -2,15 +2,21 @@
 MHWmodfixer by Littlefish -- GUI front-end.
 
 Mod archives can be dropped onto the window (or picked via the file
-dialog, multi-select is fine too) and are queued up; "복구 시작" walks the
-queue and fixes them one at a time, in order. Each one still gets its own
-"here's what's stale, proceed?" confirmation and its own "where do you
+dialog, multi-select is fine too) and are queued up; "Start Repair" walks
+the queue and fixes them one at a time, in order. Each one still gets its
+own "here's what's stale, proceed?" confirmation and its own "where do you
 want to save the result?" prompt, same as the single-file flow -- just
 looped automatically instead of requiring the file to be re-picked by hand
 each time.
+
+UI chrome (labels/buttons/status/dialogs) is localized via i18n.py; the
+detailed processing log (donor-matching, staleness diagnosis, etc.) is
+deliberately NOT translated -- see i18n.py's module docstring for why.
 """
 from __future__ import annotations
 
+import datetime
+import os
 import queue
 import shutil
 import tempfile
@@ -29,14 +35,17 @@ try:
 except ImportError:
     _HAS_DND = False
 
+import i18n
 from archive_extract import extract_archive
 from auto_fix import DEFAULT_GAME_DIR, process_mod
 from diagnose import diagnose, summarize
 from fluffy_repackage import repackage_for_fluffy
 from game_archive import GameArchive
+from i18n import t
 
 APP_TITLE = "MHWmodfixer by Littlefish"
 ARCHIVE_EXTS = {".zip", ".7z", ".rar"}
+LOG_DIR = Path.home() / "AppData" / "Local" / "MHWmodfixer" / "logs"
 
 
 def zip_folder(src_folder: Path, dest_zip: Path):
@@ -50,34 +59,56 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         root.title(APP_TITLE)
-        root.geometry("760x600")
-        root.minsize(600, 440)
+        root.geometry("760x640")
+        root.minsize(600, 460)
+
+        i18n.set_language(i18n.load_saved_language())
 
         self.game_dir = StringVar(value=DEFAULT_GAME_DIR if Path(DEFAULT_GAME_DIR).is_dir() else "")
-        self.status = StringVar(value="모드 압축파일을 끌어다 놓거나 선택하세요")
+        self.status = StringVar(value=t("status_default"))
+        self.lang_display = StringVar(value=i18n.LANGUAGES[i18n.get_language()])
         self.mod_queue: list[Path] = []
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._main_thread_queue: queue.Queue[tuple] = queue.Queue()
         self._busy = False
 
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self.log_file_path = LOG_DIR / f"mhwmodfixer_{datetime.datetime.now():%Y%m%d_%H%M%S}.log"
+        self._log_fh = open(self.log_file_path, "a", encoding="utf-8")
+
         self._build_ui()
         self._poll_queues()
+        self.log(f"[log file] {self.log_file_path}")
 
     # ---- UI layout ---------------------------------------------------
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
 
+        top_frame = ttk.Frame(self.root)
+        top_frame.pack(fill="x", **pad)
+        self.lbl_lang = ttk.Label(top_frame, text=t("lbl_lang"))
+        self.lbl_lang.pack(side="right", padx=(6, 0))
+        self.lang_combo = ttk.Combobox(
+            top_frame, textvariable=self.lang_display, state="readonly",
+            values=list(i18n.LANGUAGES.values()), width=10,
+        )
+        self.lang_combo.pack(side="right")
+        self.lang_combo.bind("<<ComboboxSelected>>", self._on_lang_change)
+
         game_frame = ttk.Frame(self.root)
-        game_frame.pack(fill="x", **pad)
-        ttk.Label(game_frame, text="게임 폴더:").pack(side="left")
+        game_frame.pack(fill="x", padx=10, pady=(0, 6))
+        self.lbl_game_dir = ttk.Label(game_frame, text=t("lbl_game_dir"))
+        self.lbl_game_dir.pack(side="left")
         ttk.Entry(game_frame, textvariable=self.game_dir).pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Button(game_frame, text="변경", command=self._browse_game_dir).pack(side="left")
+        self.btn_browse_game = ttk.Button(game_frame, text=t("btn_browse_game"), command=self._browse_game_dir)
+        self.btn_browse_game.pack(side="left")
 
         list_label_frame = ttk.Frame(self.root)
         list_label_frame.pack(fill="x", padx=10)
-        ttk.Label(list_label_frame, text="모드 압축파일 목록 (여기로 끌어다 놓기 가능):").pack(side="left")
+        self.lbl_mod_list = ttk.Label(list_label_frame, text=t("lbl_mod_list"))
+        self.lbl_mod_list.pack(side="left")
 
         list_frame = ttk.Frame(self.root)
         list_frame.pack(fill="both", padx=10, pady=4)
@@ -95,27 +126,59 @@ class App:
 
         btn_frame = ttk.Frame(self.root)
         btn_frame.pack(fill="x", padx=10, pady=(0, 6))
-        ttk.Button(btn_frame, text="추가 (zip/7z/rar)", command=self._browse_mod).pack(side="left")
-        ttk.Button(btn_frame, text="선택 제거", command=self._remove_selected).pack(side="left", padx=6)
-        ttk.Button(btn_frame, text="전체 지우기", command=self._clear_queue).pack(side="left")
+        self.btn_add_mod = ttk.Button(btn_frame, text=t("btn_add_mod"), command=self._browse_mod)
+        self.btn_add_mod.pack(side="left")
+        self.btn_remove_selected = ttk.Button(btn_frame, text=t("btn_remove_selected"), command=self._remove_selected)
+        self.btn_remove_selected.pack(side="left", padx=6)
+        self.btn_clear_all = ttk.Button(btn_frame, text=t("btn_clear_all"), command=self._clear_queue)
+        self.btn_clear_all.pack(side="left")
 
-        self.start_btn = ttk.Button(self.root, text="복구 시작", command=self._start)
-        self.start_btn.pack(**pad)
+        action_frame = ttk.Frame(self.root)
+        action_frame.pack(fill="x", **pad)
+        self.start_btn = ttk.Button(action_frame, text=t("btn_start"), command=self._start)
+        self.start_btn.pack(side="left")
+        self.btn_open_log = ttk.Button(action_frame, text=t("btn_open_log_folder"), command=self._open_log_folder)
+        self.btn_open_log.pack(side="left", padx=6)
 
         ttk.Label(self.root, textvariable=self.status).pack(fill="x", padx=10)
 
         self.log_text = ScrolledText(self.root, height=16, state="disabled")
         self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
 
+    def _on_lang_change(self, event=None):
+        code = next((c for c, name in i18n.LANGUAGES.items() if name == self.lang_display.get()), "ko")
+        i18n.set_language(code)
+        i18n.save_language(code)
+        self._retranslate()
+
+    def _retranslate(self):
+        self.lbl_lang.configure(text=t("lbl_lang"))
+        self.lbl_game_dir.configure(text=t("lbl_game_dir"))
+        self.btn_browse_game.configure(text=t("btn_browse_game"))
+        self.lbl_mod_list.configure(text=t("lbl_mod_list"))
+        self.btn_add_mod.configure(text=t("btn_add_mod"))
+        self.btn_remove_selected.configure(text=t("btn_remove_selected"))
+        self.btn_clear_all.configure(text=t("btn_clear_all"))
+        self.start_btn.configure(text=t("btn_start"))
+        self.btn_open_log.configure(text=t("btn_open_log_folder"))
+        if not self._busy:
+            self.status.set(t("status_default"))
+
+    def _open_log_folder(self):
+        try:
+            os.startfile(LOG_DIR)
+        except OSError:
+            pass
+
     def _browse_game_dir(self):
-        d = filedialog.askdirectory(title="Monster Hunter Wilds 설치 폴더 선택")
+        d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))
         if d:
             self.game_dir.set(d)
 
     def _browse_mod(self):
         files = filedialog.askopenfilenames(
-            title="모드 압축파일 선택 (여러 개 선택 가능)",
-            filetypes=[("Archives", "*.zip *.7z *.rar"), ("All files", "*.*")],
+            title=t("dlg_choose_mod"),
+            filetypes=[(t("filetype_archives"), "*.zip *.7z *.rar"), (t("filetype_allfiles"), "*.*")],
         )
         for f in files:
             self._enqueue(Path(f))
@@ -131,7 +194,7 @@ class App:
                     self._enqueue(p)
             return
         if path.suffix.lower() not in ARCHIVE_EXTS:
-            self.log(f"[무시] 지원하지 않는 파일 형식: {path.name}")
+            self.log(f"[skip] unsupported file type: {path.name}")
             return
         if path in self.mod_queue:
             return
@@ -151,6 +214,11 @@ class App:
 
     def log(self, msg: str):
         self._log_queue.put(msg)
+        try:
+            self._log_fh.write(msg + "\n")
+            self._log_fh.flush()
+        except (OSError, ValueError):
+            pass
 
     def set_status(self, msg: str):
         """Thread-safe status update -- tk.StringVar.set() drives a Tk label
@@ -207,10 +275,10 @@ class App:
         if self._busy:
             return
         if not self.mod_queue:
-            messagebox.showwarning(APP_TITLE, "모드 압축파일을 먼저 추가하세요.")
+            messagebox.showwarning(APP_TITLE, t("warn_no_mod"))
             return
         if not Path(self.game_dir.get()).is_dir():
-            messagebox.showwarning(APP_TITLE, "게임 폴더 경로가 올바르지 않습니다.")
+            messagebox.showwarning(APP_TITLE, t("warn_bad_game_dir"))
             return
         self._busy = True
         self.start_btn.configure(state="disabled")
@@ -219,34 +287,34 @@ class App:
     def _worker(self):
         try:
             game_dir = Path(self.game_dir.get())
-            self.set_status("게임 파일 인덱싱 중...")
-            self.log("현재 게임 버전 파일 인덱싱 중 (처음 한 번만 느리고, 이후엔 캐시로 빠름)...")
+            self.set_status(t("status_indexing"))
+            self.log("Indexing current game version's files (slow only the first time, cached after)...")
             game = GameArchive(game_dir, log=self.log)
 
             queue_snapshot = list(self.mod_queue)
             total = len(queue_snapshot)
             for i, mod_archive in enumerate(queue_snapshot, start=1):
-                self.set_status(f"처리 중 ({i}/{total}): {mod_archive.name}")
+                self.set_status(t("status_processing", i=i, total=total, name=mod_archive.name))
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
                 try:
                     self._run_one(mod_archive, game)
                 except Exception as e:
-                    self.log(f"[오류] {mod_archive.name}: {e}\n{traceback.format_exc()}")
-                    self.show_error(APP_TITLE, f"{mod_archive.name} 처리 중 오류:\n{e}")
+                    self.log(f"[error] {mod_archive.name}: {e}\n{traceback.format_exc()}")
+                    self.show_error(APP_TITLE, t("err_processing_mod", name=mod_archive.name, e=e))
         except Exception as e:
-            self.log(f"[오류] {e}\n{traceback.format_exc()}")
-            self.show_error(APP_TITLE, f"오류가 발생했습니다:\n{e}")
+            self.log(f"[error] {e}\n{traceback.format_exc()}")
+            self.show_error(APP_TITLE, t("err_unhandled", e=e))
         finally:
             self._busy = False
             self._run_on_main_thread(lambda: self.start_btn.configure(state="normal"))
-            self.set_status("완료 -- 목록을 정리하거나 새 모드를 추가하세요")
+            self.set_status(t("status_done"))
 
     def _run_one(self, mod_archive: Path, game: GameArchive):
-        self.log(f"압축 해제: {mod_archive.name}")
+        self.log(f"Extracting: {mod_archive.name}")
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
         mod_root = extract_archive(mod_archive, work_dir)
 
-        self.log("모드 상태 진단 중...")
+        self.log("Diagnosing mod state...")
         file_plans, pak_plans = diagnose(mod_root, game)
         summary = summarize((file_plans, pak_plans))
         self.log(summary)
@@ -264,28 +332,24 @@ class App:
         # verify it).
         if not needs_fix and not unresolved_plans:
             shutil.rmtree(work_dir, ignore_errors=True)
-            self.show_info(APP_TITLE, f"[{mod_archive.name}] 이미 최신 버전입니다. 고칠 게 없습니다.\n\n" + summary)
+            self.show_info(APP_TITLE, t("msg_already_latest", name=mod_archive.name, summary=summary))
             return
 
         if not needs_fix and unresolved_plans:
             shutil.rmtree(work_dir, ignore_errors=True)
             self.show_info(
                 APP_TITLE,
-                f"[{mod_archive.name}] 자동으로 안전하게 복구할 수 있는 부분이 없습니다.\n\n"
-                f"{len(unresolved_plans)}개 파일(또는 그 안의 일부 머티리얼)에서 안전하게 매칭되는 "
-                f"바닐라 도너를 찾지 못해, 이미 최신인지조차 확인할 수 없습니다. 이 모드는 그대로 두었습니다.\n\n"
-                + summary,
+                t("msg_cannot_verify", name=mod_archive.name, count=len(unresolved_plans), summary=summary),
             )
             return
 
-        confirm_msg = f"[{mod_archive.name}]\n{len(needs_fix)}개 파일이 구버전입니다. 업데이트를 진행할까요?"
+        confirm_msg = t("confirm_needs_fix", name=mod_archive.name, count=len(needs_fix))
         if unresolved_plans:
-            confirm_msg += (f"\n(참고: {len(unresolved_plans)}개는 도너를 찾지 못해 확인이 안 되어 "
-                             f"그대로 둡니다)")
+            confirm_msg += t("confirm_unresolved_note", count=len(unresolved_plans))
         proceed = self.ask_yes_no(APP_TITLE, confirm_msg + "\n\n" + summary)
         if not proceed:
             shutil.rmtree(work_dir, ignore_errors=True)
-            self.log(f"{mod_archive.name}: 건너뜀 (사용자 취소)")
+            self.log(f"{mod_archive.name}: skipped (cancelled by user)")
             return
 
         output_root = work_dir.parent / (work_dir.name + "_fixed")
@@ -293,24 +357,26 @@ class App:
         stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log)
         repackage_for_fluffy(output_root, log=self.log)
 
-        self.log(f"완료: fixed={stats['fixed']} already_current={stats['already_current']} "
+        self.log(f"done: fixed={stats['fixed']} already_current={stats['already_current']} "
                  f"skipped={stats['skipped']} errors={stats['errors']} "
                  f"texture_paths_restored={stats['textures_restored']}")
 
-        save_dir = self.ask_save_dir(f"[{mod_archive.name}] 복구된 모드를 저장할 폴더 선택")
+        save_dir = self.ask_save_dir(t("dlg_choose_save_dir", name=mod_archive.name))
         if not save_dir:
-            self.log(f"{mod_archive.name}: 저장 위치를 선택하지 않았습니다. 임시 폴더: {output_root}")
+            self.log(f"{mod_archive.name}: no save location chosen, temp folder: {output_root}")
             return
 
         out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
-        self.log(f"압축 중: {out_zip}")
+        self.log(f"Zipping: {out_zip}")
         zip_folder(output_root, out_zip)
 
         shutil.rmtree(work_dir, ignore_errors=True)
         shutil.rmtree(output_root, ignore_errors=True)
 
-        self.show_info(APP_TITLE, f"[{mod_archive.name}] 복구 완료!\n\n{stats['fixed']}개 파일 복구, "
-                                   f"{stats['textures_restored']}개 텍스처 경로 복원.\n\n저장 위치:\n{out_zip}")
+        self.show_info(APP_TITLE, t(
+            "msg_repair_done", name=mod_archive.name, fixed=stats["fixed"],
+            restored=stats["textures_restored"], out=out_zip,
+        ))
 
 
 def _acquire_single_instance_lock():
@@ -327,11 +393,28 @@ def _acquire_single_instance_lock():
     return kernel32.GetLastError() != ERROR_ALREADY_EXISTS
 
 
+def _install_dir() -> Path:
+    import sys
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _is_ascii_path(p: Path) -> bool:
+    try:
+        str(p).encode("ascii")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 def main():
+    i18n.set_language(i18n.load_saved_language())
+
     if not _acquire_single_instance_lock():
         root = tk.Tk()
         root.withdraw()
-        messagebox.showwarning(APP_TITLE, f"{APP_TITLE}가 이미 실행 중입니다.")
+        messagebox.showwarning(APP_TITLE, f"{APP_TITLE} {t('warn_single_instance')}")
         return
 
     root = TkinterDnD.Tk() if _HAS_DND else tk.Tk()
@@ -341,6 +424,11 @@ def main():
             style.theme_use("vista")
     except Exception:
         pass
+
+    install_dir = _install_dir()
+    if not _is_ascii_path(install_dir):
+        messagebox.showwarning(APP_TITLE, t("warn_non_ascii_path", path=str(install_dir)))
+
     App(root)
     root.mainloop()
 

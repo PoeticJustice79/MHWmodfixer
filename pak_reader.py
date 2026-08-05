@@ -2,8 +2,7 @@
 Minimal reader for Capcom RE Engine .pak archives (re_chunk_000.pak and its
 patch_NNN.pak / sub_000.pak overlays), ported from the open-source C#
 reference implementation "REE.PAK.Tool" by Ekey (h4x0r)
-(https://github.com/Ekey/REE.PAK.Tool -- the copy this was read from lives
-locally at Desktop/몬헌/REE.PAK.Tool-main).
+(https://github.com/Ekey/REE.PAK.Tool).
 
 Unlike that tool (and ree-pak-gui), this does NOT extract every entry to
 disk -- re_chunk_000.pak is 40+ GB, so doing that just to reach a handful
