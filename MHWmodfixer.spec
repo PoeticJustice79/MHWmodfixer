@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools')]
 binaries = []
-hiddenimports = ['pak_mod_fix', 'whole_game_index']
+hiddenimports = ['pak_mod_fix', 'whole_game_index', 'fluffy_repackage']
 tmp_ret = collect_all('tkinterdnd2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
