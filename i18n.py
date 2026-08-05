@@ -189,6 +189,43 @@ _STRINGS = {
         "ko": "이미 실행 중입니다.", "en": "already running.",
         "zh_tw": "已經在執行中。", "zh_cn": "已经在运行中。", "ja": "はすでに実行中です。",
     },
+    "summary_total_checked": {
+        "ko": "총 {total}개 mdf2 확인 (loose {loose}개 + pak 내부 {pak}개)",
+        "en": "{total} mdf2 file(s) checked ({loose} loose + {pak} inside paks)",
+        "zh_tw": "共檢查 {total} 個 mdf2 檔案（loose {loose} 個 + pak 內 {pak} 個）",
+        "zh_cn": "共检查 {total} 个 mdf2 文件（loose {loose} 个 + pak 内 {pak} 个）",
+        "ja": "mdf2 ファイルを {total} 個確認（loose {loose} 個 + pak 内 {pak} 個）",
+    },
+    "summary_outdated_header": {
+        "ko": "구조가 달라짐 (업데이트 필요): {count}개",
+        "en": "Structure changed (update needed): {count}",
+        "zh_tw": "結構已變更（需要更新）：{count} 個",
+        "zh_cn": "结构已变更（需要更新）：{count} 个",
+        "ja": "構造が変更されています（更新が必要）：{count} 個",
+    },
+    "summary_material_label": {
+        "ko": "머티리얼: {names}", "en": "material(s): {names}",
+        "zh_tw": "材質：{names}", "zh_cn": "材质：{names}", "ja": "マテリアル：{names}",
+    },
+    "summary_more": {
+        "ko": "... 외 {count}개", "en": "... and {count} more",
+        "zh_tw": "...等其他 {count} 個", "zh_cn": "...等其他 {count} 个", "ja": "...他 {count} 個",
+    },
+    "summary_current_header": {
+        "ko": "이미 최신 구조: {count}개", "en": "Already up to date: {count}",
+        "zh_tw": "已是最新結構：{count} 個", "zh_cn": "已是最新结构：{count} 个",
+        "ja": "すでに最新の構造：{count} 個",
+    },
+    "summary_unresolved_header": {
+        "ko": "안전하게 매칭 가능한 바닐라 도너를 찾지 못함: {count}개",
+        "en": "No safely matchable vanilla donor found: {count}",
+        "zh_tw": "找不到可安全對應的原版素材：{count} 個",
+        "zh_cn": "找不到可安全对应的原版素材：{count} 个",
+        "ja": "安全に一致するバニラドナーが見つかりません：{count} 個",
+    },
+    "pak_suffix": {
+        "ko": "(pak)", "en": "(pak)", "zh_tw": "（pak）", "zh_cn": "（pak）", "ja": "（pak）",
+    },
     "warn_non_ascii_path": {
         "ko": "프로그램이 설치된 경로에 한글 등 특수 문자가 포함되어 있습니다:\n\n{path}\n\n"
               "이런 경로에서는 일부 도구(압축 해제 등)가 오작동할 수 있습니다. "

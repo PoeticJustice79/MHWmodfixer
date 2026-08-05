@@ -15,6 +15,7 @@ from pathlib import Path
 
 from auto_fix import FilePlan, plan_mod
 from game_archive import GameArchive
+from i18n import t
 from pak_mod_fix import PakPlan
 
 
@@ -38,19 +39,20 @@ def summarize(plans: tuple[list, list]) -> str:
     current = [p for p in all_plans if not p.unresolved and not p.needs_rebuild]
 
     def label(p):
-        return str(p.rel) if isinstance(p, FilePlan) else f"{p.pak_path.name} (pak)"
+        return str(p.rel) if isinstance(p, FilePlan) else f"{p.pak_path.name} {t('pak_suffix')}"
 
-    lines = [f"총 {len(all_plans)}개 mdf2 확인 (loose {len(file_plans)}개 + pak 내부 {len(applicable_pak_plans)}개)"]
+    lines = [t("summary_total_checked", total=len(all_plans), loose=len(file_plans), pak=len(applicable_pak_plans))]
     if outdated:
-        lines.append(f"\n구조가 달라짐 (업데이트 필요): {len(outdated)}개")
+        lines.append("\n" + t("summary_outdated_header", count=len(outdated)))
         for p in outdated[:20]:
-            lines.append(f"  {label(p)}  (머티리얼: {', '.join(_material_names(p))})")
+            names = t("summary_material_label", names=", ".join(_material_names(p)))
+            lines.append(f"  {label(p)}  ({names})")
         if len(outdated) > 20:
-            lines.append(f"  ... 외 {len(outdated) - 20}개")
+            lines.append(f"  {t('summary_more', count=len(outdated) - 20)}")
     if current:
-        lines.append(f"\n이미 최신 구조: {len(current)}개")
+        lines.append("\n" + t("summary_current_header", count=len(current)))
     if unresolved:
-        lines.append(f"\n안전하게 매칭 가능한 바닐라 도너를 찾지 못함: {len(unresolved)}개")
+        lines.append("\n" + t("summary_unresolved_header", count=len(unresolved)))
         for p in unresolved[:10]:
             lines.append(f"  {label(p)}")
     return "\n".join(lines)
