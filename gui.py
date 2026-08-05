@@ -313,7 +313,27 @@ class App:
                                    f"{stats['textures_restored']}개 텍스처 경로 복원.\n\n저장 위치:\n{out_zip}")
 
 
+def _acquire_single_instance_lock():
+    """Windows named mutex: returns True if this is the only running
+    instance. The handle is deliberately never closed/released -- it needs
+    to live for the whole process lifetime so Windows drops it (and frees
+    the name for the next launch) only on exit/crash, not the moment this
+    function returns."""
+    import ctypes
+
+    ERROR_ALREADY_EXISTS = 183
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateMutexW(None, False, "Local\\MHWmodfixer_by_Littlefish_SingleInstance")
+    return kernel32.GetLastError() != ERROR_ALREADY_EXISTS
+
+
 def main():
+    if not _acquire_single_instance_lock():
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showwarning(APP_TITLE, f"{APP_TITLE}가 이미 실행 중입니다.")
+        return
+
     root = TkinterDnD.Tk() if _HAS_DND else tk.Tk()
     try:
         style = ttk.Style()

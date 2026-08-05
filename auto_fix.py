@@ -52,6 +52,7 @@ from donor import candidate_donor_paths
 from game_archive import GameArchive
 from mdf2 import Mdf2File, numVersion_from_filename
 from mdf2_slice import assemble_mdf2, extract_material
+from pfb_fix import find_pfb_files, resolve_and_fix_pfbs
 from slot_merge import find_donor_for_material
 
 DEFAULT_GAME_DIR = r"D:\SteamLibrary\steamapps\common\MonsterHunterWilds"
@@ -332,6 +333,17 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
         except Exception as e:
             log(f"    [error] {e}")
             stats["errors"] += 1
+
+    pfb_files = list(find_pfb_files(mod_root))
+    if pfb_files:
+        log("\nRepairing .pfb files...")
+        pfb_stats = resolve_and_fix_pfbs(mod_root, output_root, game, log)
+        if pfb_stats["unresolved"]:
+            log(f"    ({pfb_stats['unresolved']} pfb file(s) couldn't be safely verified against the "
+                f"current game and were left as-is)")
+        stats["fixed"] += pfb_stats["fixed"]
+        stats["pfb_fixed"] = pfb_stats["fixed"]
+        stats["pfb_unresolved"] = pfb_stats["unresolved"]
 
     return stats
 
