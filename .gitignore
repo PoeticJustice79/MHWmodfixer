@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec.bak
+
+# Third-party RSZ type-registry dump (REasy project) -- 100MB+, re-downloadable,
+# not yet wired into the shipped tool (pfb fix is still a standalone script).
+tools/rszmhwilds.json

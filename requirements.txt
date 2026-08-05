@@ -1,0 +1,5 @@
+zstandard
+py7zr
+rarfile
+tkinterdnd2
+pyinstaller
