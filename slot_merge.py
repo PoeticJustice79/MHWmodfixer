@@ -21,6 +21,27 @@ caller should skip rebuilding that mod file rather than guess.
 """
 from __future__ import annotations
 
+_MMTR_VARIANT_SUFFIX = "_NoMultiBlend"
+
+
+def _mmtr_variants(mmtr_path: str) -> list[str]:
+    """Capcom periodically splits a '_NoMultiBlend' variant out of an
+    existing shader while the material's actual ROLE is unchanged --
+    confirmed to recur across unrelated shader families (an equipment
+    shader "Base_Equip" and a monster shader "Dynamic_ch90_156_0000" both
+    got a "_NoMultiBlend" sibling added between when different mods were
+    built and the current game version). Strict mmtr equality then makes
+    an otherwise-perfect exact-name donor invisible to every match tier
+    (it's simply not in the same-mmtr candidate pool at all), so donor
+    search must also try the other spelling, not just the mod's own
+    literal mmtr string."""
+    suffix = _MMTR_VARIANT_SUFFIX + ".mmtr"
+    if mmtr_path.endswith(suffix):
+        return [mmtr_path, mmtr_path[: -len(suffix)] + ".mmtr"]
+    if mmtr_path.endswith(".mmtr"):
+        return [mmtr_path, mmtr_path[: -len(".mmtr")] + _MMTR_VARIANT_SUFFIX + ".mmtr"]
+    return [mmtr_path]
+
 
 def _is_usesc(name: str) -> bool:
     return name.lower().endswith("_usesc")
@@ -50,6 +71,24 @@ def _pick_best(candidates: list[tuple[str, dict]], mod_mat: dict, log,
         return None
     if len(candidates) == 1:
         return candidates[0]
+
+    # An exact material-name match anywhere in the candidate pool almost
+    # always means the mod author literally copied that specific material
+    # wholesale from that specific source (e.g. a weapon splicing in named
+    # materials borrowed from a monster's own model, all sharing a
+    # monster-specific shader) -- confirmed necessary in practice: a weapon
+    # mod embedding ~10 monster materials (body_1001/1002/1004/membrane/
+    # back_ADD/eye/eye_cover/fulgurite_ADD, all sharing only a couple of
+    # monster-specific shaders) had every one of them collapse onto
+    # whichever candidate happened to sort first, even though the exact
+    # same-named material existed among the candidates every time. This
+    # must run BEFORE category/_usesc filtering, not after, since an
+    # exact name match is a stronger signal than either.
+    exact = [c for c in candidates if c[1]["name"] == mod_mat["name"]]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        candidates = exact
 
     pool = candidates
     if category_hint is not None:
@@ -89,19 +128,32 @@ def find_donor_for_material(
         if blob["name"] == mod_mat["name"]:
             return blob, src, "own-file exact name"
 
-    same_mmtr = [(src, b) for src, b in own_pool if b["mmtr_path"] == mod_mat["mmtr_path"]]
+    mmtr_variants = _mmtr_variants(mod_mat["mmtr_path"])
+
+    same_mmtr = [(src, b) for src, b in own_pool if b["mmtr_path"] in mmtr_variants]
     picked = _pick_best(same_mmtr, mod_mat, log)
     if picked:
         return picked[1], picked[0], "own-file mmtr match"
 
     if allow_cross_piece:
-        same_mmtr_global = [(src, b) for src, b in global_pool if b["mmtr_path"] == mod_mat["mmtr_path"]]
-        picked = _pick_best(same_mmtr_global, mod_mat, log)
+        same_mmtr_global = [(src, b) for src, b in global_pool if b["mmtr_path"] in mmtr_variants]
+        picked = _pick_best(same_mmtr_global, mod_mat, log, category_hint=category_hint)
         if picked:
             return picked[1], picked[0], "cross-piece mmtr match"
 
     if whole_game_lookup is not None:
-        candidates = whole_game_lookup(mod_mat["mmtr_path"])
+        candidates = []
+        seen = set()
+        for variant in mmtr_variants:
+            for src, blob in whole_game_lookup(variant):
+                # dedupe by (source file, material name) -- NOT source file
+                # alone: a single file can (and often does) contribute
+                # several distinct materials that all match, and those must
+                # not collapse into just the first one seen.
+                key = (src, blob["name"])
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append((src, blob))
         picked = _pick_best(candidates, mod_mat, log, category_hint=category_hint)
         if picked:
             log(f"    [info] material {mod_mat['name']!r}: no donor in this mod or its equipment set -- "

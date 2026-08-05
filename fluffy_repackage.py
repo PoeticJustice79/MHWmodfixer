@@ -29,6 +29,7 @@ from pathlib import Path
 
 MODINFO_NAME = "modinfo.ini"
 _IGNORED_EXTRA_SUFFIXES = {".txt", ".md"}
+_IGNORED_EXTRA_NAMES = {"thumbs.db", "desktop.ini", ".ds_store", "__macosx"}
 
 
 def _read_modinfo(path: Path) -> dict:
@@ -48,12 +49,21 @@ def _write_modinfo(path: Path, kv: dict):
 
 def _derive_suffix(entry_name: str, base_name: str) -> str:
     """'[MM] Banshee - Textures.pak' + base_name='Banshee' -> 'Textures'."""
-    stem = Path(entry_name).stem
-    stem = re.sub(r"^\[.*?\]\s*", "", stem)
+    bracket_stripped = re.sub(r"^\[.*?\]\s*", "", Path(entry_name).stem)
+    stem = bracket_stripped
     if base_name and stem.lower().startswith(base_name.lower()):
         stem = stem[len(base_name):]
     stem = stem.strip(" -_")
-    return stem or Path(entry_name).stem
+    # fall back to the bracket-stripped (but not base-name-stripped) stem
+    # first, so e.g. "[MM] Banshee.pak" with base_name="Banshee" still
+    # yields "Banshee" instead of the raw un-stripped "[MM] Banshee"
+    return stem or bracket_stripped or Path(entry_name).stem
+
+
+def _is_junk_extra(entry: Path) -> bool:
+    if entry.suffix.lower() in _IGNORED_EXTRA_SUFFIXES:
+        return True
+    return entry.name.lower() in _IGNORED_EXTRA_NAMES
 
 
 def _modinfo_folders(top_entries: list[Path]) -> list[Path]:
@@ -66,7 +76,7 @@ def needs_repackaging(mod_root: Path) -> bool:
     if len(folders) != 1:
         return False  # already multi-page, or no modinfo.ini at all -- leave alone
     main_folder = folders[0]
-    extras = [e for e in top_entries if e != main_folder and e.suffix.lower() not in _IGNORED_EXTRA_SUFFIXES]
+    extras = [e for e in top_entries if e != main_folder and not _is_junk_extra(e)]
     return len(extras) > 0
 
 
@@ -77,7 +87,7 @@ def repackage_for_fluffy(mod_root: Path, log=lambda s: None) -> bool:
 
     top_entries = list(mod_root.iterdir())
     main_folder = _modinfo_folders(top_entries)[0]
-    extras = [e for e in top_entries if e != main_folder and e.suffix.lower() not in _IGNORED_EXTRA_SUFFIXES]
+    extras = [e for e in top_entries if e != main_folder and not _is_junk_extra(e)]
 
     main_info = _read_modinfo(main_folder / MODINFO_NAME)
     base_name = main_info.get("name", main_folder.name).strip()

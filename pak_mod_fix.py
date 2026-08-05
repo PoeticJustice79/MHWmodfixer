@@ -158,7 +158,16 @@ def _rebuild_entry(entry_plan: "PakMdfEntryPlan", log) -> tuple[bytes, int]:
 
     if same_single_donor:
         donor_mdf = Mdf2File(entry_plan.donor_bytes, entry_plan.donor_numVersion)
-        if len(donor_mdf.materials) == len(entry_plan.materials):
+        donor_names = [m.name for m in donor_mdf.materials]
+        if len(set(donor_names)) != len(donor_names):
+            # Two+ materials share a name in the donor file (Capcom reuses
+            # generic names like "lambert2") -- name-based lookup below
+            # can't tell them apart and would silently patch the wrong
+            # slot, so fall back to the per-material path in slot_merge.py's
+            # already-resolved donor_blob (matched more carefully, not by
+            # a plain name lookup at this point).
+            same_single_donor = False
+        if same_single_donor and len(donor_mdf.materials) == len(entry_plan.materials):
             changed = 0
             for mp in entry_plan.materials:
                 donor_mat = next((m for m in donor_mdf.materials if m.name == mp.donor_blob["name"]), None)

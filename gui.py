@@ -152,6 +152,12 @@ class App:
     def log(self, msg: str):
         self._log_queue.put(msg)
 
+    def set_status(self, msg: str):
+        """Thread-safe status update -- tk.StringVar.set() drives a Tk label
+        via the Tcl interpreter, which is not safe to touch off the main
+        thread (unlike log(), which only queues a plain string)."""
+        self._run_on_main_thread(self.status.set, msg)
+
     def _poll_queues(self):
         while not self._log_queue.empty():
             msg = self._log_queue.get()
@@ -213,14 +219,14 @@ class App:
     def _worker(self):
         try:
             game_dir = Path(self.game_dir.get())
-            self.status.set("게임 파일 인덱싱 중...")
+            self.set_status("게임 파일 인덱싱 중...")
             self.log("현재 게임 버전 파일 인덱싱 중 (처음 한 번만 느리고, 이후엔 캐시로 빠름)...")
             game = GameArchive(game_dir, log=self.log)
 
             queue_snapshot = list(self.mod_queue)
             total = len(queue_snapshot)
             for i, mod_archive in enumerate(queue_snapshot, start=1):
-                self.status.set(f"처리 중 ({i}/{total}): {mod_archive.name}")
+                self.set_status(f"처리 중 ({i}/{total}): {mod_archive.name}")
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
                 try:
                     self._run_one(mod_archive, game)
@@ -233,7 +239,7 @@ class App:
         finally:
             self._busy = False
             self._run_on_main_thread(lambda: self.start_btn.configure(state="normal"))
-            self.status.set("완료 -- 목록을 정리하거나 새 모드를 추가하세요")
+            self.set_status("완료 -- 목록을 정리하거나 새 모드를 추가하세요")
 
     def _run_one(self, mod_archive: Path, game: GameArchive):
         self.log(f"압축 해제: {mod_archive.name}")

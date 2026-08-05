@@ -150,6 +150,9 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
     over time."""
     mod_tex_by_type = {t["type"]: t["path"] for t in mod_mat["textures"]}
     mod_props_by_name = {p["name"]: p["values"] for p in mod_mat["props"]}
+    if len(mod_props_by_name) != len(mod_mat["props"]):
+        log(f"    [warn] material {mod_mat['name']!r}: mod has duplicate prop name(s) -- "
+            f"only the last one of each duplicate will be used as an override source")
     new_mat = copy.deepcopy(donor_mat)
     new_mat["name"] = mod_mat["name"]
     changed = 0
@@ -165,6 +168,9 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
             f"don't exist on the matched donor material -- dropped")
 
     donor_prop_names = {p["name"] for p in new_mat["props"]}
+    if len(donor_prop_names) != len(new_mat["props"]):
+        log(f"    [warn] material {mod_mat['name']!r}: donor has duplicate prop name(s) -- "
+            f"all of them will receive the same overridden value")
     for p in new_mat["props"]:
         mod_values = mod_props_by_name.get(p["name"])
         if mod_values is not None and len(mod_values) == len(p["values"]) and mod_values != p["values"]:
