@@ -90,7 +90,14 @@ def repackage_for_fluffy(mod_root: Path, log=lambda s: None) -> bool:
     extras = [e for e in top_entries if e != main_folder and not _is_junk_extra(e)]
 
     main_info = _read_modinfo(main_folder / MODINFO_NAME)
-    base_name = main_info.get("name", main_folder.name).strip()
+    # NameAsBundle is the mod's own short title (e.g. "MooMoo"); the "name"
+    # field is often already a full per-page label the author chose for
+    # their single original page (e.g. "01. MooMoo - Main File"). Using
+    # "name" as the base for newly-derived page names doubled it up into
+    # garbage like "0. 01. MooMoo - Main File - Main File" -- confirmed via
+    # a real mod (Mangie MooMoo's raw release) whose own modinfo.ini "name"
+    # already carried a page-style prefix/suffix.
+    base_name = main_info.get("NameAsBundle", main_info.get("name", main_folder.name)).strip()
     bundle_name = main_info.get("NameAsBundle", base_name)
 
     log(f"[fluffy 재포장] '{mod_root.name}'을(를) 여러 옵션 선택 구조로 재포장합니다 "

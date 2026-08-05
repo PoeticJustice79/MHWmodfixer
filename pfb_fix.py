@@ -79,12 +79,11 @@ def _parse_rsz(data: bytes):
     }
 
 
-def _resource_strings_with_offsets(data: bytes, rsz_off: int) -> list[tuple[int, str]]:
-    """UTF-16LE strings in the header/resource-table region before the RSZ
-    block -- resource paths, gameobject names, etc -- paired with each
-    string's starting byte offset, so a caller can patch one specific
+def _scan_utf16_strings(region: bytes, base_offset: int = 0) -> list[tuple[int, str]]:
+    """UTF-16LE printable-ASCII runs anywhere in `region`, paired with each
+    string's starting byte offset (relative to the start of the original
+    buffer, via `base_offset`), so a caller can patch one specific
     occurrence in place rather than a blind buffer-wide substring replace."""
-    region = data[:rsz_off]
     out = []
     i = 0
     n = len(region)
@@ -96,11 +95,21 @@ def _resource_strings_with_offsets(data: bytes, rsz_off: int) -> list[tuple[int,
                 chars.append(chr(region[j]))
                 j += 2
             if len(chars) > 2:
-                out.append((i, "".join(chars)))
+                out.append((base_offset + i, "".join(chars)))
                 i = j
                 continue
         i += 1
     return out
+
+
+def _resource_strings_with_offsets(data: bytes, rsz_off: int) -> list[tuple[int, str]]:
+    """UTF-16LE strings in the header/resource-table region before the RSZ
+    block -- resource paths, mainly -- used for the structural mod-vs-donor
+    comparison in plan_pfb()/_find_substitution(), which is deliberately
+    scoped to just this region so RSZ instance-data noise doesn't pollute
+    the diff. NOT used for the actual substitution pass -- see
+    _scan_utf16_strings() for that, which covers the whole file."""
+    return _scan_utf16_strings(data[:rsz_off])
 
 
 def _resource_strings(data: bytes, rsz_off: int) -> set[str]:
@@ -226,29 +235,47 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log) -> PfbPlan:
     return PfbPlan(rel, mod_path, None, None, None, False)
 
 
-def _apply_substitution(donor_bytes: bytes, rsz_off: int, donor_code: str, mod_code: str,
+def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
                          mod_provided_keys: set[str]) -> bytes:
-    """Same-length in-place substitution, but ONLY for resource-string
-    occurrences whose substituted form actually corresponds to a file the
-    mod bundles -- confirmed necessary in practice: blindly substituting
-    every occurrence of the donor's character code (e.g. "ch03"->"mh03")
-    can turn a reference to a file the CURRENT donor needs but the mod
-    never shipped (e.g. a ".jcns" joint-constraint file introduced after
-    the mod was built) into a reference to a custom-slot path that simply
-    doesn't exist -- REFramework then reports it as "[Missing File]" and
-    the character fails to load. Left un-substituted, that reference
-    correctly falls back to the real, always-present vanilla file, which
-    is semantically fine for content (like joint physics constraints)
-    that isn't actually skin/texture-specific."""
+    """Same-length in-place substitution over the WHOLE file (not just the
+    pre-RSZ resource-string header) -- two cases, handled differently:
+
+    - Resource-path occurrences (contain '/'): only substituted when the
+      substituted form actually corresponds to a file the mod bundles --
+      confirmed necessary in practice: blindly substituting every
+      occurrence of the donor's character code (e.g. "ch03"->"mh03") can
+      turn a reference to a file the CURRENT donor needs but the mod never
+      shipped (e.g. a ".jcns" joint-constraint file introduced after the
+      mod was built) into a reference to a custom-slot path that simply
+      doesn't exist -- REFramework then reports it as "[Missing File]" and
+      the character fails to load. Left un-substituted, that reference
+      correctly falls back to the real, always-present vanilla file.
+
+    - Bare identifier occurrences (no '/', e.g. a GameObject's own Name
+      field, which RSZ stores inline in the instance data -- well past
+      rsz_off, outside the header region the resource-path case above
+      scans): always substituted unconditionally, no mod_provided_keys
+      gate. These can't create a dangling file reference since they're not
+      paths at all. Confirmed necessary via real in-game testing: leaving
+      a GameObject's own name as the donor's original "ch03_..." instead
+      of the mod's "mh03_..." made that GameObject -- and everything under
+      it, including the actual mesh renderer -- fail some internal
+      name-based lookup and render fully invisible, even though every
+      resource-path reference in the same file was already correct. This
+      was a real regression from an earlier version of this function that
+      scanned only the pre-RSZ header (see _resource_strings_with_offsets)
+      -- that scope was right for the mod-vs-donor structural diff in
+      plan_pfb() but wrong here, since it silently skipped this field."""
     result = bytearray(donor_bytes)
     mod_code_bytes = mod_code.encode("utf-16-le")
-    for offset, s in _resource_strings_with_offsets(donor_bytes, rsz_off):
+    for offset, s in _scan_utf16_strings(donor_bytes):
         if donor_code not in s:
             continue
-        candidate = s.replace(donor_code, mod_code)
-        key = Path(_strip_at(candidate)).name.lower()
-        if key not in mod_provided_keys:
-            continue
+        if "/" in s:
+            candidate = s.replace(donor_code, mod_code)
+            key = Path(_strip_at(candidate)).name.lower()
+            if key not in mod_provided_keys:
+                continue
         search_start = 0
         while True:
             idx = s.find(donor_code, search_start)
@@ -275,8 +302,7 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         result = plan.donor_bytes
         if plan.substitution is not None:
             donor_code, mod_code = plan.substitution
-            donor_rsz_off = _parse_rsz(plan.donor_bytes)["rsz_off"]
-            result = _apply_substitution(plan.donor_bytes, donor_rsz_off, donor_code, mod_code, mod_provided_keys)
+            result = _apply_substitution(plan.donor_bytes, donor_code, mod_code, mod_provided_keys)
 
         out_path = output_root / plan.rel
         if result == mod_path.read_bytes():

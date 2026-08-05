@@ -134,26 +134,121 @@ investigation):
    Investigate by hand (see below) rather than loosening the tolerance
    blindly.
 
-**Substitution must be selective, not a blind global replace**: when a
-custom-slot fake character code (`mh03`) is substituted back into a
-donor's bytes, do NOT blindly replace every occurrence of the real code
-(`ch03`) throughout the buffer. Confirmed real case: a donor pfb
-referenced a `.jcns` (joint-constraint) file that didn't exist when the
-mod was originally built, so the mod never bundled a custom-slot copy of
-it. Blind substitution turned `ch03_..._0011.jcns` into
-`mh03_..._0011.jcns` — a path with no corresponding file at all —
-producing a NEW "[Missing File]" error (distinct from "[Invalid file]")
-and an invisible character. Fix (`pfb_fix.py`'s `_apply_substitution()`):
-for each resource string containing the donor code, only substitute it if
-a file matching the substituted path actually exists somewhere in the
-mod's own bundle (checked via `_mod_provided_file_keys()`, which strips
-each shipped file's trailing version number since resource strings never
-carry one); otherwise leave that specific occurrence pointing at the
-real, always-present vanilla path — correct for content (like joint
-physics) that isn't actually skin/texture-specific. This is a per-string,
-per-occurrence, in-place substitution now (offset-tracked via
-`_resource_strings_with_offsets()`), not a single buffer-wide
-`bytes.replace()`.
+**When a pfb is left unresolved, look up what the differing RSZ
+instances actually ARE before deciding whether to force it anyway.**
+This is a different use of `tools/rszmhwilds.json` than the "don't trust
+it for pass/fail validity" warning above — that warning is about using
+the registry to decide *whether* a file is valid; looking up a specific
+`(type_id, crc)` pair's `name`/`parent` fields to understand *what
+changed* is reliable and often immediately explains the diff:
+```python
+import json
+registry = json.load(open(r"tools/rszmhwilds.json", encoding="utf-8"))
+entry = registry.get(format(type_id, "x"))  # lowercase hex, no "0x"
+print(entry["name"], entry["crc"] == format(crc, "x"))
+```
+Confirmed real case (Mangie "Forte"): a mod's own Arm pfb had
+`via.render.ShellFurParam`/`via.render.ShellFurMesh` where the current
+donor now has `via.motion.JointConstraintsLayer`/`via.motion.JointConstraints`
+— the exact same "Capcom removed an old rendering technique's components"
+pattern as the very first pfb bug found on this project. Once you can
+name the components, "small diff, looks like a clean old-system→new-system
+swap" is a good signal wholesale-replace is safe even though the mod's
+resource strings alone made `_find_substitution` call it "doesn't
+reconcile" (that string-level check can't see this — it was tripped by
+an unrelated residual, see next point).
+
+**Before concluding a forced/wholesale-replaced pfb produced a genuinely
+wrong result (not just "still broken"), rule out two common test
+confounds first, both confirmed to produce a convincing false negative**:
+- **Stale mod source.** Re-diff the RSZ instance `(type_id, crc)` multiset
+  using a freshly-downloaded copy of the mod. Confirmed real case: a
+  stale copy showed 4 differing instances (2 real, 2 staleness noise from
+  the mod predating the game update); the fresh copy showed only the 2
+  real ones. Staleness can also make `_find_substitution`'s
+  resource-string check report "doesn't reconcile" even when the
+  *structural* RSZ diff is small and safe to force.
+- **A Fluffy page (usually "Textures") not enabled during the test.**
+  A checkerboard/dithered texture is the classic missing-texture signature
+  and has nothing to do with the pfb fix — it means the mod's own texture
+  files (often in a separate standalone `.pak` page) genuinely weren't
+  loaded. Confirmed real case: forcing a pfb looked "wrong" (checkerboard
+  coat) purely because Textures wasn't enabled in that specific test;
+  redone with the same forced pfb and Textures enabled, it rendered
+  correctly. See the Fluffy-deployment-verification point above for how
+  to also rule out "wrong build was actually deployed" as a third
+  confound in the same family.
+
+**Substitution must be selective for resource paths, but must cover the
+WHOLE file, not just the pre-RSZ header** — two distinct bugs were found
+here, in tension with each other, and both are now fixed in
+`pfb_fix.py`'s `_apply_substitution()`:
+
+- *Bug A (blind replace, path-unaware)*: when a custom-slot fake
+  character code (`mh03`) is substituted back into a donor's bytes, do
+  NOT blindly replace every occurrence of the real code (`ch03`)
+  throughout the buffer. Confirmed real case: a donor pfb referenced a
+  `.jcns` (joint-constraint) file that didn't exist when the mod was
+  originally built, so the mod never bundled a custom-slot copy of it.
+  Blind substitution turned `ch03_..._0011.jcns` into `mh03_..._0011.jcns`
+  — a path with no corresponding file at all — producing a NEW "[Missing
+  File]" error and an invisible character.
+- *Bug B (scope-too-narrow regression from fixing Bug A)*: the fix for
+  Bug A scoped the scan to `_resource_strings_with_offsets()`, which only
+  covers the header/resource-table region **before** the `RSZ` magic.
+  That's correct for actual resource-path strings, but a `.pfb`'s
+  GameObjects also carry their own **Name field inline inside the RSZ
+  instance data itself** — well past that boundary — and got silently
+  skipped. Confirmed real case (Mangie's "MooMoo"/"Service Versa" armor
+  mods, found via hours of byte-diffing a confirmed-working fixed mod
+  against a freshly-rebuilt one that used the exact same donor and
+  produced a file only 9 bytes different): the donor's copy of a
+  GameObject was still named `"ch03_014_0002"` instead of the expected
+  `"mh03_014_0002"`, and that alone made the GameObject — and everything
+  under it, including the actual mesh renderer — fail some internal
+  name-based lookup and render **fully invisible** (Arm/Body/Leg/Waist
+  all showed this; Head/Helm pieces happened not to hit it, producing the
+  distinctive "floating head, invisible body" symptom). Every
+  resource-path reference in the same file was already correct, so this
+  was invisible to every diagnostic that only looks at resource paths —
+  including REFramework's `FaultyFileDetector`, which reported 0 faulty
+  files the entire time.
+
+The fix distinguishes the two cases by whether the matched string
+contains `/`:
+- **Path-like** (contains `/`): only substituted if a file matching the
+  substituted path actually exists somewhere in the mod's own bundle
+  (checked via `_mod_provided_file_keys()`, which strips each shipped
+  file's trailing version number since resource strings never carry one)
+  — otherwise left pointing at the real, always-present vanilla path.
+  This preserves the Bug A fix.
+- **Bare identifier** (no `/`, e.g. a GameObject's own Name field):
+  always substituted unconditionally, no existence check needed — it
+  can't produce a dangling file reference since it isn't a path at all.
+
+This is a per-string, per-occurrence, in-place, whole-file scan now
+(`_scan_utf16_strings()` over the entire buffer, offset-tracked), not
+scoped to the pre-RSZ header and not a single buffer-wide
+`bytes.replace()`. `_resource_strings_with_offsets()` (pre-RSZ-only) is
+still used, unchanged, for the mod-vs-donor structural comparison in
+`plan_pfb()`/`_find_substitution()` — that comparison is deliberately
+scoped to avoid RSZ instance-data noise; only the actual substitution
+pass needed to widen its scope.
+
+**How this was actually found** — worth internalizing as a technique:
+static analysis (resource-string diffs, RSZ object/instance counts, mdf2
+material/prop diffs, mesh file headers) was exhausted first and found
+*zero* difference between a working mod (Banshee) and two broken ones
+(MooMoo, Service Versa) — because the bug wasn't in anything those
+comparisons looked at. What actually cracked it: get a **known-working
+fixed output** and a **freshly-rebuilt output using the identical current
+code path**, and diff them **byte-for-byte** (`zip(bytes_a, bytes_b)`,
+not just size/hash). A 2944-byte file differing in exactly 9 bytes
+pointed straight at the one field that mattered. If you're stuck with
+"every diagnostic says this should work but it doesn't," find or build a
+confirmed-working reference output and byte-diff it directly against the
+broken one — don't keep hypothesizing about content you haven't actually
+compared.
 
 **Known unsolved limitation**: some mods bundle a custom-named `.pfb`
 under `Art/VFX/effectprovider/weapon/...` (e.g. `GS.pfb`) that doesn't
@@ -168,7 +263,28 @@ please note the mechanism here for the next person. Untried next step:
 REFramework's `DeveloperTools` menu has a log console — never got to
 search it for load attempts of the orphan file's name.
 
-### 5. General binary-format debugging technique: the passthrough test
+### 5. When in-game test results don't add up, verify what Fluffy actually deployed
+
+Fluffy Mod Manager loose-file-deploys directly into the game's own
+`natives/...` tree (found at `<game dir>/natives/...`). Before trusting a
+confusing/contradictory in-game test result, compare the hash of the
+actually-deployed file on disk against what you expect it to be:
+```python
+open(r"<game dir>\natives\...\some_file.mdf2.45", "rb").read()  # hash this
+```
+Confirmed real case this session: after building several test zips in a
+row and asking for retests, two of them had silently vanished from
+Fluffy's `Mods` folder entirely (cause unconfirmed — possibly a user
+cleanup, possibly Fluffy itself) between when they were built and when
+"still broken" was reported. Comparing deployed-file hashes against each
+candidate source zip settles instantly whether a report reflects the
+build you think it does. Also: if two mod pages end up with identical or
+near-identical display names in Fluffy's list (e.g. two different builds
+both auto-titled "Banshee"), the user can enable the wrong one without
+realizing it — give test builds an unmistakably different `NameAsBundle`
+(e.g. prefix with `[TEST]`) before asking for a re-test.
+
+### 6. General binary-format debugging technique: the passthrough test
 
 If a plausible, verified content-level fix STILL doesn't resolve a
 real-world failure (game hangs/crashes/renders wrong), stop hypothesizing
