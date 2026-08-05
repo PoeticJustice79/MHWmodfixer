@@ -149,6 +149,34 @@ _STRINGS = {
         "ja": "修復完了！\n\n全 {total} 件中、修復 {fixed} 件、すでに最新 {already_current} 件、"
               "確認不可 {unresolved} 件、エラー {errors} 件。\n\n保存先：\n{out}",
     },
+    "msg_unresolved_parts_hint": {
+        "ko": "참고: {count}개 부위는 안전하게 자동 수정하지 못해 원본 그대로 남았습니다. "
+              "이 부위를 착용하면 색이 이상하거나, 안 보이거나, 심하면 게임이 로딩 중 멈출 수 있습니다. "
+              "\"재구성 안 되는 부위도 강제로 수정 시도\" 옵션을 켜고 다시 시도해보세요 -- "
+              "단, 실험적 기능이라 결과를 게임에서 꼭 직접 확인하세요.",
+        "en": "Note: {count} part(s) couldn't be safely auto-repaired and were left as the original "
+              "files. Wearing that part can range from a color glitch to invisibility to the game "
+              "hanging while loading. Try re-running with \"Force-fix parts that don't safely "
+              "reconcile\" checked -- this is experimental, so verify the result in-game before "
+              "trusting it.",
+        "zh_tw": "提示：有 {count} 個部位無法安全自動修復，已保留原始檔案。穿上該部位可能出現顏色異常、"
+                 "看不見，甚至讓遊戲在讀取時卡住。可以勾選「對無法安全還原的部位嘗試強制修復」後重新執行 -- "
+                 "此為實驗性功能，請務必在遊戲中親自確認結果。",
+        "zh_cn": "提示：有 {count} 个部位无法安全自动修复，已保留原始文件。穿上该部位可能出现颜色异常、"
+                 "看不见，甚至让游戏在加载时卡住。可以勾选“对无法安全还原的部位尝试强制修复”后重新运行 -- "
+                 "此为实验性功能，请务必在游戏中亲自确认结果。",
+        "ja": "注意：{count} 個の部位は安全に自動修復できず、元のファイルのまま残っています。この部位を"
+              "装着すると、色がおかしくなる、見えなくなる、最悪の場合ゲームがロード中に停止することがあります。"
+              "「安全に一致しない部位も強制修復を試みる」にチェックを入れて再実行してみてください -- "
+              "実験的な機能のため、結果は必ずゲーム内で確認してください。",
+    },
+    "chk_force_unresolved": {
+        "ko": "실험적: 재구성 안 되는 부위도 강제로 수정 시도",
+        "en": "Experimental: force-fix parts that don't safely reconcile",
+        "zh_tw": "實驗性：對無法安全還原的部位嘗試強制修復",
+        "zh_cn": "实验性：对无法安全还原的部位尝试强制修复",
+        "ja": "実験的：安全に一致しない部位も強制修復を試みる",
+    },
     "warn_single_instance": {
         "ko": "이미 실행 중입니다.", "en": "already running.",
         "zh_tw": "已經在執行中。", "zh_cn": "已经在运行中。", "ja": "はすでに実行中です。",

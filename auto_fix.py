@@ -254,7 +254,8 @@ def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lam
     return file_plans, pak_plans
 
 
-def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cross_piece: bool, log) -> dict:
+def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cross_piece: bool, log,
+                 force_unresolved_pfbs: bool = False) -> dict:
     from pak_mod_fix import write_fixed_pak
 
     stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0}
@@ -337,13 +338,18 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
     pfb_files = list(find_pfb_files(mod_root))
     if pfb_files:
         log("\nRepairing .pfb files...")
-        pfb_stats = resolve_and_fix_pfbs(mod_root, output_root, game, log)
+        pfb_stats = resolve_and_fix_pfbs(mod_root, output_root, game, log,
+                                          force_unresolved=force_unresolved_pfbs)
         if pfb_stats["unresolved"]:
             log(f"    ({pfb_stats['unresolved']} pfb file(s) couldn't be safely verified against the "
                 f"current game and were left as-is)")
+        if pfb_stats["forced"]:
+            log(f"    ({pfb_stats['forced']} pfb file(s) were FORCE-fixed despite not safely "
+                f"reconciling -- experimental, please verify these pieces in-game)")
         stats["fixed"] += pfb_stats["fixed"]
         stats["pfb_fixed"] = pfb_stats["fixed"]
         stats["pfb_unresolved"] = pfb_stats["unresolved"]
+        stats["pfb_forced"] = pfb_stats["forced"]
 
     return stats
 
@@ -355,6 +361,11 @@ def main(argv=None) -> int:
     ap.add_argument("--output", type=Path, default=None, help="Where to write the fixed mod (default: <mod>_fixed next to the input)")
     ap.add_argument("--no-cross-piece", action="store_true",
                     help="Safe mode: only fix materials matchable within their own piece's vanilla file; skip the rest")
+    ap.add_argument("--force-unresolved-pfbs", action="store_true",
+                    help="Experimental: force wholesale-replace even pfb files that don't safely reconcile with "
+                         "the current donor. Confirmed working on several real mods' Waist pieces; confirmed to "
+                         "pick a wrong donor on at least one real Arm piece with no true vanilla equivalent. "
+                         "Off by default -- verify forced pieces in-game before trusting them.")
     args = ap.parse_args(argv)
 
     if not args.game.is_dir():
@@ -386,7 +397,8 @@ def main(argv=None) -> int:
     game = GameArchive(args.game, log=print)
 
     print("\nRepairing .mdf2 files...")
-    stats = process_mod(mod_root, output_root, game, allow_cross_piece=not args.no_cross_piece, log=print)
+    stats = process_mod(mod_root, output_root, game, allow_cross_piece=not args.no_cross_piece, log=print,
+                         force_unresolved_pfbs=args.force_unresolved_pfbs)
 
     from fluffy_repackage import repackage_for_fluffy
     repackage_for_fluffy(output_root, log=print)

@@ -154,14 +154,28 @@ def _residual_diff(a: set[str], b: set[str]) -> set[str]:
     return a_norm.symmetric_difference(b_norm)
 
 
-def _find_substitution(mod_strings: set[str], donor_strings: set[str]):
+def _find_substitution(mod_strings: set[str], donor_strings: set[str], force: bool = False):
     """Returns ('close', None) if the two string sets already match closely
     enough (within _MAX_STRING_DIFF, ignoring '@'-prefix noise) with no
     substitution needed; ('close', (donor_code, mod_code)) if replacing
     donor_code with mod_code (same length, e.g. "ch03"->"mh03") throughout
     donor_strings brings it within tolerance of mod_strings; or None if
     neither explains the difference closely enough -- caller should leave
-    the file untouched in that case."""
+    the file untouched in that case.
+
+    `force=True` (the GUI's opt-in "experimental: force-fix" checkbox):
+    instead of giving up when even the best candidate exceeds
+    _MAX_STRING_DIFF, returns ('forced', best_pair_or_None) for the
+    lowest-residual-diff candidate found (or no substitution at all, if no
+    plausible code pair exists) -- the caller then does a wholesale
+    donor-bytes replace anyway. Confirmed safe for the common real-world
+    case (current donor gained purely-additive content the mod predates,
+    e.g. a newly-added attached accessory on a Waist piece) across
+    multiple real mods; confirmed UNSAFE for at least one real case (an
+    Arm piece whose donor mixed two different character codes and had no
+    real vanilla equivalent at all -- forcing picked a plausible-looking
+    but wrong whole-game material donor). This is exactly why it's opt-in
+    and off by default, not folded into the normal safety gate."""
     if len(_residual_diff(mod_strings, donor_strings)) <= _MAX_STRING_DIFF:
         return "close", None
 
@@ -183,10 +197,13 @@ def _find_substitution(mod_strings: set[str], donor_strings: set[str]):
                 continue
             substituted = {s.replace(donor_code, mod_code) for s in donor_strings}
             d = len(_residual_diff(mod_strings, substituted))
-            if d <= _MAX_STRING_DIFF and (best is None or d < best[0]):
+            if best is None or d < best[0]:
                 best = (d, donor_code, mod_code)
-    if best is not None:
+
+    if best is not None and best[0] <= _MAX_STRING_DIFF:
         return "close", (best[1], best[2])
+    if force:
+        return "forced", (best[1], best[2]) if best is not None else None
     return None
 
 
@@ -197,10 +214,11 @@ class PfbPlan:
     donor_path: str | None
     donor_bytes: bytes | None
     substitution: tuple[str, str] | None
-    resolvable: bool  # found a donor AND could safely reconcile string differences
+    resolvable: bool  # found a donor AND could safely (or forcibly) reconcile string differences
+    forced: bool = False  # resolved only because force=True was passed to plan_pfb()
 
 
-def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log) -> PfbPlan:
+def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool = False) -> PfbPlan:
     rel = mod_path.relative_to(mod_root)
     parts = rel.parts
     natives_idx = next((i for i, p in enumerate(parts) if p.lower() == "natives"), None)
@@ -224,10 +242,10 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log) -> PfbPlan:
         if donor_parsed is None:
             continue
         donor_strings = _resource_strings(donor_bytes, donor_parsed["rsz_off"])
-        result = _find_substitution(mod_strings, donor_strings)
+        result = _find_substitution(mod_strings, donor_strings, force=force)
         if result is not None:
-            _, sub = result
-            return PfbPlan(rel, mod_path, donor_path, donor_bytes, sub, True)
+            kind, sub = result
+            return PfbPlan(rel, mod_path, donor_path, donor_bytes, sub, True, forced=(kind == "forced"))
         log(f"    [warn] {rel}: found donor {donor_path!r} but its content doesn't reconcile "
             f"with the mod's own -- leaving untouched (possible real customization)")
         return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, False)
@@ -287,11 +305,18 @@ def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
     return bytes(result)
 
 
-def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, log) -> dict:
-    stats = {"fixed": 0, "already_current": 0, "unresolved": 0}
+def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, log,
+                          force_unresolved: bool = False) -> dict:
+    """`force_unresolved` is the GUI's opt-in "experimental: force-fix"
+    checkbox -- see _find_substitution()'s docstring for what it does and
+    why it's not the default. Confirmed working in-game on several real
+    mods' Waist pieces (current donor gained purely-additive attached-
+    accessory content); confirmed to pick a wrong donor on at least one
+    real Arm piece with no true vanilla equivalent. Off by default."""
+    stats = {"fixed": 0, "already_current": 0, "unresolved": 0, "forced": 0}
     mod_provided_keys = _mod_provided_file_keys(mod_root)
     for mod_path in sorted(find_pfb_files(mod_root)):
-        plan = plan_pfb(mod_path, mod_root, game, log)
+        plan = plan_pfb(mod_path, mod_root, game, log, force=force_unresolved)
         if plan.donor_bytes is None:
             stats["unresolved"] += 1
             continue
@@ -312,5 +337,10 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         out_path.write_bytes(result)
         stats["fixed"] += 1
         note = f" (substituted {plan.substitution[0]!r}->{plan.substitution[1]!r})" if plan.substitution else ""
-        log(f"    [fixed] {plan.rel}  <-  current donor {plan.donor_path!r}{note}")
+        if plan.forced:
+            stats["forced"] += 1
+            log(f"    [forced-fix] {plan.rel}  <-  current donor {plan.donor_path!r}{note} "
+                f"-- structure didn't safely reconcile; forced anyway (experimental option), verify in-game")
+        else:
+            log(f"    [fixed] {plan.rel}  <-  current donor {plan.donor_path!r}{note}")
     return stats

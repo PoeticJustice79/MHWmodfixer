@@ -62,6 +62,31 @@ Before assuming MHWmodfixer's logic is wrong:
   even with zero mods installed) — completely out of scope, not fixable
   by this tool. Always ask the user to check vanilla before spending real
   effort on a symptom.
+- **If the symptom only appears at boot (game hangs/crashes loading a
+  save into the world) but a content-level check says the fix is clean
+  (REFramework `FaultyFileDetector` shows 0 faulty files, structural RSZ
+  diffing shows no issue), suspect the SAVE FILE, not the fix.** Confirmed
+  real case (Mangie "Snow Trigger"): the game hard-hung at ~80% of the
+  title→in-game loading transition with this mod equipped, in every
+  tested state — raw/broken, partially fixed, and a fully-fixed 0-error
+  build — which looked exactly like a fresh content bug. The breakthrough:
+  testing the SAME fully-fixed build via a live, already-running equip
+  path instead of a fresh boot (MHWilds' in-game Layered Armor menu, for
+  an armor mod) rendered it perfectly, no hang, no invisibility. Root
+  cause: the save file's own equipped-loadout record still pointed at the
+  OLD pre-fix (broken) content, and resolving that stale reference during
+  the synchronous boot-time equipment-init step is what hung — the exact
+  same current content loaded live had no such problem. **Fix is a
+  save-state cycle, not a code change**: with the game already running
+  and the fixed mod active, equip something else via the live path and
+  save (to overwrite the stale record), confirm normal boot afterward,
+  then re-equip the fixed content via the live path and save again.
+  **Takeaway**: don't keep hunting for a content bug once a fix already
+  passes every content-level check you have — try reproducing the SAME
+  fixed build through a live/already-running equip path before concluding
+  the fix itself is wrong. A stale save-file reference to the pre-fix
+  state can reproduce the exact original symptom against genuinely
+  correct content.
 
 ### 2. If a `.mdf2` (material) file is fixed but still looks wrong
 

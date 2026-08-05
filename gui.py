@@ -26,7 +26,7 @@ import zipfile
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import StringVar, filedialog, messagebox, ttk
+from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 try:
@@ -67,6 +67,7 @@ class App:
         self.game_dir = StringVar(value=DEFAULT_GAME_DIR if Path(DEFAULT_GAME_DIR).is_dir() else "")
         self.status = StringVar(value=t("status_default"))
         self.lang_display = StringVar(value=i18n.LANGUAGES[i18n.get_language()])
+        self.force_unresolved = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -133,6 +134,13 @@ class App:
         self.btn_clear_all = ttk.Button(btn_frame, text=t("btn_clear_all"), command=self._clear_queue)
         self.btn_clear_all.pack(side="left")
 
+        options_frame = ttk.Frame(self.root)
+        options_frame.pack(fill="x", padx=10, pady=(0, 2))
+        self.chk_force_unresolved = ttk.Checkbutton(
+            options_frame, text=t("chk_force_unresolved"), variable=self.force_unresolved,
+        )
+        self.chk_force_unresolved.pack(side="left")
+
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
         self.start_btn = ttk.Button(action_frame, text=t("btn_start"), command=self._start)
@@ -159,6 +167,7 @@ class App:
         self.btn_add_mod.configure(text=t("btn_add_mod"))
         self.btn_remove_selected.configure(text=t("btn_remove_selected"))
         self.btn_clear_all.configure(text=t("btn_clear_all"))
+        self.chk_force_unresolved.configure(text=t("chk_force_unresolved"))
         self.start_btn.configure(text=t("btn_start"))
         self.btn_open_log.configure(text=t("btn_open_log_folder"))
         if not self._busy:
@@ -303,7 +312,8 @@ class App:
                 self.log("No save location chosen -- aborting batch.")
                 return
 
-            batch = {"fixed": 0, "already_current": 0, "unresolved": 0, "errors": 0, "textures_restored": 0}
+            batch = {"fixed": 0, "already_current": 0, "unresolved": 0, "unresolved_parts": 0,
+                     "errors": 0, "textures_restored": 0}
             for i, mod_archive in enumerate(queue_snapshot, start=1):
                 self.set_status(t("status_processing", i=i, total=total, name=mod_archive.name))
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
@@ -314,11 +324,14 @@ class App:
                     self.log(f"[error] {mod_archive.name}: {e}\n{traceback.format_exc()}")
                     batch["errors"] += 1
 
-            self.show_info(APP_TITLE, t(
+            msg = t(
                 "msg_batch_done", total=total, fixed=batch["fixed"],
                 already_current=batch["already_current"], unresolved=batch["unresolved"],
                 errors=batch["errors"], out=save_dir,
-            ))
+            )
+            if batch["unresolved_parts"]:
+                msg += "\n\n" + t("msg_unresolved_parts_hint", count=batch["unresolved_parts"])
+            self.show_info(APP_TITLE, msg)
         except Exception as e:
             self.log(f"[error] {e}\n{traceback.format_exc()}")
             self.show_error(APP_TITLE, t("err_unhandled", e=e))
@@ -363,12 +376,27 @@ class App:
 
         output_root = work_dir.parent / (work_dir.name + "_fixed")
         shutil.copytree(mod_root, output_root)
-        stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log)
+        force_unresolved = self.force_unresolved.get()
+        stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log,
+                             force_unresolved_pfbs=force_unresolved)
         repackage_for_fluffy(output_root, log=self.log)
 
         self.log(f"done: fixed={stats['fixed']} already_current={stats['already_current']} "
                  f"skipped={stats['skipped']} errors={stats['errors']} "
                  f"texture_paths_restored={stats['textures_restored']}")
+
+        # pfb_unresolved > 0 means at least one piece was left as the mod's
+        # own original (possibly-stale) content -- confirmed via real
+        # in-game testing (Mangie "Snow Trigger") that this can silently
+        # cause a hard hang at boot when that piece is equipped, not just a
+        # visual glitch, so this is surfaced clearly rather than buried in
+        # the scrolling log.
+        if stats.get("pfb_unresolved") and not force_unresolved:
+            self.log(f"    [!] {mod_archive.name}: {stats['pfb_unresolved']} part(s) couldn't be "
+                     f"safely auto-repaired and were left as the mod's original files. This can range "
+                     f"from a cosmetic glitch to the game hanging on load when that part is equipped. "
+                     f"Try re-running with \"{t('chk_force_unresolved')}\" checked, then verify "
+                     f"in-game before trusting the result.")
 
         out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
         self.log(f"Zipping: {out_zip}")
@@ -376,6 +404,8 @@ class App:
 
         shutil.rmtree(work_dir, ignore_errors=True)
         shutil.rmtree(output_root, ignore_errors=True)
+        if stats.get("pfb_unresolved") and not force_unresolved:
+            return "unresolved_parts"
         return "fixed"
 
 
