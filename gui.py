@@ -73,6 +73,7 @@ class App:
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._main_thread_queue: queue.Queue[tuple] = queue.Queue()
+        self._progress_queue: queue.Queue[tuple[str, int, int]] = queue.Queue()
         self._busy = False
 
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,11 +156,22 @@ class App:
 
         ttk.Label(self.root, textvariable=self.status).pack(fill="x", padx=10)
 
+        self.notice_verifying = StringVar(value="")
+        self.lbl_notice = ttk.Label(self.root, textvariable=self.notice_verifying, foreground="#a15c00")
+        self.lbl_notice.pack(fill="x", padx=10)
+
+        progress_frame = ttk.Frame(self.root)
+        progress_frame.pack(fill="x", padx=10, pady=(0, 4))
+        self.progress_bar = ttk.Progressbar(progress_frame, mode="determinate", maximum=100)
+        self.progress_bar.pack(side="left", fill="x", expand=True)
+        self.progress_pct_label = ttk.Label(progress_frame, text="", width=6, anchor="e")
+        self.progress_pct_label.pack(side="left", padx=(6, 0))
+
         self.log_text = ScrolledText(self.root, height=16, state="disabled")
         self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
 
     def _on_lang_change(self, event=None):
-        code = next((c for c, name in i18n.LANGUAGES.items() if name == self.lang_display.get()), "ko")
+        code = next((c for c, name in i18n.LANGUAGES.items() if name == self.lang_display.get()), "en")
         i18n.set_language(code)
         i18n.save_language(code)
         self._retranslate()
@@ -176,7 +188,9 @@ class App:
         self.chk_preserve_extra.configure(text=t("chk_preserve_extra"))
         self.start_btn.configure(text=t("btn_start"))
         self.btn_open_log.configure(text=t("btn_open_log_folder"))
-        if not self._busy:
+        if self._busy:
+            self.notice_verifying.set(t("notice_verifying"))
+        else:
             self.status.set(t("status_default"))
 
     def _open_log_folder(self):
@@ -241,6 +255,20 @@ class App:
         thread (unlike log(), which only queues a plain string)."""
         self._run_on_main_thread(self.status.set, msg)
 
+    def set_progress(self, phase: str, done: int, total: int):
+        """Thread-safe, non-blocking progress update -- called from the
+        worker thread, possibly many times a second on a large pak mod
+        (see pak_mod_fix.py's _PROGRESS_STEP), so this must NOT round-trip
+        through _run_on_main_thread like set_status() does (that blocks the
+        calling thread until the main thread services it, which would slow
+        the scan down for no benefit at this call frequency). Queued the
+        same way log() is; _poll_queues() only applies the latest one."""
+        self._progress_queue.put((phase, done, total))
+
+    def _reset_progress(self):
+        self.progress_bar.configure(value=0)
+        self.progress_pct_label.configure(text="")
+
     def _poll_queues(self):
         while not self._log_queue.empty():
             msg = self._log_queue.get()
@@ -248,6 +276,15 @@ class App:
             self.log_text.insert("end", msg + "\n")
             self.log_text.see("end")
             self.log_text.configure(state="disabled")
+
+        latest_progress = None
+        while not self._progress_queue.empty():
+            latest_progress = self._progress_queue.get()  # only the newest matters -- drop any backlog
+        if latest_progress is not None:
+            phase, done, total = latest_progress
+            pct = round(done / total * 100) if total else 0
+            self.progress_bar.configure(value=pct)
+            self.progress_pct_label.configure(text=f"{pct}% ({t('progress_phase_' + phase)})")
 
         while not self._main_thread_queue.empty():
             fn, args, result_holder, event = self._main_thread_queue.get()
@@ -300,6 +337,7 @@ class App:
         threading.Thread(target=self._worker, daemon=True).start()
 
     def _worker(self):
+        self._run_on_main_thread(self.notice_verifying.set, t("notice_verifying"))
         try:
             game_dir = Path(self.game_dir.get())
             self.set_status(t("status_indexing"))
@@ -323,6 +361,7 @@ class App:
             for i, mod_archive in enumerate(queue_snapshot, start=1):
                 self.set_status(t("status_processing", i=i, total=total, name=mod_archive.name))
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
+                self._run_on_main_thread(self._reset_progress)
                 try:
                     outcome = self._run_one(mod_archive, game, save_dir)
                     batch[outcome] = batch.get(outcome, 0) + 1
@@ -344,6 +383,8 @@ class App:
         finally:
             self._busy = False
             self._run_on_main_thread(lambda: self.start_btn.configure(state="normal"))
+            self._run_on_main_thread(self.notice_verifying.set, "")
+            self._run_on_main_thread(self._reset_progress)
             self.set_status(t("status_done"))
 
     def _run_one(self, mod_archive: Path, game: GameArchive, save_dir: str) -> str:
@@ -354,7 +395,7 @@ class App:
         mod_root = extract_archive(mod_archive, work_dir)
 
         self.log("Diagnosing mod state...")
-        file_plans, pak_plans = diagnose(mod_root, game)
+        file_plans, pak_plans = diagnose(mod_root, game, progress_cb=self.set_progress)
         summary = summarize((file_plans, pak_plans))
         self.log(summary)
 
@@ -386,7 +427,8 @@ class App:
         preserve_extra = self.preserve_extra.get()
         stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log,
                              force_unresolved_pfbs=force_unresolved,
-                             preserve_extra_pfb_components=preserve_extra)
+                             preserve_extra_pfb_components=preserve_extra,
+                             progress_cb=self.set_progress)
         repackage_for_fluffy(output_root, log=self.log)
 
         self.log(f"done: fixed={stats['fixed']} already_current={stats['already_current']} "

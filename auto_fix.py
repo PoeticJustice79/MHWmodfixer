@@ -185,11 +185,14 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
 
 
 def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
-                          whole_game_lookup, log) -> list[FilePlan]:
+                          whole_game_lookup, log, progress_cb=None) -> list[FilePlan]:
+    progress_cb = progress_cb or (lambda phase, done, total: None)
     mod_files = sorted(find_mdf2_files(mod_root))
+    total = len(mod_files)
     per_file: dict[Path, dict] = {}
 
-    for mod_path in mod_files:
+    for i, mod_path in enumerate(mod_files, start=1):
+        progress_cb("loose_scan", i, total)
         rel = mod_path.relative_to(mod_root)
         pak_path = to_pak_style_path(rel)
         base_no_version = MDF2_RE.sub("", pak_path)
@@ -236,31 +239,39 @@ def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, a
     return plans
 
 
-def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lambda s: None):
+def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lambda s: None, progress_cb=None):
     """Resolves donors and determines staleness for every .mdf2 file (loose
     or inside the mod's own .pak files), but never writes anything --
     shared by the diagnostic pass (diagnose.py) and the actual fixer
     (process_mod) so they can never disagree. Returns (file_plans, pak_plans).
     `allow_cross_piece` only affects whether pieces can borrow a donor
     material from each other; it's applied when resolving, and unresolved/
-    ambiguous materials are simply reported as such regardless."""
+    ambiguous materials are simply reported as such regardless.
+    `progress_cb(phase, done, total)`, if given, is forwarded to whichever
+    of the loose-file / pak-entry scans is running -- see their own
+    docstrings for what `phase` can be. There's no single unified 0-100%
+    across the whole function (the two scans have unrelated totals); the
+    GUI shows `phase` alongside done/total instead of pretending otherwise."""
     from pak_mod_fix import resolve_pak_files  # local import: avoids a cycle at module load time
     from whole_game_index import LazyWholeGameIndex
 
     global_pool: list[tuple[str, dict]] = []
     whole_game_lookup = LazyWholeGameIndex(game, log=log).find_by_mmtr
-    file_plans = _resolve_loose_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log)
-    pak_plans = resolve_pak_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log)
+    file_plans = _resolve_loose_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
+                                       progress_cb=progress_cb)
+    pak_plans = resolve_pak_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
+                                   progress_cb=progress_cb)
     return file_plans, pak_plans
 
 
 def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cross_piece: bool, log,
-                 force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False) -> dict:
+                 force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False,
+                 progress_cb=None) -> dict:
     from pak_mod_fix import write_fixed_pak
 
     stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0}
 
-    file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log)
+    file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log, progress_cb=progress_cb)
     if not file_plans and not pak_plans:
         log(f"No .mdf2 content found under {mod_root} (loose or packed) -- nothing to fix "
             f"(other files will still be copied as-is)")

@@ -19,8 +19,9 @@ from i18n import t
 from pak_mod_fix import PakPlan
 
 
-def diagnose(mod_root: Path, game: GameArchive, allow_cross_piece: bool = True) -> tuple[list[FilePlan], list[PakPlan]]:
-    return plan_mod(mod_root, game, allow_cross_piece)
+def diagnose(mod_root: Path, game: GameArchive, allow_cross_piece: bool = True,
+             progress_cb=None) -> tuple[list[FilePlan], list[PakPlan]]:
+    return plan_mod(mod_root, game, allow_cross_piece, progress_cb=progress_cb)
 
 
 def _material_names(plan) -> list[str]:

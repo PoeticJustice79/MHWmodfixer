@@ -28,6 +28,9 @@ from pak_writer import compress_for, write_pak
 from slot_merge import find_donor_for_material
 
 
+_PROGRESS_STEP = 20  # how often progress_cb fires -- frequent enough to feel live, rare enough not to flood a GUI queue on a multi-thousand-entry pak
+
+
 def find_pak_files(root: Path):
     yield from root.rglob("*.pak")
 
@@ -69,19 +72,34 @@ class PakPlan:
 
 
 def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
-                       whole_game_lookup, log) -> list[PakPlan]:
+                       whole_game_lookup, log, progress_cb=None) -> list[PakPlan]:
+    """`progress_cb(phase: str, done: int, total: int)`, if given, is called
+    periodically (not on every single entry -- see _PROGRESS_STEP) during
+    the two genuinely slow passes over a large pak's entry table: "pak_scan"
+    (reading + donor-extracting every entry) and "pak_resolve" (matching
+    each mod material against the accumulated donor pool). A big
+    texture-pack-style mod's pak can hold thousands of entries, and this is
+    what was silently stuck at "Diagnosing mod state..." with no feedback
+    before this was added."""
+    progress_cb = progress_cb or (lambda phase, done, total: None)
     pak_paths = sorted(find_pak_files(mod_root))
-    raw_infos = []  # (pak_path, [unit dicts])
-
+    archives = []
     for pak_path in pak_paths:
         try:
-            archive = PakArchive(pak_path)
+            archives.append((pak_path, PakArchive(pak_path)))
         except Exception as e:
             log(f"[warn] couldn't open {pak_path.name} as a pak: {e}")
-            continue
 
+    total_entries = sum(len(archive.entries) for _, archive in archives)
+    raw_infos = []  # (pak_path, [unit dicts])
+    scanned = 0
+
+    for pak_path, archive in archives:
         units = []
         for h, entry in archive.entries.items():
+            scanned += 1
+            if scanned % _PROGRESS_STEP == 0 or scanned == total_entries:
+                progress_cb("pak_scan", scanned, total_entries)
             try:
                 raw = archive.read(entry)
             except Exception as e:
@@ -115,10 +133,15 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
 
         raw_infos.append((pak_path, units))
 
+    total_units = sum(len(units) for _, units in raw_infos)
+    resolved = 0
     plans = []
     for pak_path, units in raw_infos:
         entry_plans = []
         for u in units:
+            resolved += 1
+            if resolved % _PROGRESS_STEP == 0 or resolved == total_units:
+                progress_cb("pak_resolve", resolved, total_units)
             mod_mats = [extract_material(u["mod_mdf"], i) for i in range(len(u["mod_mdf"].materials))]
             mat_plans = []
             for mm in mod_mats:

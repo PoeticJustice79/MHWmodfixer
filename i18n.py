@@ -20,8 +20,8 @@ import json
 from pathlib import Path
 
 LANGUAGES = {
-    "ko": "한국어",
     "en": "English",
+    "ko": "한국어",
     "zh_tw": "繁體中文",
     "zh_cn": "简体中文",
     "ja": "日本語",
@@ -90,6 +90,25 @@ _STRINGS = {
         "zh_tw": "完成 -- 請清理清單或新增模組",
         "zh_cn": "完成 -- 请清理列表或添加新模组",
         "ja": "完了 -- リストを整理するか新しいMODを追加してください",
+    },
+    "notice_verifying": {
+        "ko": "검증 중입니다. 프로그램을 끄지 마시고 조금 더 기다려주세요.",
+        "en": "Verifying -- please don't close the program, this may take a while.",
+        "zh_tw": "正在驗證，請勿關閉程式，可能需要一些時間。",
+        "zh_cn": "正在验证，请勿关闭程序，可能需要一些时间。",
+        "ja": "検証中です。プログラムを閉じずにしばらくお待ちください。",
+    },
+    "progress_phase_loose_scan": {
+        "ko": "개별 파일 확인 중", "en": "Checking individual files",
+        "zh_tw": "正在檢查個別檔案", "zh_cn": "正在检查各个文件", "ja": "個別ファイルを確認中",
+    },
+    "progress_phase_pak_scan": {
+        "ko": "pak 내부 항목 확인 중", "en": "Checking entries inside .pak",
+        "zh_tw": "正在檢查 pak 內的項目", "zh_cn": "正在检查 pak 内的条目", "ja": "pak内のエントリを確認中",
+    },
+    "progress_phase_pak_resolve": {
+        "ko": "도너 매칭 중", "en": "Matching against vanilla donors",
+        "zh_tw": "正在比對原版供體", "zh_cn": "正在匹配原版供体", "ja": "バニラドナーと照合中",
     },
     "dlg_choose_game_dir": {
         "ko": "Monster Hunter Wilds 설치 폴더 선택",
@@ -245,7 +264,7 @@ _STRINGS = {
     },
 }
 
-_current_lang = "ko"
+_current_lang = "en"
 
 
 def load_saved_language() -> str:
@@ -256,7 +275,7 @@ def load_saved_language() -> str:
             return lang
     except (OSError, ValueError):
         pass
-    return "ko"
+    return "en"
 
 
 def save_language(lang: str) -> None:
@@ -269,7 +288,7 @@ def save_language(lang: str) -> None:
 
 def set_language(lang: str) -> None:
     global _current_lang
-    _current_lang = lang if lang in LANGUAGES else "ko"
+    _current_lang = lang if lang in LANGUAGES else "en"
 
 
 def get_language() -> str:
@@ -280,5 +299,5 @@ def t(key: str, **kwargs) -> str:
     entry = _STRINGS.get(key)
     if entry is None:
         return key
-    template = entry.get(_current_lang) or entry.get("ko") or key
+    template = entry.get(_current_lang) or entry.get("en") or entry.get("ko") or key
     return template.format(**kwargs) if kwargs else template
