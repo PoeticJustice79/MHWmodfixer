@@ -406,6 +406,62 @@ the fields your reader happens to expose. (Concretely: MDF2's header
 `reserved` u64 field must be `1`; writing `0` — which looked like an inert
 padding field — made the game silently reject the file.)
 
+### 7. mdf2 parsing bugs found via an external bug report (2026-08-08)
+
+A Nexus user (`pwtxr`) sent a detailed, independently-verified bug report
+against `MHWmodfixer-v0.2.exe` (decompiled the PyInstaller bundle to test
+it directly against the live game). Both findings were independently
+re-verified against this project's own current source and the live
+installed game before fixing -- every specific number in the report
+(byte offsets, file paths, exact struct.error messages, the 830/12 nv=6
+vs nv=1 split) checked out exactly. Worth remembering the general lesson
+even though both are now fixed: **a well-argued external bug report with
+concrete repro data is worth verifying independently against the live
+game rather than trusting OR dismissing on sight** -- this one came with
+enough evidence (a whole-game scan, exact crash messages) to confirm in
+under 20 minutes.
+
+- **`mdf2_slice.py`'s property "count" field only uses its low 16 bits.**
+  `extract_material()` read the 4-byte `numParams`/`propOffs` header pair
+  as a plain int and used it directly as a float-array length. Confirmed
+  real case: `natives/stm/art/model/item/it12/00/0006/it1200_0006_0.mdf2.45`
+  material `Liquid1`'s `Water_Scale` property stores `0x00010001`, not
+  `1` -- the high 16 bits are an undocumented Capcom flag (observed value
+  always `1`), and reading the whole field as the count made
+  `unpack_from` try to read 65,537 floats from a buffer that only had
+  room for 1, crashing with a `struct.error` on any pak-packaged mod that
+  touches this donor material during diagnosis (`pak_mod_fix.py`'s
+  `resolve_pak_files` -> `extract_material`). A whole-game scan of all
+  9,939 known mdf2 files found this on exactly 7 properties across 6
+  files (all confirmed still present as of this writing: `it1200_0006_0`,
+  `ch05_011_0000` [a character file, so it'll keep recurring], and 4
+  others -- see git history for the full list). Fixed by masking:
+  `num_params = count_raw & 0xFFFF`, keeping `count_flags = count_raw >>
+  16` in the extracted prop dict so `assemble_mdf2()` can write it back
+  (`n_field = (len(values) & 0xFFFF) | (count_flags << 16)`) instead of
+  silently zeroing it on every splice rebuild.
+- **`detect_numVersion()`'s "first byte-identical round-trip wins"
+  heuristic has real false positives.** The function's own prior
+  docstring claimed a wrong version guess "essentially never round-trips
+  by accident" -- false: a whole-game scan found **842 of 9,939** known
+  mdf2 files round-trip byte-identically at a WRONG low version (830 at
+  `nv=6`, 12 at `nv=1`) in addition to the correct `nv=30`/`45`, because
+  the wrong version's layout makes the parser treat the real content as
+  an untouched opaque tail -- every material comes back with an EMPTY
+  `mmtr_path` and zero props/textures in that case, silently wrong rather
+  than crashing (4 of the 12 `nv=1` files do additionally crash in
+  `extract_material` with nonsensical giant buffer-size demands, since
+  their real property data happens to get misread as an absurd count
+  too). Since `range(1, 200)` tries low numbers first, the wrong version
+  won every time it was possible. Fixed by rejecting any candidate where
+  a material's `mmtr_path` comes back empty -- confirmed via the same
+  whole-game scan that this alone correctly separates all 842 false
+  positives from every genuine detection with zero new misses.
+  **If you're re-deriving this from scratch**, `python -c` snippets
+  against `GameArchive(...).read_path(...)` + `tools/mdf2_filelist.txt`
+  (9,939 known paths) are enough to re-run either scan in a couple
+  minutes -- no need to install anything the mod archive itself.
+
 ## Practical diagnostic workflow for a new broken mod
 
 1. Ask for (or reproduce) the exact original mod archive and the exact

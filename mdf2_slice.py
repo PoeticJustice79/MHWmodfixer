@@ -86,12 +86,22 @@ def extract_material(mdf: Mdf2File, index: int) -> dict:
     for pr in mat.props:
         # entry layout: propNameOffs(8) + nameUIF16Hash(4) + nameASCIIHash(4) + (propOffs/numParams)(8)
         if mdf.numVersion >= 13:
-            prop_offs, num_params = struct.unpack_from("<ii", buf, p + 16)
+            prop_offs, count_raw = struct.unpack_from("<ii", buf, p + 16)
         else:
-            num_params, prop_offs = struct.unpack_from("<ii", buf, p + 16)
+            count_raw, prop_offs = struct.unpack_from("<ii", buf, p + 16)
         p += 24
+        # Confirmed real case (external bug report, verified against the
+        # live game): only the LOW 16 bits of this field are the actual
+        # component count -- the high 16 bits are a Capcom flag this
+        # module doesn't otherwise model (observed value: 1, on 7
+        # properties across 6 known game mdf2 files). Reading the whole
+        # field as the count made unpack_from ask for up to 65535 floats
+        # instead of 1, running way past the buffer and crashing.
+        count_raw &= 0xFFFFFFFF
+        num_params = count_raw & 0xFFFF
+        count_flags = count_raw >> 16
         values = list(struct.unpack_from(f"<{num_params}f", buf, mat._props_offs + prop_offs))
-        props.append({"name": pr.name_str, "values": values})
+        props.append({"name": pr.name_str, "values": values, "count_flags": count_flags})
 
     header_version = struct.unpack_from("<H", buf, 4)[0]
 
@@ -268,11 +278,16 @@ def assemble_mdf2(materials: list[dict], numVersion: int) -> bytes:
             struct.pack_into("<Q", buf, p, name_offset); p += 8
             struct.pack_into("<II", buf, p, name_hash_u & 0xFFFFFFFF, name_hash_a & 0xFFFFFFFF); p += 8
             n = len(pr["values"])
+            # Carry the donor's own count_flags back through (see
+            # extract_material) rather than dropping them -- the flag
+            # belongs to the CURRENT donor's shader template, which is
+            # exactly what apply_texture_overrides() deepcopies from.
+            n_field = (n & 0xFFFF) | ((pr.get("count_flags", 0) & 0xFFFF) << 16)
             prop_offs_in_block = props_values_cursor - this_props_offs
             if numVersion >= 13:
-                struct.pack_into("<ii", buf, p, prop_offs_in_block, n); p += 8
+                struct.pack_into("<ii", buf, p, prop_offs_in_block, n_field); p += 8
             else:
-                struct.pack_into("<ii", buf, p, n, prop_offs_in_block); p += 8
+                struct.pack_into("<ii", buf, p, n_field, prop_offs_in_block); p += 8
             prop_hdr_cursor = p
 
             struct.pack_into(f"<{n}f", buf, props_values_cursor, *pr["values"])

@@ -43,12 +43,21 @@ def detect_numVersion(data: bytes, candidates=range(1, 200)) -> int | None:
     the format doesn't store it anywhere else, so we brute-force it: try
     parsing with each candidate and keep the one where re-serializing
     without any edits reproduces the exact input bytes. A wrong guess
-    misaligns every offset downstream and essentially never round-trips
-    by accident, so the first (and in practice only) match is reliable."""
+    USUALLY misaligns every offset downstream and doesn't round-trip by
+    accident -- but not always: confirmed real case (external bug report,
+    verified against 9,939 known game mdf2 files), a low version number
+    can make every material look degenerate (propCount/texCount parsed
+    as 0, mmtr_path empty) and that degenerate-but-internally-consistent
+    shape still round-trips byte-for-byte on 842 of them, because a
+    lower numVersion's layout can make the parser skip past the file's
+    real content entirely and just treat it as an opaque tail. Reject
+    those: every real material has a shader path, so an empty mmtr_path
+    on any material means this candidate's layout is wrong even though
+    the bytes matched."""
     for nv in candidates:
         try:
             m = Mdf2File(data, nv)
-            if m.to_bytes() == data:
+            if m.to_bytes() == data and all(mat.mmtr_path for mat in m.materials):
                 return nv
         except Exception:
             continue
