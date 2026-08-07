@@ -1,94 +1,116 @@
 # MHWmodfixer by Littlefish
 
-몬스터헌터 와일즈 공식 업데이트로 깨진 외형(코스메틱) 모드를 자동으로 복구하는
-프로그램. 모드 압축파일 하나만 선택하면: 압축 해제 → 현재 게임 버전 pak에서
-필요한 vanilla 파일 직접 추출 → 실제로 구조가 바뀐 부분만 판별 → 셰이더 기준
-머티리얼 재조립 → 원래 구조 그대로 재압축까지 전부 자동으로 처리한다.
-ree-pak-gui/REtool/Blender 등 외부 도구를 손으로 실행할 필요 없음.
+*English | [한국어](README.ko.md)*
 
-## 실행하기
+A tool that automatically repairs Monster Hunter Wilds cosmetic mods broken
+by official game updates. Point it at a single mod archive and it handles
+everything: extract the archive → pull the vanilla files it needs directly
+out of the current game version's paks → figure out exactly which parts
+actually changed structurally → reassemble materials against the current
+shader → repackage in the mod's original structure. No need to run
+ree-pak-gui/REtool/Blender or any other external tool by hand.
 
-**GUI로 그냥 쓰기**: `dist\MHWmodfixer.exe` 더블클릭. Python도, Bandizip도, 7-Zip도
-설치할 필요 없음 (전부 exe 안에 들어있음). 화면에서 게임 폴더 확인 → 모드
-압축파일(zip/7z/rar)을 목록 칸에 끌어다 놓거나 "추가" 버튼으로 선택(여러 개
-한꺼번에 가능, 폴더째로 끌어다 놓으면 안의 압축파일들을 알아서 찾음) →
-"복구 시작" 누르면 끝. 여러 개를 넣으면 목록 순서대로 하나씩 처리되며, 각각
-따로 진단 결과 확인 → 저장 위치 선택을 거친다.
+## Running it
 
-**"실험적: 재구성 안 되는 부위도 강제로 수정 시도" 체크박스**: 기본은 꺼져
-있음. `.pfb`(prefab) 파일 중에는 도너(현재 게임 버전)와 구조가 너무 많이 달라
-안전하게 자동 수정을 못 하는 경우가 있는데, 기본값은 이런 파일을 원본 그대로
-남겨둔다(잘못 고쳐서 모드 고유 커스터마이징을 지우는 것보다 안전). 근데 이렇게
-남겨진 부위를 실제로 착용하면 색이 이상하거나 안 보이는 정도가 아니라
-**게임이 로딩 중 멈추는 경우까지 실제로 확인됨** (Mangie "Snow Trigger" 모드,
-2026-08-06). 이 체크박스를 켜면 그런 부위도 도너로 통째 교체를 강행한다 —
-실제로 여러 모드의 Waist(허리) 부위에서 이 방식이 잘 작동하는 걸 확인했지만,
-다른 모드의 Arm(팔) 부위 하나에서는 엉뚱한 도너를 골라서 오히려 더 이상해진
-사례도 있음. 그래서 기본값이 아니라 옵션으로 뺀 것 — 켜서 만든 결과물은 꼭
-게임에서 직접 확인하고 써야 함.
+**Just use the GUI**: double-click `dist\MHWmodfixer.exe`. No need to install
+Python, Bandizip, or 7-Zip — everything is bundled into the exe. Check the
+game folder on screen → drag a mod archive (zip/7z/rar) into the list, or
+pick one with the "Add" button (multiple at once is fine; dropping a whole
+folder makes it auto-discover archives inside) → click "Start Repair" and
+that's it. With multiple mods queued, they're processed one at a time in
+list order, each going through its own diagnosis confirmation and its own
+save-location prompt.
 
-**"실험적: 도너에 없는 커스텀 부품(체인 피직스 등) 보존 시도" 체크박스**:
-기본은 꺼져 있음. 모드가 자체적으로 추가한 RSZ 컴포넌트(예: 다리에 직접
-추가한 `via.motion.Chain2` 피직스 체인 + 번들된 리소스 파일)가 있으면,
-기본 동작(도너로 통째 교체)은 그 컴포넌트를 통째로 지워버림 — 실제로
-DOTEI 모더가 보고하고 확인된 문제. 이 체크박스를 켜면 도너에 없는 컴포넌트는
-모드 원본 그대로 보존하고, 겹치는 컴포넌트 중 CRC만 낡은 것만 패치함.
-다만 "도너에 없는 추가 컴포넌트"가 항상 모더가 일부러 넣은 것이라는 보장은
-없음 — 같은 패턴이 반대로 나온 사례도 확인됨(Mangie "Banshee" 팔 부위는
-캡콤이 이미 없앤 낡은 구조를 그대로 갖고 있었는데, 이걸 보존하지 않고
-버리는 기존 방식이 실제 게임에서 검증된 정상 동작이었음). 구조만 봐서는 두
-경우를 구분할 방법이 없어서 기본값이 아니라 옵션으로 뺀 것 — 켜서 만든
-결과물은 꼭 게임에서 직접 확인하고 써야 함.
+**"Experimental: force-fix parts that don't safely reconcile" checkbox**:
+off by default. Some `.pfb` (prefab) files differ too much in structure
+from the donor (the current game version) to be safely auto-repaired, and
+the default is to leave those files untouched — safer than guessing wrong
+and wiping out the mod's own customization. But leaving a part unresolved
+like that can mean more than a color glitch or invisibility when actually
+worn in-game — **it has been directly confirmed to hang the game mid-load**
+(Mangie's "Snow Trigger" mod, 2026-08-06). Turning this checkbox on forces
+a full donor-replace on those parts too — confirmed working well on
+several mods' Waist pieces, but also confirmed to pick the wrong donor on
+one other mod's Arm piece and make things worse. That's why it's an
+opt-in option rather than the default — always verify the result in-game
+before trusting it.
 
-**개발/커맨드라인**:
+**"Experimental: try to preserve custom parts the donor doesn't have"
+checkbox**: off by default. If a mod adds its own RSZ component (e.g. a
+`via.motion.Chain2` physics chain bundled directly onto a leg piece, plus
+its own resource file), the default behavior (full donor-replace) deletes
+that component entirely — a real, reported, confirmed issue from the
+DOTEI modder. Turning this checkbox on keeps components the donor doesn't
+have exactly as the mod shipped them, and only patches the CRC of shared
+components that have gone stale. That said, "extra component the donor
+doesn't have" isn't always something the modder added on purpose — the
+same pattern has also been seen the other way around (Mangie "Banshee"'s
+Arm piece carried old structure Capcom had already removed, and the
+existing behavior of discarding it — not preserving it — was the
+in-game-verified correct outcome). There's no way to tell the two cases
+apart from structure alone, which is why this is opt-in rather than
+default — always verify the result in-game before trusting it.
+
+**Development / command line**:
 ```
 cd D:\MHWildsModFixer
 python gui.py                              # GUI
-python auto_fix.py "모드.zip"               # 커맨드라인
+python auto_fix.py "mod.zip"               # command line
 ```
 
-## GUI 동작 방식
+## How the GUI works
 
-1. 모드 압축파일 선택 → 자동으로 압축 해제
-2. 현재 게임 버전 pak 인덱싱 (최초 1회만 몇 초, 이후엔 캐시로 즉시)
-3. **진단**: 모드의 각 mdf2 파일이 실제로 구버전 구조인지 확인. 파일 확장자의
-   버전 숫자(`mdf2.45`)만 보는 게 아니라, 실제 머티리얼 구조(프로퍼티 개수,
-   텍스처 슬롯, 셰이더)를 현재 버전과 직접 비교한다 — 실제로 겪어보니 확장자
-   숫자는 그대로인데 내부 구조만 바뀐 경우가 있어서, 숫자 비교만으론 못 믿음.
-   - 전부 이미 최신이면: "고칠 게 없습니다" 안내하고 종료 (결과물 안 만듦)
-   - 구버전이 있으면: 어떤 파일이 왜 문제인지 보여주고 "업데이트할까요?" 확인
-4. 확인하면 실제 복구 진행 (아래 "원리" 참고)
-5. 저장할 폴더를 선택하면, 원래 모드 구조(modinfo.ini 포함) 그대로 다시
-   압축해서 저장. 완료 메시지 표시.
+1. Pick a mod archive → it's extracted automatically
+2. The current game version's paks get indexed (a few seconds the first
+   time only, instant afterward via cache)
+3. **Diagnosis**: checks whether each of the mod's mdf2 files is actually
+   structurally out of date. It doesn't just look at the version number in
+   the file extension (`mdf2.45`) — it directly compares the real material
+   structure (property count, texture slots, shader) against the current
+   version, since Capcom has shipped internal structure changes under an
+   unchanged extension number, so the number alone can't be trusted.
+   - If everything's already current: reports "nothing to fix" and exits
+     (produces no output)
+   - If something's out of date: shows which files and why, and asks for
+     confirmation before updating
+4. On confirmation, the actual repair runs (see "How it works" below)
+5. Pick a save folder and it's rezipped in the mod's original structure
+   (including modinfo.ini). A completion message is shown.
 
-진단/복구가 진행되는 동안(특히 자체 `.pak`으로 패키징된 대용량 텍스처팩
-모드는 항목이 수천 개라 시간이 좀 걸릴 수 있음) 화면에 "검증 중입니다.
-프로그램을 끄지 마시고 조금 더 기다려주세요" 안내와 진행률(%) 표시줄이
-뜬다 — 예전엔 이 구간에서 화면이 그냥 멈춰 있는 것처럼 보여서 꺼도 되는지
-헷갈린다는 피드백이 있었음.
+While diagnosis/repair is running (a large texture-pack mod packaged as
+its own `.pak` can have thousands of entries and take a while), the
+screen shows a "Verifying — please don't close the program, this may
+take a while" notice plus a percentage progress bar — earlier versions
+just looked frozen during this stretch, which was confusing feedback.
 
-## 원리
+## How it works
 
-- **pak에서 직접 vanilla 파일 추출**: `re_chunk_000.pak` (+patch_NNN.pak)와
-  `re_chunk_000.pak.sub_000.pak` (+그 patch들)의 헤더/엔트리 테이블만 읽어서
-  (전체 압축 해제 없음, 40GB+ 파일에서 필요한 항목만 seek+복호화+압축해제),
-  경로를 MurmurHash3로 해시해서 원하는 파일 하나만 뽑아낸다. 포맷은 오픈소스
-  `REE.PAK.Tool`(Ekey) C# 소스를 그대로 포팅 (RSA 기반 엔트리 테이블 복호화,
-  zstd 압축, 최신 패치가 쓰는 chunked-resource 스트리밍까지 포함). 엔트리
-  테이블은 게임 폴더 변경을 감지해서 로컬에 캐시해둔다.
-- **모드 파일 경로 → 실제 게임 경로 매칭**: 모드가 `mh03` 같은 가짜 슬롯
-  코드(모드 매니저가 슬롯 충돌 방지용으로 주입, 실제 vanilla엔 없음)를 쓰면
-  실제 바닐라 코드(`ch03`)로 자동 치환해서 찾는다. 버전 번호도 모른 채로
-  브루트포스해서 현재 버전을 찾아낸다.
-- **머티리얼 단위 재조립**: 전신 커스텀 모드는 바닐라의 여러 서브메시
-  머티리얼을 몇 개로 통합해버리는 경우가 많아서 "같은 파일의 같은 위치"
-  매칭이 안 통한다. 대신 모드 머티리얼 하나하나를 셰이더(mmtr) 기준으로
-  매칭한다: 같은 부위 파일 안에서 먼저 찾고, 없으면 같은 장비 세트의 다른
-  부위 파일들 중에서 셰이더가 맞는 걸 빌려온다. 찾은 도너 머티리얼의 구조는
-  그대로 두고 텍스처 경로만 모드 것으로 덮어써서 완전히 새 mdf2를 조립한다.
-- 조립된 각 mdf2는 곧바로 다시 파싱해서 구조가 유효한지 자체 검증한다.
+- **Pulls vanilla files directly out of the paks**: only reads the
+  header/entry table of `re_chunk_000.pak` (+`patch_NNN.pak`) and
+  `re_chunk_000.pak.sub_000.pak` (+its patches) — no full extraction, just
+  seek + decrypt + decompress the one entry needed, even from a 40GB+
+  file — by hashing the path with MurmurHash3. The format is ported
+  directly from the open-source `REE.PAK.Tool` (Ekey) C# source, including
+  RSA-based entry-table decryption, zstd decompression, and the
+  chunked-resource streaming used by recent patches. The entry table is
+  cached locally, keyed off the detected game folder.
+- **Matches a mod's own file paths to the real game paths**: if a mod uses
+  a fake slot code like `mh03` (injected by mod managers to avoid slot
+  conflicts, not present in real vanilla), it's automatically substituted
+  with the real vanilla code (`ch03`) to find the donor. The version
+  number is brute-forced without knowing it in advance.
+- **Reassembles material-by-material**: full-body custom mods often
+  collapse several of vanilla's submesh materials down into fewer, so
+  "same position in the same file" matching doesn't hold. Instead, each of
+  the mod's own materials is matched by shader (mmtr): first within the
+  same piece's own file, then borrowed from another piece in the same
+  equipment set if the shader isn't found there. The matched donor
+  material's own structure is kept as-is, with only its texture paths
+  overwritten by the mod's, to assemble a brand-new mdf2 from scratch.
+- Every assembled mdf2 is immediately re-parsed to self-verify its
+  structure is valid.
 
-## exe 다시 빌드하기 (배포용)
+## Rebuilding the exe (for distribution)
 
 ```
 pip install -r requirements.txt
@@ -100,163 +122,195 @@ pyinstaller --noconfirm --onefile --windowed --name "MHWmodfixer" ^
     --hidden-import whole_game_index ^
     gui.py
 ```
-결과물은 `dist\MHWmodfixer.exe` 하나. 압축 해제는 zip(표준 라이브러리)/7z(py7zr,
-순수 파이썬)/rar(bundled UnRAR.exe, RARLAB 프리웨어 라이선스로 재배포 허용)를
-전부 exe 안에서 처리하므로 받는 사람 PC에 아무것도 설치할 필요 없음.
+The result is a single `dist\MHWmodfixer.exe`. zip (stdlib) / 7z (py7zr,
+pure Python) / rar (bundled UnRAR.exe, redistributable under RARLAB's
+freeware license) extraction all happen inside the exe, so nothing needs
+to be installed on the recipient's machine.
 
-## .pak으로 패키징된 모드 (자체 .pak 파일을 포함하는 모드)
+## Mods packaged as their own `.pak`
 
-일부 모드(특히 무기 외형)는 `natives/...` 느슨한 파일 대신 자체 `.pak` 파일
-하나로 배포됩니다 (예: "Summer Fleet Weapons", "Wyvern Impact"의 무기). 이
-`.pak`이 게임 자체 pak과 완전히 같은 KPKA 포맷(다만 암호화/청크 없음)이라
-기존 pak 리더로 그대로 열립니다. 이 경우 파일 이름이 없어서(pak 안 항목은
-해시로만 식별됨) 두 가지를 다르게 처리합니다:
-- 어떤 바닐라 파일을 대체하는지는 **경로 추측 없이, 항목의 해시값을 현재
-  게임 pak 인덱스와 직접 대조**해서 찾습니다 (일치하면 그게 바로 정확한
-  바닐라 도너 — mh↔ch 치환 같은 휴리스틱이 필요 없을 만큼 확실함).
-- mdf2 내부 버전 번호(`.mdf2.45`의 45)도 파일명이 없어 알 수 없으므로,
-  파싱 후 재직렬화가 원본과 완전히 일치하는 후보를 찾는 방식으로 자동
-  판별합니다 (`mdf2.detect_numVersion`).
-- 머티리얼이 도너 파일 하나와 1:1로 대응되는 단순한 경우(대부분의 무기
-  모드)는 **처음부터 재조립하지 않고, 도너 파일을 인플레이스로 패치**한다
-  (`pak_mod_fix._rebuild_entry`) — 실제 장비 세트 여러 부위를 조합해야 하는
-  경우(방어구 전신 모드 등)만 머티리얼 단위 재조립(`mdf2_slice.assemble_mdf2`)
-  으로 넘어간다. 아래 "겪었던 문제들" 참고 — 재조립 쪽에서 실제 게임
-  테스트로만 드러나는 문제가 여러 번 있었어서, 가능하면 인플레이스 패치를
-  우선시하도록 바꿈.
-- 수정한 mdf2 외 나머지 항목은 **원본 압축 바이트를 그대로 재사용**(압축
-  방식 자체를 바꾸지 않음), 항목 순서도 원본 그대로 유지해서 새 `.pak`을
-  씀 (`pak_writer.py`).
+Some mods (especially weapon cosmetics) ship as a single standalone
+`.pak` file instead of loose files under `natives/...` (e.g. "Summer
+Fleet Weapons", "Wyvern Impact" weapons). That `.pak` turns out to be
+exactly the same KPKA format the game's own paks use (just unencrypted,
+unchunked), so the existing pak reader opens it directly. Since entries
+inside it carry no filename (only a hash), two things are handled
+differently:
+- Which vanilla file an entry replaces is found **by matching the
+  entry's hash directly against the current game's pak index, with no
+  path guessing** — a match IS the exact correct vanilla donor,
+  definitive enough that no mh↔ch-style heuristic is needed.
+- The mdf2's internal version number (the `45` in `.mdf2.45`) also can't
+  be read from a filename, so it's auto-detected by finding the candidate
+  version whose parse-then-reserialize round-trips back to the exact
+  original bytes (`mdf2.detect_numVersion`).
+- When materials map 1:1 to a single donor file (the common case for
+  most weapon mods), the donor file is **patched in place rather than
+  reassembled from scratch** (`pak_mod_fix._rebuild_entry`) — only cases
+  that genuinely need to splice together several equipment-set pieces
+  (full-body armor mods) fall through to material-level reassembly
+  (`mdf2_slice.assemble_mdf2`). See "Bugs found" below — several bugs on
+  the reassembly path only ever showed up via real in-game testing, so
+  in-place patching is now preferred whenever possible.
+- Every other entry besides the fixed mdf2(s) **reuses its original
+  compressed bytes verbatim** (compression scheme untouched), keeping the
+  original entry order, to write the new `.pak` (`pak_writer.py`).
 
-### 겪었던 문제들 (실제 게임 테스트로만 드러남 — 다음에 비슷한 버그 만나면 참고)
+### Bugs found (only ever showed up via real in-game testing — keep this in mind for the next one)
 
-무기 모드 하나(Wyvern Impact)를 고쳤는데 게임 타이틀 화면에서 검은 화면이
-뜨는 문제가 있었다. 구조적 자체 검증(파싱/재직렬화 round-trip, 도너와의
-필드 비교)은 전부 통과했는데도 실제로는 깨져 있었다 — 즉 **"내 파서로 다시
-읽었을 때 말이 되는가"만으로는 실제 게임이 받아들이는지 검증이 안 된다.**
-실제로 찾은 원인은 3+1가지:
+Fixing one weapon mod (Wyvern Impact) produced a black screen at the
+game's title menu. Every structural self-check (parse/reserialize
+round-trip, field-by-field comparison against the donor) passed, yet it
+was still broken in-game — **"does my own parser find this internally
+consistent" is not the same guarantee as "does the real game accept
+it."** The actual causes, found one at a time:
 
-1. **`sizeOfFloatStr`(프로퍼티 데이터 블록 크기) 16바이트 정렬 누락.**
-   실제 파일은 이 필드를 16바이트 배수로 올림(패딩)해서 저장하는데, 재조립
-   코드는 딱 필요한 만큼만 계산해서 8바이트 정도 작게 썼다. (이건 실존하는
-   버그였지만, 나중에 밝혀졌듯 이번 검은 화면의 진짜 원인은 아니었음.)
-2. **pak 항목 체크섬을 실제로 계산해서 채워넣음.** REE.Packer 문서상
-   공식(xxHash 기반)을 그대로 포팅했는데, 실제 모드 파일들은 전부
-   체크섬=0을 씀 (계산 안 하고 그냥 0). "그럴듯하지만 틀린" 값을 쓰는 게
-   0을 쓰는 것보다 더 위험했다.
-3. **gpbf(GPU 버퍼 이름 참조) 오프셋이 아예 추적 안 됨.** `mdf2.py`가 gpbf
-   항목을 파싱은 안 하면서 오프셋 목록에도 안 넣어서, 텍스처 경로를 바꿔
-   문자열 길이가 달라지면 뒤에 있는 gpbf 이름 문자열 위치가 안 밀리고 그대로
-   남았다. 자기 자신을 다시 파싱해도 티가 안 남(그냥 잘못된 오프셋을 그대로
-   또 읽으니까) — 실제 도너와 비교해야만 드러남.
-4. **(진짜 원인) pak 컨테이너 자체의 압축 방식/항목 순서.** 위 세 개를 다
-   고쳐도 검은 화면이 계속되길래, **내용을 전혀 안 바꾸고 원본 11개 항목을
-   그대로 압축만 다시 해서 쓰는 "passthrough" 테스트**를 만들어 확인했더니
-   그것도 검은 화면이 났다 — 즉 mdf2 내용과는 무관하고 컨테이너 자체의
-   문제라는 게 확정됐다. 원본과 바이트 단위로 정밀 비교해보니:
-   - 원본은 **압축 안 함(uncompressed)**인데 재조립 코드는 zstd로 강제
-     재압축하고 있었음 (압축 해제하면 내용은 같지만, 이것 자체가 문제였음)
-   - 원본 항목 순서가 **해시 정렬이 아닌데** 재조립 코드는 항상 해시로
-     재정렬해서 씀
-   
-   이 두 가지(압축 방식 보존 + 순서 보존)를 고치고서야 실제로 해결됨.
+1. **`sizeOfFloatStr` (the property data block size) wasn't padded to a
+   16-byte boundary.** Real files round this field up to a multiple of
+   16, but the reassembly code computed only the exact bytes needed,
+   coming up about 8 bytes short. (A real bug, but — as it turned out —
+   not the actual cause of this particular black screen.)
+2. **Pak entry checksums were being genuinely computed.** The official
+   formula (xxHash-based) from REE.Packer's documentation was ported
+   faithfully, but real mod files all just use checksum=0 (never
+   computed). A "plausible but wrong" value turned out to be more
+   dangerous than a plain zero.
+3. **gpbf (GPU buffer name reference) offsets weren't tracked at all.**
+   `mdf2.py` neither parsed gpbf entries nor included them in its offset
+   list, so when editing a texture path changed a string's length, the
+   gpbf name string's position downstream didn't shift with it and was
+   left stale. Re-parsing the file itself doesn't catch this (it just
+   reads the same wrong offset again) — only comparing against the real
+   donor exposes it.
+4. **(The actual cause) the pak container's own compression scheme and
+   entry order.** Even after fixing all three of the above, the black
+   screen persisted, so a **"passthrough" test — repacking the original
+   11 entries with zero content changes, just recompressing them as-is —
+   was built to check**, and it ALSO produced a black screen, confirming
+   the bug had nothing to do with mdf2 content and was purely a
+   container-level issue. A precise byte-for-byte diff against the
+   original found:
+   - The original entries were **stored uncompressed**, while the
+     reassembly code was force-recompressing everything with zstd (the
+     decompressed content was identical, but this alone was the problem)
+   - The original entry order was **not sorted by hash**, while the
+     reassembly code always re-sorted entries by hash before writing
 
-**교훈**: 자체 파서로 round-trip이 되고 실제 도너와 필드가 일치해도, 그건
-"내가 이해한 포맷 규칙 안에서 일관됨"을 증명할 뿐 "진짜 게임이 읽는 방식과
-같다"는 보장이 안 된다. 의심 가는 구조적 수정이 안 통하면, **아무것도
-안 바꾸는 passthrough 재조립**을 만들어서 "내용 문제 vs 컨테이너/포맷
-자체 문제"부터 확실히 가르는 게 훨씬 빠르다.
+   Fixing both of these (preserving the original compression AND the
+   original order) is what actually resolved it.
 
-### `mdf2_slice.assemble_mdf2`(처음부터 재조립) 자체의 버그 — 오랫동안 안 잡힘
+**Lesson**: round-tripping through your own parser and matching the real
+donor field-by-field only proves "internally consistent with the format
+rules I understood" — it does not guarantee "matches how the real game
+actually reads it." When a suspected content-level fix doesn't work,
+building a **zero-change passthrough reassembly** to cleanly separate
+"content problem" from "container/format problem" is much faster than
+continuing to hypothesize about content.
 
-위 pak 컨테이너 버그들과는 별개로, **머티리얼을 다른 파일에서 이어붙여야 해서
-`assemble_mdf2`로 새로 조립해야만 하는 경우**(방어구 전신 모드처럼 장비 세트
-다른 부위에서 빌려오는 경우, 또는 무기 하나에 게임 전체에서 셰이더 도너를
-빌려와야 하는 경우)에 실제로 겪은 문제:
+### A long-hidden bug in `mdf2_slice.assemble_mdf2` itself (from-scratch reassembly)
 
-- **헤더의 "reserved" u64 필드(offset 8)를 항상 0으로 씀.** `mdf2.py` 파서는
-  이 필드를 읽지도 않고 그냥 건너뛰기만 해서 "진짜 reserved"인 줄 알았는데,
-  실제 파일은(머티리얼 1개짜리든 2개짜리든, 확인한 모든 파일에서) 전부 **1**을
-  저장하고 있었다. 0으로 쓰면 게임이 파일을 유효하지 않다고 판단해서 조용히
-  무시하고 원래 바닐라로 폴백하는 것으로 보인다 — 크래시도 없고 검은 화면도
-  없이 그냥 **모드가 하나도 반영 안 된 것처럼** 보여서(원본이 깨졌을 때 보통
-  나오는 "안 보이는 무기"류 증상과도 다름) 알아채기 특히 어려웠다.
-- 인플레이스 패치(도너 파일 바이트를 그대로 쓰고 문자열만 바꾸는 방식)는 이
-  헤더를 안 건드리므로 이 버그의 영향을 받지 않는다 — 그래서 같은 파일 안에서
-  1:1로 끝나는 단순한 경우(대부분의 무기 mdf2 하나짜리)는 문제가 없었고,
-  **여러 출처를 진짜로 이어붙여야 하는 경우에만** 이 버그가 드러났다.
-- 게임 전체에서 셰이더 도너를 고를 때, 원본 후보들의 **카테고리(item vs
-  character 등)를 전혀 안 따지고** 그냥 목록에 먼저 나온 걸 골랐던 것도 별개
-  문제로 발견 — 무기인데 캐릭터 애셋을 빌려온 경우가 있었음(위 원인과 겹쳐서
-  같이 나타났었음). 이제 같은 카테고리를 우선하도록 고침(`slot_merge._category`).
-- **머티리얼 이름을 도너 것 그대로 써버림.** `apply_texture_overrides`가
-  `copy.deepcopy(donor_mat)`으로 새 머티리얼을 만들면서 이름(`name`)까지
-  도너 것을 그대로 남겨뒀는데, Capcom은 "lambert2", "lambert1" 같은 범용
-  이름을 서로 무관한 파일 여러 개에서 재사용한다. 한 무기(Rocket Hammer)의
-  머티리얼 10개가 전부 다른 셰이더를 이어붙였는데도(각기 다른 소스 파일에서
-  텍스처를 가져옴) 이름은 전부 도너 쪽 "lambert2"로 겹쳐버려서, 조립된 파일
-  안에서 10개 머티리얼의 name_hash가 전부 동일해지는 결과가 나왔다. 이것도
-  reserved 버그와 똑같이 크래시나 검은 화면 없이 **모드가 하나도 반영 안 된
-  것처럼**(바닐라 그대로) 보이는 증상이었다 — 실제로 작동했던 커뮤니티
-  Blender 수정본과 비교해보니 그쪽은 원본 모드처럼 머티리얼 이름이 전부
-  고유했다(`lambert2, lambert31~39`). 고침: 이름은 도너가 아니라 **모드
-  쪽 원래 이름**을 유지하도록 `apply_texture_overrides`에서 `new_mat["name"]
-  = mod_mat["name"]`로 덮어씀.
+Separately from the pak-container bugs above, real issues found in cases
+that genuinely require reassembling from scratch via `assemble_mdf2`
+(full-body armor mods borrowing materials from other pieces in the same
+equipment set, or a weapon that needs to borrow a shader donor from
+anywhere in the whole game):
 
-**중요**: 이 "reserved=1" 버그와 "머티리얼 이름 충돌" 버그 둘 다
-`assemble_mdf2`를 쓰는 모든 경우(진짜 스플라이싱이 필요한 경우)에 영향을
-줬으므로, **이 두 버그 수정 이전에 만들어진, 재조립이 필요했던 결과물은(예:
-Banshee 방어구 전신 모드처럼 장비 세트 여러 부위를 이어붙인 경우) 전부 다시
-만들어야 한다** — 그 당시엔 구조 검증은 통과했지만 실제 게임에서 확인된 적이
-없었고, 지금 보면 똑같이 조용히 무시됐을 가능성이 높다.
+- **The header's "reserved" u64 field (offset 8) was always written as
+  0.** `mdf2.py`'s parser never even read this field, just skipped past
+  it, so it looked like genuine padding — but every real file checked (1
+  material or many) stores **1** there. Writing 0 makes the game treat
+  the file as invalid and silently ignore it, falling back to plain
+  vanilla — no crash, no black screen, just **the mod appearing to have
+  no effect at all** (a different symptom than the usual "invisible
+  weapon" signature of a genuinely broken file), which made it
+  particularly hard to notice.
+- In-place patching (writing the donor file's bytes as-is and only
+  editing strings) never touches this header, so it was unaffected by
+  this bug — simple 1:1-within-the-same-file cases (most single-mdf2
+  weapon mods) were fine, and this bug only ever showed up **when
+  several sources genuinely needed to be spliced together**.
+- Found as a separate issue while picking a whole-game shader donor: the
+  candidates' **category (item vs. character, etc.) wasn't considered at
+  all**, just picking whichever appeared first in the list — a weapon
+  sometimes ended up borrowing a character asset (this overlapped with
+  and compounded the bug above in the same case). Fixed to prefer donors
+  in the same category (`slot_merge._category`).
+- **Material names were carried over verbatim from the donor.**
+  `apply_texture_overrides` built each new material via
+  `copy.deepcopy(donor_mat)`, which also kept the donor's own `name` —
+  but Capcom reuses generic names like "lambert2"/"lambert1" across many
+  unrelated files. One weapon (Rocket Hammer) had 10 materials each
+  splicing in a different shader (each pulling textures from a different
+  source file), yet all 10 ended up sharing the donor's own "lambert2"
+  name, giving every material in the assembled file an identical
+  name_hash. Just like the reserved-field bug, this produced no crash and
+  no black screen — just **the mod appearing to have no effect at all**
+  (plain vanilla). Comparing against a community Blender fix that
+  actually worked confirmed the working version kept each material's own
+  unique name, just like the source mod (`lambert2, lambert31~39`).
+  Fixed by keeping the MOD's own name rather than the donor's:
+  `apply_texture_overrides` now sets `new_mat["name"] = mod_mat["name"]`.
 
-## 게임 전체에서 도너 찾기 (마지막 수단)
+**Important**: both the "reserved=1" bug and the "material name
+collision" bug affected every case that used `assemble_mdf2` (i.e. every
+case that genuinely needed splicing), so **any output built before these
+two fixes that needed reassembly (e.g. a full-body armor mod like
+Banshee that spliced together several equipment-set pieces) should be
+rebuilt** — those passed structural validation at the time but were
+never actually confirmed in-game, and were very likely silently ignored
+by the game in exactly the same way.
 
-무기 모드 중엔 부위 하나에 머티리얼이 10개 넘게 들어있고, 그중 하나만 다른
-셰이더를 쓰는 경우가 있다(예: "Rocket Hammer" — 로켓 배기/이펙트용 머티리얼
-9개는 같은 셰이더를 공유하는데 1개만 다른 셰이더를 씀). 이런 무기는 장비
-세트 개념이 없어서(방어구처럼 여러 부위 파일이 없음) 같은 파일/같은 세트
-안에서 도너를 못 찾으면 정말 아무 데도 없다.
+## Whole-game donor search (last resort)
 
-이 경우 **마지막 수단으로 게임 전체를 뒤진다**: `tools/mdf2_filelist.txt`
-(커뮤니티가 관리하는 파일 목록에서 mdf2 경로만 추출, 9,939개)에 있는 파일들의
-현재 버전을 전부 읽어서 셰이더(mmtr)별로 머티리얼을 인덱싱해둔다 (필요할 때
-1회만, 게임 폴더가 안 바뀌면 캐시 재사용 — 처음엔 약 20~30초 걸림). 이 마지막
-단계에서 찾은 도너는 같은 파일/같은 세트에서 찾은 것보다 확실성이 떨어지지만
-(수십~수백 개 후보 중 하나를 고름), 텍스처만 모드 것으로 덮어쓰고 나머지는
-그대로 두는 원칙은 동일하게 적용되어 안전하다 — 다만 모드가 원래 커스텀했을
-수도 있는 셰이더 파라미터(색조 등)의 기본값이 원본과 다를 수 있음.
+Some weapon mods have 10+ materials in a single piece, where only one of
+them uses a different shader from the rest (e.g. "Rocket Hammer" — 9
+rocket-exhaust/effect materials share one shader, and 1 uses a different
+one). Weapons like this have no equipment-set concept (no multiple piece
+files like armor has), so if no donor can be found within the same
+file/set, there's genuinely nowhere else to look within that scope.
 
-## 한계
+As a **last resort**, the whole game is searched in that case: every
+current-version file listed in `tools/mdf2_filelist.txt` (mdf2 paths
+extracted from a community-maintained file list, 9,939 of them) is read
+and indexed by shader (mmtr) (once, on demand, cached until the game
+folder changes — about 20–30 seconds the first time). A donor found this
+way is less certain than one found within the same file/set (picked out
+of dozens to hundreds of candidates), but the same safety principle
+still applies — only the texture paths are overwritten with the mod's
+own, everything else is left as the donor's — so it stays safe; the one
+caveat is that shader parameters the mod may have customized (tint,
+etc.) could end up at the donor's own defaults rather than the mod's
+intended values.
 
-- 텍스처 경로 오버라이드만 복구한다. 모드가 셰이더 파라미터(색상 틴트 등)를
-  직접 커스텀했다면 그 값은 반영되지 않고 도너의 기본값을 쓴다.
-- 셰이더가 일치하는 도너를 같은 파일/같은 장비 세트/게임 전체 어디서도 못
-  찾으면 그 파일은 스킵된다.
-- 게임 전체 검색은 번들된 파일 목록(`tools/mdf2_filelist.txt`)에 있는 경로만
-  대상으로 한다 — 이 목록에 없는 완전히 새로운 경로는 찾지 못한다.
-- 개별 리소스 암호화(ResourceCipher, 일부 DLC 전용)가 걸린 엔트리는 지원하지
-  않음 (일반 캐릭터/방어구 mdf2에서는 마주칠 일이 거의 없음).
+## Limitations
 
-## 파일 구성
+- Only texture-path overrides are restored. If a mod directly customized
+  shader parameters (color tint, etc.), that value isn't carried over —
+  the donor's own default is used instead.
+- If no donor with a matching shader can be found anywhere (same file,
+  same equipment set, or whole game), that file is skipped.
+- The whole-game search only covers paths present in the bundled file
+  list (`tools/mdf2_filelist.txt`) — a genuinely new path not in that
+  list won't be found.
+- Entries under per-resource encryption (ResourceCipher, used by some
+  DLC-exclusive content) aren't supported (essentially never encountered
+  in ordinary character/armor mdf2 files).
 
-- `gui.py` — GUI 진입점 (tkinter + tkinterdnd2 드래그앤드롭)
-- `pak_reader.py` — RE Engine `.pak` 리더 (헤더/RSA 복호화/zstd/chunk 스트리밍)
-- `pak_writer.py` — 단순(비암호화) KPKA pak 라이터 (.pak으로 패키징된 모드 재조립용)
-- `xxhash_re.py` — pak 항목 체크섬 계산용 xxHash32/64 포팅
-- `game_archive.py` — 여러 pak을 하나로 합쳐서 최신 파일을 바로 읽어주는 레이어,
-  로컬 캐시 + 버전 번호 브루트포스 탐색 + 해시 직접 조회(`read_by_hash`) 포함
-- `archive_extract.py` — zip(stdlib)/7z(py7zr)/rar(bundled UnRAR.exe) 압축 해제
-- `mdf2.py` — MDF2 바이너리 파서 + 텍스처 경로 인플레이스 패치 +
-  파일명 없는 경우의 버전 번호 브루트포스 탐지(`detect_numVersion`)
-- `mdf2_slice.py` — 머티리얼 단위 추출/재조립 (새 파일 처음부터 조립)
-- `donor.py` — mh↔ch 같은 커스텀 슬롯 경로 치환 휴리스틱 (loose file 전용)
-- `slot_merge.py` — 셰이더(mmtr) 기준 도너 머티리얼 매칭 로직 (같은 파일 →
-  같은 장비 세트 → 게임 전체 순서로 확대)
-- `whole_game_index.py` — 마지막 수단인 게임 전체 셰이더 인덱스 (지연 생성 +
-  캐시)
-- `auto_fix.py` — 진단+복구 핵심 로직 + CLI (`plan_mod`/`process_mod`, loose file 처리)
-- `pak_mod_fix.py` — .pak으로 패키징된 모드 전용 처리 (해시 직접 매칭 + 재조립)
-- `diagnose.py` — GUI가 쓰는 "고칠 게 있는지" 진단 (auto_fix의 plan_mod 재사용)
-- `tools/UnRAR.exe` — 번들된 RAR 압축 해제 도구
-- `test_*.py` — 실제 게임 파일로 검증한 테스트/회귀 스크립트 (참고용)
+## File layout
+
+- `gui.py` — GUI entry point (tkinter + tkinterdnd2 drag-and-drop)
+- `pak_reader.py` — RE Engine `.pak` reader (header/RSA decryption/zstd/chunk streaming)
+- `pak_writer.py` — simple (unencrypted) KPKA pak writer (for reassembling `.pak`-packaged mods)
+- `xxhash_re.py` — xxHash32/64 port used for pak entry checksums
+- `game_archive.py` — layer that merges multiple paks so the current version of any file can be read directly; includes local caching, version-number brute-forcing, and direct hash lookup (`read_by_hash`)
+- `archive_extract.py` — zip (stdlib) / 7z (py7zr) / rar (bundled UnRAR.exe) extraction
+- `mdf2.py` — MDF2 binary parser + in-place texture-path patching + version-number brute-force detection when there's no filename (`detect_numVersion`)
+- `mdf2_slice.py` — per-material extraction/reassembly (building a new file from scratch)
+- `donor.py` — custom-slot path substitution heuristic (mh↔ch etc., loose files only)
+- `slot_merge.py` — shader (mmtr)-based donor material matching (expands from same file → same equipment set → whole game)
+- `whole_game_index.py` — the last-resort whole-game shader index (lazily built + cached)
+- `auto_fix.py` — core diagnose+repair logic and CLI (`plan_mod`/`process_mod`, loose-file handling)
+- `pak_mod_fix.py` — handling specific to mods packaged as their own `.pak` (direct hash matching + reassembly)
+- `diagnose.py` — the "is there anything to fix" diagnosis the GUI uses (reuses auto_fix's `plan_mod`)
+- `tools/UnRAR.exe` — bundled RAR extraction tool
+- `test_*.py` — test/regression scripts verified against real game files (for reference)

@@ -485,7 +485,7 @@ under 20 minutes.
 
 ## Rebuilding the exe
 
-See README.md's "exe 다시 빌드하기" section for the exact PyInstaller
+See README.md's "Rebuilding the exe" section for the exact PyInstaller
 command (must list every module that's only ever imported lazily inside a
 function as `--hidden-import`, or PyInstaller's static analysis misses
 it — `pak_mod_fix`, `whole_game_index`, `fluffy_repackage`, `pfb_fix` all
