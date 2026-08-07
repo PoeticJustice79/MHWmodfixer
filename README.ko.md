@@ -94,7 +94,7 @@ python auto_fix.py "모드.zip"               # 커맨드라인
 
 ```
 pip install -r requirements.txt
-pyinstaller --noconfirm --onefile --windowed --name "MHWmodfixer" ^
+pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
     --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
@@ -102,8 +102,14 @@ pyinstaller --noconfirm --onefile --windowed --name "MHWmodfixer" ^
     --hidden-import whole_game_index ^
     gui.py
 ```
-결과물은 `dist\MHWmodfixer.exe` 하나. 압축 해제는 zip(표준 라이브러리)/7z(py7zr,
-순수 파이썬)/rar(bundled UnRAR.exe, RARLAB 프리웨어 라이선스로 재배포 허용)를
+결과물은 `dist\MHWmodfixer\` 폴더 (`MHWmodfixer.exe` + 지원 파일들) — 폴더째로
+압축해서 배포. 원래 `--onefile`(exe 하나)로 했었는데, 단일 exe가 실행 시점에
+자기 자신을 임시폴더에 풀어서 실행하는 방식 자체가 백신 오탐(false positive)
+트리거로 자주 걸림(악성코드 드로퍼가 흔히 쓰는 방식이랑 행동 패턴이 비슷해서) —
+v0.3에서 실제로 여러 유저가 이걸 겪었음. `--onedir`로 바꾸면 이 특정 행동
+패턴 자체를 안 쓰게 돼서 오탐 트리거를 피할 수 있음. 압축 해제는 여전히
+zip(표준 라이브러리)/7z(py7zr, 순수 파이썬)/rar(bundled UnRAR.exe, RARLAB
+프리웨어 라이선스로 재배포 허용)를
 전부 exe 안에서 처리하므로 받는 사람 PC에 아무것도 설치할 필요 없음.
 
 ## .pak으로 패키징된 모드 (자체 .pak 파일을 포함하는 모드)

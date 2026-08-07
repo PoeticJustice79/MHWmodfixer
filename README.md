@@ -114,7 +114,7 @@ just looked frozen during this stretch, which was confusing feedback.
 
 ```
 pip install -r requirements.txt
-pyinstaller --noconfirm --onefile --windowed --name "MHWmodfixer" ^
+pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
     --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
@@ -122,7 +122,14 @@ pyinstaller --noconfirm --onefile --windowed --name "MHWmodfixer" ^
     --hidden-import whole_game_index ^
     gui.py
 ```
-The result is a single `dist\MHWmodfixer.exe`. zip (stdlib) / 7z (py7zr,
+The result is a `dist\MHWmodfixer\` folder (`MHWmodfixer.exe` plus its
+support files) — zip the whole folder for distribution. This used to be
+`--onefile` (a single self-contained exe), but a single exe that
+self-extracts into a temp folder at runtime is a much more common target
+for antivirus false positives (the behavior itself resembles how some
+malware droppers work) than a plain folder of files sitting next to the
+exe; several real users hit exactly this with v0.3. `--onedir` avoids
+that specific behavioral trigger. Either way, zip (stdlib) / 7z (py7zr,
 pure Python) / rar (bundled UnRAR.exe, redistributable under RARLAB's
 freeware license) extraction all happen inside the exe, so nothing needs
 to be installed on the recipient's machine.

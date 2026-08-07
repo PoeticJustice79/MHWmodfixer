@@ -493,3 +493,14 @@ need this). Close any running `MHWmodfixer.exe` first — PyInstaller can't
 overwrite a locked exe (the GUI now refuses a second simultaneous launch
 via a Windows named mutex, but an already-running instance from a prior
 session will still lock the file).
+
+**`--onedir`, not `--onefile` (changed in v0.3).** Real users hit Windows
+Defender false-positive detections on the v0.3 `--onefile` build (2026-08-07
+Nexus reports) -- a single self-extracting exe that unpacks itself into a
+temp folder at runtime behaviorally resembles how some malware droppers
+work, which is a much more common false-positive trigger than a plain
+folder of files. `MHWmodfixer.spec` (tracked in the repo) is already
+updated to `--onedir`'s two-stage `EXE(..., exclude_binaries=True)` +
+`COLLECT(...)` structure -- don't regenerate it back to a single-`EXE()`
+onefile spec. The distributable is now `dist/MHWmodfixer/` (a folder),
+zipped whole for Nexus, not a single `.exe`.
