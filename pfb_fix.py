@@ -76,6 +76,7 @@ def _parse_rsz(data: bytes):
     return {
         "rsz_off": rsz_off, "version": version, "obj_count": obj_count,
         "inst_count": inst_count, "userdata_count": userdata_count, "insts": insts,
+        "inst_table_pos": inst_table_pos,
     }
 
 
@@ -207,6 +208,49 @@ def _find_substitution(mod_strings: set[str], donor_strings: set[str], force: bo
     return None
 
 
+def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_bytes: bytes, donor_info: dict) -> bytes | None:
+    """The safest possible fix, tried before anything else: if the mod's own
+    pfb has the exact same ordered sequence of instance types, the same
+    obj/inst/userdata counts, and the exact same overall file length as the
+    CURRENT donor, the only thing that can plausibly still be stale is the
+    per-instance CRC value the engine checks against its live type
+    registry -- the actual field layout never moved. In that case, patch
+    only the (up to) 4 bytes of each differing CRC directly in the mod's
+    OWN bytes; nothing else -- not the resource strings, not a single byte
+    of the RSZ data block -- is touched. Returns None if the shapes don't
+    line up this closely (caller falls through to the normal donor-replace
+    path), or if they line up but nothing was actually stale.
+
+    This is deliberately conservative rather than a general byte-accurate
+    RSZ field walker (which would let a genuinely reshaped class be
+    migrated field-by-field, not just have its CRC silenced) -- building
+    that safely needs a maintained snapshot of the PREVIOUS game version's
+    field layouts to migrate from, which this project does not have (it
+    only ever reads the current live game). Matching ordered type sequence
+    + counts + total file length is a much cheaper signal that doesn't
+    need one, and it can't make things worse than today's status quo even
+    when it's wrong: this only ever rewrites the header's CRC table, never
+    the data block, so a false-positive match just leaves the engine
+    rejecting the file exactly as it already does now -- not a new
+    failure mode, just a missed opportunity to fix it."""
+    if (mod_info["obj_count"], mod_info["inst_count"], mod_info["userdata_count"]) != \
+       (donor_info["obj_count"], donor_info["inst_count"], donor_info["userdata_count"]):
+        return None
+    if [t for t, _ in mod_info["insts"]] != [t for t, _ in donor_info["insts"]]:
+        return None
+    if mod_info["rsz_off"] != donor_info["rsz_off"] or len(mod_bytes) != len(donor_bytes):
+        return None
+
+    result = bytearray(mod_bytes)
+    changed = 0
+    for i, ((_, mod_crc), (_, donor_crc)) in enumerate(zip(mod_info["insts"], donor_info["insts"])):
+        if mod_crc == donor_crc:
+            continue
+        struct.pack_into("<I", result, mod_info["inst_table_pos"] + i * 8 + 4, donor_crc)
+        changed += 1
+    return bytes(result) if changed else None
+
+
 @dataclass
 class PfbPlan:
     rel: Path
@@ -216,6 +260,7 @@ class PfbPlan:
     substitution: tuple[str, str] | None
     resolvable: bool  # found a donor AND could safely (or forcibly) reconcile string differences
     forced: bool = False  # resolved only because force=True was passed to plan_pfb()
+    crc_patch: bytes | None = None  # set instead of substitution: write these exact bytes (mod's own content, only stale CRCs patched) rather than a donor-replace
 
 
 def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool = False) -> PfbPlan:
@@ -241,6 +286,11 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
         donor_parsed = _parse_rsz(donor_bytes)
         if donor_parsed is None:
             continue
+
+        crc_patch = _crc_only_fix(mod_bytes, mod_parsed, donor_bytes, donor_parsed)
+        if crc_patch is not None:
+            return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True, crc_patch=crc_patch)
+
         donor_strings = _resource_strings(donor_bytes, donor_parsed["rsz_off"])
         result = _find_substitution(mod_strings, donor_strings, force=force)
         if result is not None:
@@ -313,7 +363,7 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
     mods' Waist pieces (current donor gained purely-additive attached-
     accessory content); confirmed to pick a wrong donor on at least one
     real Arm piece with no true vanilla equivalent. Off by default."""
-    stats = {"fixed": 0, "already_current": 0, "unresolved": 0, "forced": 0}
+    stats = {"fixed": 0, "already_current": 0, "unresolved": 0, "forced": 0, "crc_only": 0}
     mod_provided_keys = _mod_provided_file_keys(mod_root)
     for mod_path in sorted(find_pfb_files(mod_root)):
         plan = plan_pfb(mod_path, mod_root, game, log, force=force_unresolved)
@@ -324,10 +374,13 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
             stats["unresolved"] += 1
             continue
 
-        result = plan.donor_bytes
-        if plan.substitution is not None:
-            donor_code, mod_code = plan.substitution
-            result = _apply_substitution(plan.donor_bytes, donor_code, mod_code, mod_provided_keys)
+        if plan.crc_patch is not None:
+            result = plan.crc_patch
+        else:
+            result = plan.donor_bytes
+            if plan.substitution is not None:
+                donor_code, mod_code = plan.substitution
+                result = _apply_substitution(plan.donor_bytes, donor_code, mod_code, mod_provided_keys)
 
         out_path = output_root / plan.rel
         if result == mod_path.read_bytes():
@@ -336,6 +389,11 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(result)
         stats["fixed"] += 1
+        if plan.crc_patch is not None:
+            stats["crc_only"] += 1
+            log(f"    [crc-patched] {plan.rel}  -- structure identical to current donor, only stale "
+                f"instance CRC(s) updated; every other byte (including the mod's own content) preserved unchanged")
+            continue
         note = f" (substituted {plan.substitution[0]!r}->{plan.substitution[1]!r})" if plan.substitution else ""
         if plan.forced:
             stats["forced"] += 1

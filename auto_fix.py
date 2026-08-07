@@ -346,10 +346,14 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
         if pfb_stats["forced"]:
             log(f"    ({pfb_stats['forced']} pfb file(s) were FORCE-fixed despite not safely "
                 f"reconciling -- experimental, please verify these pieces in-game)")
+        if pfb_stats["crc_only"]:
+            log(f"    ({pfb_stats['crc_only']} pfb file(s) needed only a stale instance CRC patched, "
+                f"with the mod's own content otherwise untouched)")
         stats["fixed"] += pfb_stats["fixed"]
         stats["pfb_fixed"] = pfb_stats["fixed"]
         stats["pfb_unresolved"] = pfb_stats["unresolved"]
         stats["pfb_forced"] = pfb_stats["forced"]
+        stats["pfb_crc_only"] = pfb_stats["crc_only"]
 
     return stats
 

@@ -204,6 +204,38 @@ confounds first, both confirmed to produce a convincing false negative**:
   to also rule out "wrong build was actually deployed" as a third
   confound in the same family.
 
+**A safer "CRC-only" tier is tried before wholesale donor-replace.**
+`pfb_fix.py`'s `_crc_only_fix()` handles a narrower but strictly safer
+case than everything above: sometimes a class's on-disk field layout
+hasn't actually changed at all between game versions, but Capcom still
+bumped the CRC the engine checks against its live type registry. If the
+mod's own pfb has the exact same ORDERED sequence of instance `type_id`s,
+the same obj/inst/userdata counts, the same header (pre-RSZ) length, and
+the same total file length as the current donor, then the only thing
+that can plausibly be stale is those per-instance CRC values — so patch
+just the (up to) 4 stale CRC bytes per differing instance directly in the
+mod's OWN bytes, in place, and touch nothing else: not a single resource
+string, not one byte of the RSZ data block, not the mod's own
+customization. This is tried FIRST, before the resource-string diff /
+`_find_substitution()` path, inside `plan_pfb()`'s donor loop. It's
+deliberately narrow (declines instantly if type sequence, counts, or
+length don't match exactly) rather than a general field-level migrator —
+building a real field-by-field RSZ migrator needs a maintained snapshot
+of the PREVIOUS game version's type layouts to migrate from, which this
+project doesn't keep (it only ever reads the CURRENTLY installed game).
+A wrong match here can't make anything worse than today's status quo:
+since it only ever rewrites 4-byte CRC values in the header instance
+table and never touches the data block, a false-positive "matches
+closely enough" verdict just leaves the file exactly as unresolved as it
+already was, never corrupted. (Idea prompted by reviewing a other
+open-source MHWilds mod fixer that does full field-level RSZ migration
+against maintained layout snapshots — worth the general approach, but
+that architecture trades away this project's "never goes stale, always
+reads the live game" property; the CRC-only tier gets a slice of the
+same benefit without that tradeoff. Implemented independently, in this
+project's own existing `_parse_rsz()`/`PfbPlan` architecture, not ported
+code.)
+
 **Substitution must be selective for resource paths, but must cover the
 WHOLE file, not just the pre-RSZ header** — two distinct bugs were found
 here, in tension with each other, and both are now fixed in
