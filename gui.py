@@ -68,6 +68,7 @@ class App:
         self.status = StringVar(value=t("status_default"))
         self.lang_display = StringVar(value=i18n.LANGUAGES[i18n.get_language()])
         self.force_unresolved = BooleanVar(value=False)
+        self.preserve_extra = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -140,6 +141,10 @@ class App:
             options_frame, text=t("chk_force_unresolved"), variable=self.force_unresolved,
         )
         self.chk_force_unresolved.pack(side="left")
+        self.chk_preserve_extra = ttk.Checkbutton(
+            options_frame, text=t("chk_preserve_extra"), variable=self.preserve_extra,
+        )
+        self.chk_preserve_extra.pack(side="left", padx=(12, 0))
 
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
@@ -168,6 +173,7 @@ class App:
         self.btn_remove_selected.configure(text=t("btn_remove_selected"))
         self.btn_clear_all.configure(text=t("btn_clear_all"))
         self.chk_force_unresolved.configure(text=t("chk_force_unresolved"))
+        self.chk_preserve_extra.configure(text=t("chk_preserve_extra"))
         self.start_btn.configure(text=t("btn_start"))
         self.btn_open_log.configure(text=t("btn_open_log_folder"))
         if not self._busy:
@@ -377,8 +383,10 @@ class App:
         output_root = work_dir.parent / (work_dir.name + "_fixed")
         shutil.copytree(mod_root, output_root)
         force_unresolved = self.force_unresolved.get()
+        preserve_extra = self.preserve_extra.get()
         stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log,
-                             force_unresolved_pfbs=force_unresolved)
+                             force_unresolved_pfbs=force_unresolved,
+                             preserve_extra_pfb_components=preserve_extra)
         repackage_for_fluffy(output_root, log=self.log)
 
         self.log(f"done: fixed={stats['fixed']} already_current={stats['already_current']} "

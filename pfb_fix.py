@@ -208,47 +208,77 @@ def _find_substitution(mod_strings: set[str], donor_strings: set[str], force: bo
     return None
 
 
-def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_bytes: bytes, donor_info: dict) -> bytes | None:
-    """The safest possible fix, tried before anything else: if the mod's own
-    pfb has the exact same ordered sequence of instance types, the same
-    obj/inst/userdata counts, and the exact same overall file length as the
-    CURRENT donor, the only thing that can plausibly still be stale is the
-    per-instance CRC value the engine checks against its live type
-    registry -- the actual field layout never moved. In that case, patch
-    only the (up to) 4 bytes of each differing CRC directly in the mod's
-    OWN bytes; nothing else -- not the resource strings, not a single byte
-    of the RSZ data block -- is touched. Returns None if the shapes don't
-    line up this closely (caller falls through to the normal donor-replace
-    path), or if they line up but nothing was actually stale.
+def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
+                   preserve_extra: bool = False) -> tuple[bytes, bool] | None:
+    """A CRC is a property of the CLASS (type_id), not of any one instance
+    of it -- every instance of the same type_id must carry the same
+    current CRC. Build a `type_id -> current crc` map straight from the
+    donor's own instance table (freshly read from the installed game, so
+    it's definitionally correct for whatever's currently live), then walk
+    the MOD's OWN instance table and patch just the (up to) 4 CRC bytes
+    of any instance whose type_id is a KNOWN donor type with a stale
+    value. Nothing else in the mod's own bytes -- resource strings, the
+    entire RSZ data block -- is ever touched. Returns `(patched_bytes,
+    used_preserve_extra)`, or None if nothing needed patching (or the
+    mod has extra instances and `preserve_extra` wasn't set -- see
+    below).
 
-    This is deliberately conservative rather than a general byte-accurate
-    RSZ field walker (which would let a genuinely reshaped class be
-    migrated field-by-field, not just have its CRC silenced) -- building
-    that safely needs a maintained snapshot of the PREVIOUS game version's
-    field layouts to migrate from, which this project does not have (it
-    only ever reads the current live game). Matching ordered type sequence
-    + counts + total file length is a much cheaper signal that doesn't
-    need one, and it can't make things worse than today's status quo even
-    when it's wrong: this only ever rewrites the header's CRC table, never
-    the data block, so a false-positive match just leaves the engine
-    rejecting the file exactly as it already does now -- not a new
-    failure mode, just a missed opportunity to fix it."""
-    if (mod_info["obj_count"], mod_info["inst_count"], mod_info["userdata_count"]) != \
-       (donor_info["obj_count"], donor_info["inst_count"], donor_info["userdata_count"]):
+    If every one of the mod's own instance types is also present in the
+    donor (the mod's structure is a plain subset/reorder of current
+    vanilla -- by far the common case), this is unconditionally safe and
+    always tried: the file's shape hasn't genuinely changed, only a
+    class's registered CRC was bumped.
+
+    If the mod has instances of a type the donor DOESN'T have at all,
+    that means the mod's file structurally diverges from current
+    vanilla -- and that's genuinely ambiguous, not a clear-cut case:
+    - It can be real customization the modder intentionally added (e.g.
+      a `via.motion.Chain2` physics chain bundled with its own resource
+      file) that donor-replace would otherwise silently delete.
+    - It can equally be STALE leftover structure from an OLDER vanilla
+      shape that Capcom has since simplified away (confirmed real case:
+      Mangie's "Banshee" Arm piece ships `via.render.ShellFurParam` /
+      `ShellFurMesh` + the same 3 chain-physics instances as an
+      unrelated DOTEI mod, but Banshee's case was independently
+      confirmed working in-game via the OPPOSITE choice -- discarding
+      them via ordinary donor-replace). The two cases are
+      indistinguishable from instance-type structure alone.
+    Because of that ambiguity this half is opt-in: only attempted when
+    `preserve_extra=True`, and only ever patches CRCs for the types the
+    donor DOES recognize -- the extra/unmatched instances are always
+    left completely as shipped either way, never guessed at.
+
+    Deliberately not a general byte-accurate RSZ field walker (which
+    could migrate an ACTUALLY-reshaped class's field data too) --
+    building that needs a maintained snapshot of the PREVIOUS game
+    version's field layouts, which this project doesn't keep. Always
+    verify a build that hit this path in-game before trusting it,
+    especially with `preserve_extra` on."""
+    donor_types = {t for t, _ in donor_info["insts"]}
+    mod_types = {t for t, _ in mod_info["insts"]}
+    has_extra = bool(mod_types - donor_types)
+    if has_extra and not preserve_extra:
         return None
-    if [t for t, _ in mod_info["insts"]] != [t for t, _ in donor_info["insts"]]:
-        return None
-    if mod_info["rsz_off"] != donor_info["rsz_off"] or len(mod_bytes) != len(donor_bytes):
-        return None
+
+    donor_crc_by_type: dict[int, int] = {}
+    inconsistent: set[int] = set()
+    for t, c in donor_info["insts"]:
+        if t in donor_crc_by_type and donor_crc_by_type[t] != c:
+            inconsistent.add(t)
+            continue
+        donor_crc_by_type[t] = c
+    for t in inconsistent:
+        donor_crc_by_type.pop(t, None)
 
     result = bytearray(mod_bytes)
     changed = 0
-    for i, ((_, mod_crc), (_, donor_crc)) in enumerate(zip(mod_info["insts"], donor_info["insts"])):
-        if mod_crc == donor_crc:
+    for i, (mod_type, mod_crc) in enumerate(mod_info["insts"]):
+        current_crc = donor_crc_by_type.get(mod_type)
+        if current_crc is None or current_crc == mod_crc:
             continue
-        struct.pack_into("<I", result, mod_info["inst_table_pos"] + i * 8 + 4, donor_crc)
+        struct.pack_into("<I", result, mod_info["inst_table_pos"] + i * 8 + 4, current_crc)
         changed += 1
-    return bytes(result) if changed else None
+    return (bytes(result), has_extra) if changed else None
 
 
 @dataclass
@@ -261,9 +291,11 @@ class PfbPlan:
     resolvable: bool  # found a donor AND could safely (or forcibly) reconcile string differences
     forced: bool = False  # resolved only because force=True was passed to plan_pfb()
     crc_patch: bytes | None = None  # set instead of substitution: write these exact bytes (mod's own content, only stale CRCs patched) rather than a donor-replace
+    crc_patch_preserved_extra: bool = False  # crc_patch also kept mod-only instances the donor doesn't have -- only possible when preserve_extra_pfb_components=True was passed in
 
 
-def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool = False) -> PfbPlan:
+def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool = False,
+             preserve_extra: bool = False) -> PfbPlan:
     rel = mod_path.relative_to(mod_root)
     parts = rel.parts
     natives_idx = next((i for i, p in enumerate(parts) if p.lower() == "natives"), None)
@@ -287,9 +319,11 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
         if donor_parsed is None:
             continue
 
-        crc_patch = _crc_only_fix(mod_bytes, mod_parsed, donor_bytes, donor_parsed)
-        if crc_patch is not None:
-            return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True, crc_patch=crc_patch)
+        crc_result = _crc_only_fix(mod_bytes, mod_parsed, donor_parsed, preserve_extra=preserve_extra)
+        if crc_result is not None:
+            crc_patch, used_preserve_extra = crc_result
+            return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True,
+                            crc_patch=crc_patch, crc_patch_preserved_extra=used_preserve_extra)
 
         donor_strings = _resource_strings(donor_bytes, donor_parsed["rsz_off"])
         result = _find_substitution(mod_strings, donor_strings, force=force)
@@ -356,17 +390,27 @@ def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
 
 
 def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, log,
-                          force_unresolved: bool = False) -> dict:
+                          force_unresolved: bool = False, preserve_extra: bool = False) -> dict:
     """`force_unresolved` is the GUI's opt-in "experimental: force-fix"
     checkbox -- see _find_substitution()'s docstring for what it does and
     why it's not the default. Confirmed working in-game on several real
     mods' Waist pieces (current donor gained purely-additive attached-
     accessory content); confirmed to pick a wrong donor on at least one
-    real Arm piece with no true vanilla equivalent. Off by default."""
-    stats = {"fixed": 0, "already_current": 0, "unresolved": 0, "forced": 0, "crc_only": 0}
+    real Arm piece with no true vanilla equivalent. Off by default.
+
+    `preserve_extra` is a SEPARATE opt-in -- see _crc_only_fix()'s
+    docstring. Confirmed working on a real mod (DOTEI's "LEG PHYS HEAVY")
+    that bundles its own via.motion.Chain2 physics chain, which
+    donor-replace was silently deleting; confirmed to diverge from an
+    already-verified-working build on another real mod (Mangie
+    "Banshee") whose Arm piece happens to carry the same kind of "extra"
+    instances but as stale pre-simplification leftovers, not real
+    customization -- the two look identical structurally. Off by
+    default; always verify a build that used this in-game."""
+    stats = {"fixed": 0, "already_current": 0, "unresolved": 0, "forced": 0, "crc_only": 0, "crc_only_extra": 0}
     mod_provided_keys = _mod_provided_file_keys(mod_root)
     for mod_path in sorted(find_pfb_files(mod_root)):
-        plan = plan_pfb(mod_path, mod_root, game, log, force=force_unresolved)
+        plan = plan_pfb(mod_path, mod_root, game, log, force=force_unresolved, preserve_extra=preserve_extra)
         if plan.donor_bytes is None:
             stats["unresolved"] += 1
             continue
@@ -391,8 +435,14 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         stats["fixed"] += 1
         if plan.crc_patch is not None:
             stats["crc_only"] += 1
-            log(f"    [crc-patched] {plan.rel}  -- structure identical to current donor, only stale "
-                f"instance CRC(s) updated; every other byte (including the mod's own content) preserved unchanged")
+            if plan.crc_patch_preserved_extra:
+                stats["crc_only_extra"] += 1
+                log(f"    [crc-patched, custom parts kept] {plan.rel}  -- some instances the current donor "
+                    f"doesn't have were left as shipped (possible custom content); only stale CRC(s) among "
+                    f"the shared instances were updated -- experimental option, verify in-game")
+            else:
+                log(f"    [crc-patched] {plan.rel}  -- structure identical to current donor, only stale "
+                    f"instance CRC(s) updated; every other byte (including the mod's own content) preserved unchanged")
             continue
         note = f" (substituted {plan.substitution[0]!r}->{plan.substitution[1]!r})" if plan.substitution else ""
         if plan.forced:

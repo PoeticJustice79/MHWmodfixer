@@ -255,7 +255,7 @@ def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lam
 
 
 def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cross_piece: bool, log,
-                 force_unresolved_pfbs: bool = False) -> dict:
+                 force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False) -> dict:
     from pak_mod_fix import write_fixed_pak
 
     stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0}
@@ -339,7 +339,8 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
     if pfb_files:
         log("\nRepairing .pfb files...")
         pfb_stats = resolve_and_fix_pfbs(mod_root, output_root, game, log,
-                                          force_unresolved=force_unresolved_pfbs)
+                                          force_unresolved=force_unresolved_pfbs,
+                                          preserve_extra=preserve_extra_pfb_components)
         if pfb_stats["unresolved"]:
             log(f"    ({pfb_stats['unresolved']} pfb file(s) couldn't be safely verified against the "
                 f"current game and were left as-is)")
@@ -349,11 +350,15 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
         if pfb_stats["crc_only"]:
             log(f"    ({pfb_stats['crc_only']} pfb file(s) needed only a stale instance CRC patched, "
                 f"with the mod's own content otherwise untouched)")
+        if pfb_stats["crc_only_extra"]:
+            log(f"    ({pfb_stats['crc_only_extra']} pfb file(s) also kept extra instances the current "
+                f"donor doesn't have -- experimental option, please verify these pieces in-game)")
         stats["fixed"] += pfb_stats["fixed"]
         stats["pfb_fixed"] = pfb_stats["fixed"]
         stats["pfb_unresolved"] = pfb_stats["unresolved"]
         stats["pfb_forced"] = pfb_stats["forced"]
         stats["pfb_crc_only"] = pfb_stats["crc_only"]
+        stats["pfb_crc_only_extra"] = pfb_stats["crc_only_extra"]
 
     return stats
 
@@ -370,6 +375,15 @@ def main(argv=None) -> int:
                          "the current donor. Confirmed working on several real mods' Waist pieces; confirmed to "
                          "pick a wrong donor on at least one real Arm piece with no true vanilla equivalent. "
                          "Off by default -- verify forced pieces in-game before trusting them.")
+    ap.add_argument("--preserve-extra-pfb-components", action="store_true",
+                    help="Experimental: when a pfb's own RSZ instances are a superset of the current donor's "
+                         "(the mod added components vanilla doesn't have), keep the mod's own bytes -- patching "
+                         "only stale CRCs among the shared instances -- instead of discarding the extra ones via "
+                         "donor-replace. Confirmed to preserve real customization (a mod's own physics chain) on "
+                         "one mod; confirmed to diverge from an already-verified-working build on another, where "
+                         "the 'extra' instances turned out to be stale pre-simplification leftovers, not real "
+                         "customization -- the two are structurally indistinguishable. Off by default -- verify "
+                         "affected pieces in-game before trusting them.")
     args = ap.parse_args(argv)
 
     if not args.game.is_dir():
@@ -402,7 +416,8 @@ def main(argv=None) -> int:
 
     print("\nRepairing .mdf2 files...")
     stats = process_mod(mod_root, output_root, game, allow_cross_piece=not args.no_cross_piece, log=print,
-                         force_unresolved_pfbs=args.force_unresolved_pfbs)
+                         force_unresolved_pfbs=args.force_unresolved_pfbs,
+                         preserve_extra_pfb_components=args.preserve_extra_pfb_components)
 
     from fluffy_repackage import repackage_for_fluffy
     repackage_for_fluffy(output_root, log=print)

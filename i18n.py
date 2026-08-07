@@ -177,6 +177,13 @@ _STRINGS = {
         "zh_cn": "实验性：对无法安全还原的部位尝试强制修复",
         "ja": "実験的：安全に一致しない部位も強制修復を試みる",
     },
+    "chk_preserve_extra": {
+        "ko": "실험적: 도너에 없는 커스텀 부품(체인 피직스 등) 보존 시도",
+        "en": "Experimental: try to preserve custom parts the donor doesn't have",
+        "zh_tw": "實驗性：嘗試保留供體沒有的自訂部件（如鏈條物理等）",
+        "zh_cn": "实验性：尝试保留供体没有的自定义部件（如链条物理等）",
+        "ja": "実験的：ドナーにないカスタムパーツ（チェーン物理など）の保持を試みる",
+    },
     "warn_single_instance": {
         "ko": "이미 실행 중입니다.", "en": "already running.",
         "zh_tw": "已經在執行中。", "zh_cn": "已经在运行中。", "ja": "はすでに実行中です。",

@@ -205,29 +205,71 @@ confounds first, both confirmed to produce a convincing false negative**:
   confound in the same family.
 
 **A safer "CRC-only" tier is tried before wholesale donor-replace.**
-`pfb_fix.py`'s `_crc_only_fix()` handles a narrower but strictly safer
-case than everything above: sometimes a class's on-disk field layout
-hasn't actually changed at all between game versions, but Capcom still
-bumped the CRC the engine checks against its live type registry. If the
-mod's own pfb has the exact same ORDERED sequence of instance `type_id`s,
-the same obj/inst/userdata counts, the same header (pre-RSZ) length, and
-the same total file length as the current donor, then the only thing
-that can plausibly be stale is those per-instance CRC values — so patch
-just the (up to) 4 stale CRC bytes per differing instance directly in the
-mod's OWN bytes, in place, and touch nothing else: not a single resource
-string, not one byte of the RSZ data block, not the mod's own
-customization. This is tried FIRST, before the resource-string diff /
-`_find_substitution()` path, inside `plan_pfb()`'s donor loop. It's
-deliberately narrow (declines instantly if type sequence, counts, or
-length don't match exactly) rather than a general field-level migrator —
-building a real field-by-field RSZ migrator needs a maintained snapshot
-of the PREVIOUS game version's type layouts to migrate from, which this
-project doesn't keep (it only ever reads the CURRENTLY installed game).
-A wrong match here can't make anything worse than today's status quo:
-since it only ever rewrites 4-byte CRC values in the header instance
-table and never touches the data block, a false-positive "matches
-closely enough" verdict just leaves the file exactly as unresolved as it
-already was, never corrupted. (Idea prompted by reviewing a other
+`pfb_fix.py`'s `_crc_only_fix()` handles a case wholesale donor-replace
+structurally can't: sometimes a class's on-disk field layout hasn't
+actually changed at all between game versions, but Capcom still bumped
+the CRC the engine checks against its live type registry. A CRC is a
+property of the CLASS (`type_id`), not of any one instance of it, so the
+fix builds a `type_id -> current crc` map straight from the CURRENT
+donor's own instance table, then walks the MOD's OWN instance table and
+patches just the (up to) 4 stale CRC bytes of any instance whose type is
+a known donor type with a mismatched value — in place, in the mod's own
+bytes. Nothing else is ever touched: not a resource string, not one byte
+of the RSZ data block, not the mod's own customization. This needs no
+position/count/length matching (unlike an earlier version of this
+function) — it only cares whether a type_id is shared between mod and
+donor, so it naturally handles a mod whose instances got reordered, or
+that has EXTRA instances the donor doesn't have at all.
+
+That "extra instances" case is exactly where a second, opt-in-only half
+of the same function kicks in (`preserve_extra` param / GUI checkbox
+"실험적: 도너에 없는 커스텀 부품 보존 시도" / CLI
+`--preserve-extra-pfb-components`, all off by default) — and it's opt-in
+specifically because it's genuinely ambiguous, confirmed both ways with
+real mods in the same investigation:
+- Confirmed GOOD (real customization, wholesale-replace was silently
+  destroying it): a Nexus commenter (`모리바2`, apparently the DOTEI mod
+  author testing with this tool) reported that restoring a pfb where
+  they'd added a `via.motion.Chain2` physics chain (with its own bundled
+  `.chain2` resource) to a leg piece wiped the whole chain out. Verified
+  directly against the reported mod (`DOTEI's EULA`, `[8.EULA] LEG PHYS
+  HEAVY`/`LEG PHYS LITE`): the mod's own instance sequence is an exact
+  match of the current donor's PLUS 3 extra trailing instances
+  (`via.motion.ChildSecondary`, `ChainWind`, `Chain2`) — donor-replace
+  was discarding them since its output used to just be the donor's own
+  bytes wholesale. With `preserve_extra` on, the fix keeps the mod's own
+  bytes (including those 3 instances untouched) and patches only 2 stale
+  CRCs among the shared instances (`via.render.Mesh`, `app.MeshSetting`)
+  — an 8-byte diff from the original file, chain physics fully intact.
+- Confirmed BAD (would have been a silent regression from a build
+  already verified working in-game): Mangie's "Banshee" Arm piece has
+  the SAME shape of "extra" content — `via.render.ShellFurParam` /
+  `ShellFurMesh` + the identical 3 chain-physics instances — but this
+  Banshee build was the confirmed-working reference this whole session's
+  earlier investigation was anchored on, and that confirmed-good build
+  came from ordinary wholesale donor-replace, which DISCARDS those same
+  5 instances. They're old vanilla structure Capcom has since simplified
+  away, not something the modder deliberately added — structurally
+  indistinguishable from DOTEI's genuinely-added Chain2 without deeper
+  investigation this project doesn't have the tooling for (no RSZ
+  field-data-block parser to check whether the two CRC-stale classes'
+  actual field bytes are still layout-compatible with their new CRCs).
+
+Because the two real cases look identical from instance-type structure
+alone and produce opposite correct answers, `preserve_extra` stays off
+by default (matching every prior mod's previously-verified behavior
+exactly — confirmed via byte-diff against the `Fixed-v2` Banshee
+reference after this split was added). When it IS turned on, always
+verify the affected pieces in-game before trusting the result, same as
+`force_unresolved`.
+
+Both halves are tried FIRST, before the resource-string diff /
+`_find_substitution()` path, inside `plan_pfb()`'s donor loop.
+Deliberately not a general byte-accurate RSZ field walker (which could
+migrate an ACTUALLY-reshaped class's field data too) — building that
+needs a maintained snapshot of the PREVIOUS game version's field
+layouts, which this project doesn't keep (it only ever reads the
+CURRENTLY installed game). (Idea prompted by reviewing a other
 open-source MHWilds mod fixer that does full field-level RSZ migration
 against maintained layout snapshots — worth the general approach, but
 that architecture trades away this project's "never goes stale, always
