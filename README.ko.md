@@ -1,4 +1,4 @@
-# MHWmodfixer by Littlefish
+# MHWmodfixer by Littlefish (PoeticJustice79)
 
 *[English](README.md) | 한국어*
 

@@ -1,5 +1,5 @@
 """
-MHWmodfixer by Littlefish -- GUI front-end.
+MHWmodfixer by Littlefish (PoeticJustice79) -- GUI front-end.
 
 Mod archives can be dropped onto the window (or picked via the file
 dialog, multi-select is fine too) and are queued up; "Start Repair" walks
@@ -43,7 +43,7 @@ from fluffy_repackage import repackage_for_fluffy
 from game_archive import GameArchive
 from i18n import t
 
-APP_TITLE = "MHWmodfixer by Littlefish"
+APP_TITLE = "MHWmodfixer by Littlefish (PoeticJustice79)"
 ARCHIVE_EXTS = {".zip", ".7z", ".rar"}
 LOG_DIR = Path.home() / "AppData" / "Local" / "MHWmodfixer" / "logs"
 

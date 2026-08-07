@@ -1,4 +1,4 @@
-# MHWmodfixer by Littlefish — project notes for Claude Code
+# MHWmodfixer by Littlefish (PoeticJustice79) — project notes for Claude Code
 
 This file is read automatically by Claude Code when you open this folder.
 It exists so that **any user** who hits a mod that MHWmodfixer can't fix
