@@ -114,7 +114,7 @@ just looked frozen during this stretch, which was confusing feedback.
 
 ```
 pip install -r requirements.txt
-pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
+pyinstaller --noconfirm --onedir --windowed --noupx --name "MHWmodfixer" ^
     --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
@@ -123,13 +123,19 @@ pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
     gui.py
 ```
 The result is a `dist\MHWmodfixer\` folder (`MHWmodfixer.exe` plus its
-support files) — zip the whole folder for distribution. This used to be
-`--onefile` (a single self-contained exe), but a single exe that
-self-extracts into a temp folder at runtime is a much more common target
-for antivirus false positives (the behavior itself resembles how some
-malware droppers work) than a plain folder of files sitting next to the
-exe; several real users hit exactly this with v0.3. `--onedir` avoids
-that specific behavioral trigger. Either way, zip (stdlib) / 7z (py7zr,
+support files) — zip the whole folder for distribution. Two changes here
+vs. an earlier version of this command, both driven by real antivirus
+false-positive reports (2026-08-07/08): this used to be `--onefile` (a
+single self-contained exe), but a single exe that self-extracts into a
+temp folder at runtime is a much more common target for antivirus false
+positives (the behavior itself resembles how some malware droppers work)
+than a plain folder of files sitting next to the exe; and `--noupx`
+disables UPX-compressing the exe, since UPX packing (a legitimate
+compression tool) is also extremely commonly abused by actual malware to
+hide its payload, making UPX-packed executables another frequent false-
+positive trigger on their own, independent of onefile/onedir. Neither
+change affects behavior, only how the exe is physically packaged. Either
+way, zip (stdlib) / 7z (py7zr,
 pure Python) / rar (bundled UnRAR.exe, redistributable under RARLAB's
 freeware license) extraction all happen inside the exe, so nothing needs
 to be installed on the recipient's machine.

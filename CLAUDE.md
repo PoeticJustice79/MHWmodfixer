@@ -494,13 +494,29 @@ overwrite a locked exe (the GUI now refuses a second simultaneous launch
 via a Windows named mutex, but an already-running instance from a prior
 session will still lock the file).
 
-**`--onedir`, not `--onefile` (changed in v0.3).** Real users hit Windows
-Defender false-positive detections on the v0.3 `--onefile` build (2026-08-07
-Nexus reports) -- a single self-extracting exe that unpacks itself into a
-temp folder at runtime behaviorally resembles how some malware droppers
-work, which is a much more common false-positive trigger than a plain
-folder of files. `MHWmodfixer.spec` (tracked in the repo) is already
-updated to `--onedir`'s two-stage `EXE(..., exclude_binaries=True)` +
-`COLLECT(...)` structure -- don't regenerate it back to a single-`EXE()`
-onefile spec. The distributable is now `dist/MHWmodfixer/` (a folder),
-zipped whole for Nexus, not a single `.exe`.
+**`--onedir` + `--noupx`, not `--onefile` with UPX (changed in v0.3→v0.4).**
+Real users hit Windows Defender false-positive detections on the v0.3
+`--onefile` build (2026-08-07 Nexus reports) -- a single self-extracting
+exe that unpacks itself into a temp folder at runtime behaviorally
+resembles how some malware droppers work, which is a much more common
+false-positive trigger than a plain folder of files. Switching to
+`--onedir` alone wasn't enough, though -- **Nexus's own upload scanner
+still auto-quarantined the onedir zip** (2026-08-08), which pointed at UPX:
+PyInstaller compresses the exe with UPX by default, and UPX-packed
+executables are themselves an extremely common false-positive trigger
+(actual malware uses UPX constantly to obfuscate its payload), completely
+independent of the onefile/onedir question. `--noupx` disables that.
+`MHWmodfixer.spec` (tracked in the repo) already reflects both changes --
+`--onedir`'s two-stage `EXE(..., exclude_binaries=True)` + `COLLECT(...)`
+structure, and `upx=False` in both the `EXE()` and `COLLECT()` calls --
+don't regenerate it back to a single-`EXE()` onefile spec or re-enable
+upx. The distributable is `dist/MHWmodfixer/` (a folder), zipped whole for
+Nexus, not a single `.exe`. **If a future build still gets flagged despite
+both of these**, the next things to try, in order: (1) check whether
+Nexus/Defender's specific complaint changed at all (screenshot the exact
+detection name -- don't guess), (2) code-signing the exe (costs money,
+not yet done), (3) submitting to Microsoft's file-submission portal as a
+false positive (https://www.microsoft.com/en-us/wdsi/filesubmission --
+requires a Microsoft account sign-in, was in progress as of this writing
+but blocked on getting an exact Defender detection name from a reporting
+user).

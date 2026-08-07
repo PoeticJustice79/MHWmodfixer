@@ -94,7 +94,7 @@ python auto_fix.py "모드.zip"               # 커맨드라인
 
 ```
 pip install -r requirements.txt
-pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
+pyinstaller --noconfirm --onedir --windowed --noupx --name "MHWmodfixer" ^
     --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
@@ -103,11 +103,16 @@ pyinstaller --noconfirm --onedir --windowed --name "MHWmodfixer" ^
     gui.py
 ```
 결과물은 `dist\MHWmodfixer\` 폴더 (`MHWmodfixer.exe` + 지원 파일들) — 폴더째로
-압축해서 배포. 원래 `--onefile`(exe 하나)로 했었는데, 단일 exe가 실행 시점에
-자기 자신을 임시폴더에 풀어서 실행하는 방식 자체가 백신 오탐(false positive)
-트리거로 자주 걸림(악성코드 드로퍼가 흔히 쓰는 방식이랑 행동 패턴이 비슷해서) —
-v0.3에서 실제로 여러 유저가 이걸 겪었음. `--onedir`로 바꾸면 이 특정 행동
-패턴 자체를 안 쓰게 돼서 오탐 트리거를 피할 수 있음. 압축 해제는 여전히
+압축해서 배포. 실제 백신 오탐 제보(2026-08-07/08)로 이전 버전 명령어에서
+두 가지를 바꿈: 원래 `--onefile`(exe 하나)로 했었는데, 단일 exe가 실행
+시점에 자기 자신을 임시폴더에 풀어서 실행하는 방식 자체가 악성코드
+드로퍼가 흔히 쓰는 방식이랑 행동 패턴이 비슷해서 오탐 트리거로 자주
+걸림 — `--onedir`로 바꿔서 이 행동 패턴 자체를 피함. 그리고 `--noupx`는
+exe를 UPX로 압축하지 않게 하는 옵션인데, UPX 자체는 정상적인 압축
+도구지만 실제 악성코드가 자기 코드를 숨기는 데 워낙 자주 악용해서
+UPX로 압축된 실행파일 자체가 onefile/onedir이랑 별개로 또 다른 흔한
+오탐 트리거임. 둘 다 실제 동작에는 영향 없고 exe를 물리적으로 어떻게
+포장하느냐만 다름. 압축 해제는 여전히
 zip(표준 라이브러리)/7z(py7zr, 순수 파이썬)/rar(bundled UnRAR.exe, RARLAB
 프리웨어 라이선스로 재배포 허용)를
 전부 exe 안에서 처리하므로 받는 사람 PC에 아무것도 설치할 필요 없음.
