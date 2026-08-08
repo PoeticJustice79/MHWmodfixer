@@ -301,6 +301,37 @@ caveat is that shader parameters the mod may have customized (tint,
 etc.) could end up at the donor's own defaults rather than the mod's
 intended values.
 
+## Why a game update can mean a short wait before some fixes work again
+
+MHWmodfixer reads the currently installed game's own files directly for
+most repairs, so those stay accurate automatically — no separate update
+needed on the tool's side.
+
+One part doesn't work that way: verifying that a prefab/character-data fix
+(`.pfb`/`.user`/`.scn`) is actually safe to apply. That check compares a
+mod's own data against a snapshot of what the current game's internal data
+layouts look like, bundled with the tool (`tools/rsz_fields_mhwilds.json.gz`).
+When Capcom ships a game update, that snapshot can go stale on the exact
+same day mods start needing this kind of repair — the tool doesn't guess
+in that gap; it just leaves anything it can't verify untouched (same as
+before this feature existed), rather than risk applying a fix that looks
+safe but isn't. A crash caused by exactly that gap is what led to this
+whole safety check existing in the first place — see `CLAUDE.md` §9 if
+you want the full story.
+
+So after a Monster Hunter Wilds title update, there's a short window
+where this specific repair is more conservative than usual, until a
+fresh snapshot is baked and shipped in the next MHWmodfixer release.
+Everything else (materials, textures, path fixes) is unaffected and
+keeps working immediately, since those read the game's files live.
+
+Maintainers: `tools/bake_rsz_snapshot.py` manages this snapshot —
+`bake --rotate` after a title update keeps the previous snapshot around
+instead of discarding it (today's "current" becomes tomorrow's
+"previous"), `list` shows what's currently bundled, and `import` lets you
+install a snapshot someone else shares instead of generating one from
+scratch. See its module docstring for details.
+
 ## Limitations
 
 - Only texture-path overrides are restored. If a mod directly customized

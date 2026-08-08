@@ -590,3 +590,107 @@ false positive (https://www.microsoft.com/en-us/wdsi/filesubmission --
 requires a Microsoft account sign-in, was in progress as of this writing
 but blocked on getting an exact Defender detection name from a reporting
 user).
+
+### 9. A crash from an unverified crc-only patch, and the RSZ snapshot pipeline built to stop it recurring (2026-08-08)
+
+Right after item 8 shipped (pak-bundled pfb/user/scn repair, default-on),
+a real user tested it on a real mod (SilverWolf, Nexus 964) and the game
+**crashed on load** -- not the pre-existing "[Invalid file]" symptom the
+feature was meant to fix, a strictly worse outcome. Root cause: the
+existing `_crc_only_fix()` (pfb_fix.py) trusted a bare `type_id` match as
+proof that patching just an instance's stale CRC was safe, but a CRC is
+the engine's structure-version stamp -- a match only proves the version
+check passes, not that the class's field LAYOUT is unchanged between the
+version the mod was built for and the currently installed game. Confirmed
+directly: SilverWolf's `.pfb` has an `app.CharacterEditRegion` instance
+whose CRC really did change between versions, and reading its bytes under
+the current field layout produces a `_MotionBank` "string length" of 257
+(518 bytes) -- self-evidently garbage, proof the layout genuinely
+reshaped, not just re-hashed.
+
+**The fix**: `rsz_layout.py` (new) parses an instance's own bytes against
+a real field-layout registry and only returns True ("fits") if they
+consume to an exact byte count with clean alignment padding; `False`
+means a proven mismatch, `None` means unverifiable (type missing from the
+registry -- NOT the same as broken, since even known-good vanilla donor
+files hit registry gaps). `_crc_only_fix()` gained a `require_fits`
+param; `pak_mod_fix.py`'s `_plan_pak_rsz_entry()` passes `require_fits=True`
+(the new, unverified pak-rsz path), while loose-file `plan_pfb()` still
+doesn't (mature, independently-tested-in-game path, no crash evidence
+there -- don't change its risk profile without a reason).
+
+**The registry problem, and how it got solved without owning a real
+dumper.** True field migration (rebuilding a reshaped instance's data,
+not just refusing) needs the OLD registry the mod was built against AND
+the current one -- this project has no way to generate an RSZ dumper
+itself (that needs live memory-scanning of the running game, e.g. what
+REasy Toolkit does). But another community tool on this same machine
+(`another community fixer`, `C:\Users\User\Desktop\...`) ships exactly that
+two-version pair, baked as `rszlayouts_MHWILDS.json.gz` ("current"/TU5-ish
++ "previous"/TU4). Cross-checked its "current" half's `via.render.Mesh`
+crc against a real live donor file's actual crc -- exact match -- so it's
+confirmed to describe the ACTUALLY installed game build, not a guess.
+Separately discovered this project's own long-bundled `tools/rszmhwilds.json`
+(100MB, gitignored, REasy-project dump) is itself TU4 -- one whole title
+update behind -- confirmed the same way (its `via.render.Mesh` crc matches
+their "previous" exactly). So both halves of a real migration pair
+already existed on this machine; they just weren't married together or
+shipped. **Full field migration (rebuilding a reshaped instance, not just
+refusing) is still not implemented** -- SilverWolf's specific crc
+(`app.CharacterEditRegion` @ `1077f96c`) matches NEITHER TU4 nor TU5, so
+even the other tool's own `rsz_migrate.fits()` refuses this exact
+file; migrating it would need a registry for a version older than
+anything currently available anywhere on this machine. `fits_current_layout()`
+correctly returns `False`/unresolved for it, which is the right answer
+given what's available, not a gap to close by guessing.
+
+**Why `fits()` beat guessing field-by-field.** Before settling on the
+registry-driven approach, tried hand-patching just the one suspect field
+(`_MotionBank`, assumed non-string) to see if the file would parse clean
+-- it fixed that one instance but immediately exposed a SECOND, unrelated
+mismatch further into the same file (`via.character.CollisionShapePreset`
+reading a float bit-pattern as an implausible array count). Confirms this
+mod's pfb is multiply-reshaped, not a single-field fluke, and that
+manual field-type guessing is not a substitute for an actual registry --
+it can look clean on one instance while still being wrong.
+
+**Registry shipped as `tools/rsz_fields_mhwilds.json.gz`** (current, ~3MB
+compressed) -- a trimmed/renamed copy of the borrowed snapshot's "current"
+half, listed in `MHWmodfixer.spec`'s `datas` so it's bundled in the
+onedir build (`_internal/tools/`, loaded via the same
+`getattr(sys, "_MEIPASS", ...)` pattern as `tools/UnRAR.exe`). A sibling
+`tools/rsz_fields_mhwilds_previous.json.gz` (TU4, ~1.9MB) is tracked in
+the repo too but deliberately **not** in the PyInstaller `datas` list --
+nothing at runtime reads a second registry yet, so shipping it in the exe
+would just be dead weight; it exists purely as reference material for
+whenever real migration gets built.
+
+**Also ported from the other tool**: `write_fixed_pak()`
+(pak_mod_fix.py) now re-reads the pak it just wrote and verifies the
+entry count and hash set match the input before returning success,
+matching `pak_patch.py`'s `fix_pak()` post-write check -- catches an
+internal packing bug here instead of a user finding a broken pak in-game.
+Deliberately did NOT port `mdf_fix.py`'s retired-shader-substitution
+rebuild: it's off-by-default in the source tool too, and its own docs
+record it having crashed a real mod once -- the same failure category
+this session just spent hours root-causing, not something to import
+mid-firefight.
+
+**Snapshot maintenance going forward**: `tools/bake_rsz_snapshot.py` (new)
+is the maintainer tool for this pipeline -- `bake` turns a fresh raw
+rszmhwilds.json-style dump into the compact shipped format, `list` shows
+every snapshot's label/game_update_date/source at a glance, `import`
+installs a snapshot someone else shares (own format, raw dump, or the
+other tool's two-version format) as current or previous. Every
+snapshot carries a `_meta` block distinguishing `baked_at` (when this
+project processed it) from `game_update_date` (when that title update
+actually shipped -- TU5 was 2026-08-04) -- conflating the two would make
+future snapshot provenance unreadable. **The rule that matters most**:
+before overwriting `rsz_fields_mhwilds.json.gz` after a future title
+update, `bake --rotate` (or `import ... --as previous` first) so today's
+current survives as tomorrow's previous -- losing that is exactly the gap
+that made SilverWolf's specific pfb unmigratable tonight. A freshly baked
+or imported snapshot is **not** verified against the live game
+automatically; cross-check a common type's crc (e.g. `via.render.Mesh`)
+from a real donor file against the new snapshot by hand before trusting
+a fix that relies on it, the same way this was done tonight.
