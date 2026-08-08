@@ -694,3 +694,21 @@ or imported snapshot is **not** verified against the live game
 automatically; cross-check a common type's crc (e.g. `via.render.Mesh`)
 from a real donor file against the new snapshot by hand before trusting
 a fix that relies on it, the same way this was done tonight.
+
+**End-user access, not just maintainer CLI.** The user's own framing:
+"게임이 업데이트되면 일단 기존 버전 스냅샷은 프로그램이 가지고 있을거고
+새로운 스냅샷만 구우면 되는거지" (confirming the rotate model), then "GUI
+상단에 설정 메뉴를 넣고 거기에 추가하는게 맞을것 같아", then "설정 >
+개발자 옵션이라고 추가해주고 거기에 넣으면 되지" -- so the same
+install/list functionality is also exposed as **Settings → Developer
+Options → RSZ Snapshot...** in the GUI (`gui.py::_open_snapshot_dialog`),
+letting any user install a snapshot someone shares (Nexus comments,
+Discord, etc.) the moment it's baked, without waiting for a full new
+MHWmodfixer release to close the post-update verification gap. Shares
+the exact same functions as the CLI (`rsz_layout.list_snapshots()` /
+`install_snapshot()`) -- moved there from `tools/bake_rsz_snapshot.py`
+specifically so the GUI and CLI can't drift out of sync. Both shipped
+snapshot files (`tools/rsz_fields_mhwilds.json.gz` AND
+`..._previous.json.gz`) are now in `MHWmodfixer.spec`'s `datas` as of
+this GUI addition -- previous is no longer maintainer-only reference
+material once a user-facing "list what's installed" view exists.

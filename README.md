@@ -325,12 +325,26 @@ fresh snapshot is baked and shipped in the next MHWmodfixer release.
 Everything else (materials, textures, path fixes) is unaffected and
 keeps working immediately, since those read the game's files live.
 
-Maintainers: `tools/bake_rsz_snapshot.py` manages this snapshot —
-`bake --rotate` after a title update keeps the previous snapshot around
-instead of discarding it (today's "current" becomes tomorrow's
-"previous"), `list` shows what's currently bundled, and `import` lets you
-install a snapshot someone else shares instead of generating one from
-scratch. See its module docstring for details.
+**You don't have to wait for a new MHWmodfixer release to close that gap
+yourself.** If a fresh snapshot gets shared (in the Nexus comments,
+Discord, etc. — the maintainer can bake one within minutes of a title
+update, well before a full new build is ready), open
+**Settings → Developer Options → RSZ Snapshot...** in the app, click
+**Import snapshot...**, and pick the file. It shows what's currently
+installed (label, which game update it describes, how many classes it
+covers) before and after, and takes effect immediately — no restart
+needed. Installing a new "current" snapshot automatically keeps the
+previous one around instead of discarding it, so nothing about this is
+destructive; if in doubt, install it as "previous" instead, which is
+purely informational and doesn't change any repair's behavior.
+
+Maintainers: `tools/bake_rsz_snapshot.py` (a CLI on top of the same
+underlying functions the GUI dialog uses, in `rsz_layout.py`) manages
+this snapshot — `bake --rotate` after a title update keeps the previous
+snapshot around instead of discarding it (today's "current" becomes
+tomorrow's "previous"), `list` shows what's currently bundled, and
+`import` installs a snapshot someone else shares instead of generating
+one from scratch. See its module docstring for details.
 
 ## Limitations
 
