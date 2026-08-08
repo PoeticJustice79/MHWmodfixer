@@ -123,12 +123,50 @@ def find_donor_for_material(
     # asset category this mod file itself belongs to, for preferring
     # same-category donors if the whole-game tier ends up needed.
     category_hint = _category(own_pool[0][0]) if own_pool else None
+    own_mmtr = mod_mat["mmtr_path"]
 
-    for src, blob in own_pool:
-        if blob["name"] == mod_mat["name"]:
-            return blob, src, "own-file exact name"
+    exact_name = next(((src, b) for src, b in own_pool if b["name"] == mod_mat["name"]), None)
+    if exact_name is not None and exact_name[1]["mmtr_path"] == own_mmtr:
+        return exact_name[1], exact_name[0], "own-file exact name"
 
-    mmtr_variants = _mmtr_variants(mod_mat["mmtr_path"])
+    if exact_name is not None:
+        # A same-named vanilla counterpart exists but uses a DIFFERENT mmtr --
+        # before trusting it (and its likely-narrower structure) as the
+        # donor, check whether the mod's OWN exact mmtr is still genuinely in
+        # current use somewhere else in the game. Confirmed real (2026-08-08,
+        # a DDDuck "AIO" armor mod): Capcom split a "_NoMultiBlend" sibling
+        # out of "Base_Equip.mmtr" for this exact asset's current vanilla
+        # file while keeping the material NAME the same -- even though
+        # "Base_Equip.mmtr" itself is still fully alive (310 materials use it
+        # game-wide right now). Trusting the name match unconditionally here
+        # silently discarded the mod's still-fully-supported MultiBlend
+        # texture slots/props (matched to the narrower sibling instead) even
+        # though nothing about the mod's own material was actually stale.
+        # Only fall through to the narrower same-name donor if the mod's own
+        # exact mmtr can't be found intact anywhere else in the game either.
+        own_exact_mmtr = [(src, b) for src, b in own_pool if b["mmtr_path"] == own_mmtr]
+        picked = _pick_best(own_exact_mmtr, mod_mat, log)
+        if picked:
+            return picked[1], picked[0], "own-file exact mmtr (over narrower same-name donor)"
+
+        if allow_cross_piece:
+            global_exact_mmtr = [(src, b) for src, b in global_pool if b["mmtr_path"] == own_mmtr]
+            picked = _pick_best(global_exact_mmtr, mod_mat, log, category_hint=category_hint)
+            if picked:
+                return picked[1], picked[0], "cross-piece exact mmtr (over narrower same-name donor)"
+
+        if whole_game_lookup is not None:
+            hits = whole_game_lookup(own_mmtr)
+            picked = _pick_best(hits, mod_mat, log, category_hint=category_hint)
+            if picked:
+                log(f"    [info] material {mod_mat['name']!r}: current vanilla counterpart uses a "
+                    f"narrower {exact_name[1]['mmtr_path']!r} -- keeping the mod's own {own_mmtr!r} "
+                    f"instead, confirmed still in current use elsewhere ({picked[0]!r})")
+                return picked[1], picked[0], "whole-game exact mmtr (over narrower same-name donor)"
+
+        return exact_name[1], exact_name[0], "own-file exact name"
+
+    mmtr_variants = _mmtr_variants(own_mmtr)
 
     same_mmtr = [(src, b) for src, b in own_pool if b["mmtr_path"] in mmtr_variants]
     picked = _pick_best(same_mmtr, mod_mat, log)
