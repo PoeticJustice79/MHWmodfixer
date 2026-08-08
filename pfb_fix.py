@@ -357,6 +357,63 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
     return PfbPlan(rel, mod_path, None, None, None, False)
 
 
+_PHYSICS_EXTS = (".chain2", ".jcns")
+
+
+def _fix_dangling_physics_refs(data: bytearray, mod_code: str, mod_provided_keys: set[str],
+                                game: GameArchive, log) -> int:
+    """Some donor pfbs reference their chain2 (cloth/fur sway physics) or
+    jcns (joint constraints) rig under a THIRD character code -- neither
+    the donor's own real code nor the mod's custom-slot code -- that turns
+    out not to exist anywhere in the currently installed game at all.
+    Confirmed real on two separate mods (Mangie "Afterglow" and "Forte"):
+    the current vanilla ch03 piece's own resource table references
+    "ch02_017_0001.chain2", and game.find_versioned() confirms that file
+    doesn't exist in this game build -- a dangling reference Capcom
+    apparently left behind. _apply_substitution()'s normal donor_code ->
+    mod_code swap never touches this string at all (it doesn't contain
+    donor_code), so it survives into the output completely unchanged --
+    still dangling. Left alone, the piece silently gets no physics (the
+    engine just skips a chain2/jcns it can't find), even though the mod
+    bundles its own working chain2/jcns file for the identical numbered
+    slot under its own code.
+
+    Only redirects a reference that's PROVEN dangling (still resolves ->
+    left alone, matching this project's existing donor_code substitution
+    safety principle) AND for which the mod actually provides a same-
+    suffix replacement file. Returns the count fixed."""
+    fixed = 0
+    for offset, s in _scan_utf16_strings(bytes(data)):
+        if "/" not in s:
+            continue
+        ext = next((e for e in _PHYSICS_EXTS if s.lower().endswith(e)), None)
+        if ext is None:
+            continue
+        m = _CODE_RE.search(Path(_strip_at(s)).name)
+        if m is None or m.group(0).lower() == mod_code.lower():
+            continue
+        this_code = m.group(0)
+        if game.find_versioned("natives/STM/" + _strip_at(s), ext[1:]) is not None:
+            continue  # resolves to a real current file -- leave it alone
+        candidate = s.replace(this_code, mod_code)
+        key = Path(_strip_at(candidate)).name.lower()
+        if key not in mod_provided_keys:
+            continue  # mod doesn't provide a replacement for this slot either
+        mod_code_bytes = mod_code.encode("utf-16-le")
+        search_start = 0
+        while True:
+            idx = s.find(this_code, search_start)
+            if idx == -1:
+                break
+            char_offset = offset + idx * 2
+            data[char_offset:char_offset + len(this_code) * 2] = mod_code_bytes
+            search_start = idx + len(this_code)
+        log(f"    [physics-fix] dangling reference to {this_code!r}'s {s!r} redirected -> "
+            f"mod's own {candidate!r}")
+        fixed += 1
+    return fixed
+
+
 def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
                          mod_provided_keys: set[str]) -> bytes:
     """Same-length in-place substitution over the WHOLE file (not just the
@@ -445,6 +502,9 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
             if plan.substitution is not None:
                 donor_code, mod_code = plan.substitution
                 result = _apply_substitution(plan.donor_bytes, donor_code, mod_code, mod_provided_keys)
+                result_arr = bytearray(result)
+                if _fix_dangling_physics_refs(result_arr, mod_code, mod_provided_keys, game, log):
+                    result = bytes(result_arr)
 
         out_path = output_root / plan.rel
         if result == mod_path.read_bytes():

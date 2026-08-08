@@ -963,3 +963,48 @@ loose and pak-bundled pfb/user/scn repair now share the identical safety
 gate. The "mature path, don't touch it" argument from #9 is retired; it
 was survivorship bias from a feature whose failure mode is silent until
 someone actually equips the broken piece in-game.
+
+### 13. Substituted pfb pieces can end up with dangling chain2/jcns physics references (2026-08-08)
+
+Real reports, working through a stack of custom-slot mods: Mangie
+"Afterglow" (Helm) and Mangie "Forte" (Arm/coat, then confirmed on
+Helm/Waist too) -- after `_apply_substitution()`'s normal donor_code ->
+mod_code swap, the piece loads and textures correctly, but has **no
+physics** (a coat that should sway sits rigid). Traced directly: the
+CURRENT vanilla donor's own resource table references its chain2 (cloth/
+fur sway) and jcns (joint constraints) rig under a **third character
+code** -- not the donor's real code, not the mod's custom-slot code.
+Confirmed via `game.find_versioned()`: e.g.
+`ch02_017_0001.chain2` doesn't exist anywhere in the currently installed
+game at all -- Capcom's own current vanilla piece has a dangling
+reference. `_apply_substitution()`'s swap only touches occurrences of
+`donor_code` (e.g. "ch03"), so a `ch02`-prefixed string passes through
+completely untouched -- still dangling in the output, even though the
+mod bundles its own working chain2/jcns file for the identical numbered
+slot (`mh03_017_0001.chain2`) that nothing ends up pointing at.
+
+**Fix**: new `_fix_dangling_physics_refs()`, run on the result right
+after `_apply_substitution()`. For every chain2/jcns resource-path
+string that survived untouched (doesn't contain the primary
+`donor_code`): extract its own 4-char code via `_CODE_RE`, confirm via
+`game.find_versioned()` that it's genuinely dangling (a reference that
+still resolves is left alone -- same safety principle
+`_apply_substitution()`'s own docstring already establishes for the
+primary swap), then redirect it to the mod's own file **only if**
+`mod_provided_keys` confirms the mod actually ships a same-suffix
+replacement. Same-length in-place substitution stays safe here because
+every RE Engine character code in this game is exactly 4 characters
+(`_CODE_RE = [a-z]{2}\d{2}`) -- swapping `ch02` for `mh03` is
+mechanically identical to the existing `donor_code`/`mod_code` swap, just
+a second, independently-discovered code pair.
+
+Verified directly on Forte: Arm/Helm/Waist (all forced-substitution
+pieces) each had 1-2 dangling chain2 references, all correctly
+redirected; the Arm piece's `.jcns` reference stayed dangling because
+this specific mod doesn't ship a `.jcns` file for that slot at all (not
+a regression -- there was never a working replacement available; this
+matches pre-fix behavior for that one file, only chain2 physics is
+recovered). No regression on the SilverWolf suite. This is very likely
+NOT specific to these two mods -- any custom-slot mod whose forced/
+substituted donor piece has this pattern in the CURRENT game build would
+have hit the identical silent physics loss.
