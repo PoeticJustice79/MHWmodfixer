@@ -368,7 +368,7 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             stats["errors"] += 1
 
     if any(pak_pfb_totals.values()):
-        log(f"    ({pak_pfb_totals['fixed']} pak-bundled pfb file(s) fixed, "
+        log(f"    ({pak_pfb_totals['fixed']} pak-bundled pfb/user/scn file(s) fixed, "
             f"{pak_pfb_totals['unresolved']} left unresolved)")
 
     pfb_files = list(find_pfb_files(mod_root))

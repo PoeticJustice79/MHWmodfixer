@@ -462,36 +462,54 @@ under 20 minutes.
   (9,939 known paths) are enough to re-run either scan in a couple
   minutes -- no need to install anything the mod archive itself.
 
-### 8. pak-packaged mods' own `.pfb` entries were never touched at all (2026-08-08)
+### 8. pak-packaged mods' own `.pfb`/`.user`/`.scn` entries were never touched at all (2026-08-08)
 
 Confirmed real case: "SilverWolf" (Nexus 964), a mod packaged as its own
 standalone `.pak` (see the "Mods packaged as their own `.pak`" section
 below), rendered the character fully invisible with REFramework showing
-`[Invalid file]` for a `.pfb` and a `.user` (HairAdjustList) path.
+`[Invalid file]` for a `.pfb` AND a `.user` (HairAdjustList) path.
 Root cause: `pak_mod_fix.py::resolve_pak_files()` only ever recognized
 entries whose magic was `MDF\0` (`if raw[:4] != b"MDF\x00": continue`) --
-**any `PFB\0` (or other) entry bundled in a mod's own pak was silently
-skipped entirely**, never diagnosed or fixed, regardless of how stale it
-was. This is a completely different code path from loose-file pfb repair
+**any other entry bundled in a mod's own pak was silently skipped
+entirely**, never diagnosed or fixed, regardless of how stale it was.
+This is a completely different code path from loose-file pfb repair
 (`pfb_fix.py`), which was already working correctly -- the gap was
 specific to the own-pak case. Re-running the existing regression suite
 after fixing this found a SECOND real mod already silently affected:
 Mangie "MooMoo"'s `Alma.pak` piece also bundles a stale pfb that was
 never being fixed.
 
-Fixed by extending `resolve_pak_files()` to also recognize `PFB\0`
-entries and plan a fix via `PakPfbEntryPlan`, reusing `pfb_fix.py`'s
-existing helpers directly (`_parse_rsz`, `_crc_only_fix`,
-`_resource_strings`, `_find_substitution`) rather than reimplementing
-parallel logic. One real simplification versus the loose-file case: a
-pak entry's donor is already found by an exact hash64 match (see this
-file's own docstring on why that's unambiguous), so there's no mh<->ch
-custom-slot code to substitute back into the donor's bytes at all --
-whenever a wholesale replace is warranted, the result is simply the
-donor's own current bytes verbatim, no substitution step needed.
-`_find_substitution()` is still reused for its "are these two string
-sets close enough" verdict, but any substitution pair it proposes is
-just ignored (meaningless in a hash-matched context).
+First pass only added `PFB\0` recognition -- the user re-tested in-game
+and the `.user` (`USR\0`) entry's `[Invalid file]` error was still there,
+unsurprisingly, since it's a different magic entirely. Checked the
+another community MHWilds mod-fixer reviewed earlier this session
+(`C:\Users\User\Desktop\another community fixer\rsz_crc_fix.py`) and
+confirmed it treats `.pfb`/`.user`/`.scn` identically -- all three are
+RE Engine's RSZ-serialized formats (prefab / userdata / scene). This
+project's own `pfb_fix.py::_parse_rsz()` finds the RSZ block by string
+search (`data.find(b"RSZ")`) rather than a fixed per-format byte offset
+(unlike that other tool, which needs a `{magic: offset}` lookup
+table for this), so the exact same repair logic already worked
+unmodified on the `.user` entry the moment entry-type detection was
+widened to recognize it too -- confirmed directly (`_crc_only_fix()`
+returned a valid patch for SilverWolf's `.user` entry on the first try).
+`_RSZ_MAGICS = {PFB, USR, SCN}` now gates entry-type detection; `.scn`
+is included pre-emptively (same format family, not yet confirmed bundled
+in a real mod pak) since it cost nothing extra to support.
+
+Fixed by extending `resolve_pak_files()` to recognize all three magics
+and plan a fix via `PakRszEntryPlan`, reusing `pfb_fix.py`'s existing
+helpers directly (`_parse_rsz`, `_crc_only_fix`, `_resource_strings`,
+`_find_substitution`) rather than reimplementing parallel logic. One
+real simplification versus the loose-file case: a pak entry's donor is
+already found by an exact hash64 match (see this file's own docstring on
+why that's unambiguous), so there's no mh<->ch custom-slot code to
+substitute back into the donor's bytes at all -- whenever a wholesale
+replace is warranted, the result is simply the donor's own current bytes
+verbatim, no substitution step needed. `_find_substitution()` is still
+reused for its "are these two string sets close enough" verdict, but any
+substitution pair it proposes is just ignored (meaningless in a
+hash-matched context).
 
 Ships as core, default-on behavior (not a new checkbox) -- the user's
 own call on this ("이건 기능 새로 선택 옵션으로 추가하는게 맞지 않을까?")
@@ -502,7 +520,7 @@ existing checkboxes (`force_unresolved_pfbs`, `preserve_extra_pfb_components`)
 now also govern pak-bundled pfb entries, not just loose ones.
 
 **Design note on `PakPlan.unresolved`**: deliberately kept mdf-only (does
-NOT consider `pfb_entries`) -- this property gates whether
+NOT consider `rsz_entries`) -- this property gates whether
 `auto_fix.py` attempts `write_fixed_pak()` AT ALL, and an unresolved pfb
 entry must not block mdf fixes that already work fine on their own.
 `write_fixed_pak()` already resolves each pfb entry fully independently

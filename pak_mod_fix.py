@@ -54,17 +54,28 @@ class PakMdfEntryPlan:
         return any(m.stale for m in self.materials) and not self.unresolved
 
 
+_RSZ_MAGICS = {b"PFB\x00": "pfb", b"USR\x00": "user", b"SCN\x00": "scn"}
+# All three are RE Engine's RSZ-serialized formats (prefab / userdata / scene)
+# -- confirmed by inspecting a another community MHWilds mod-fixer's source,
+# which treats all three identically for exactly this kind of repair.
+# pfb_fix.py's _parse_rsz() finds the "RSZ" block by string search rather
+# than a fixed per-format offset, so the same repair logic already works
+# on any of them unmodified -- only the entry-type detection needed to widen.
+
+
 @dataclass
-class PakPfbEntryPlan:
-    """A .pfb entry bundled inside the mod's own pak. Unlike loose-file pfb
-    repair (pfb_fix.py), the donor here is found by matching this entry's
-    hash64 directly against the current game's pak index -- exact and
+class PakRszEntryPlan:
+    """An RSZ-serialized entry (.pfb / .user / .scn -- see _RSZ_MAGICS)
+    bundled inside the mod's own pak. Unlike loose-file pfb repair
+    (pfb_fix.py), the donor here is found by matching this entry's hash64
+    directly against the current game's pak index -- exact and
     unambiguous, no mh<->ch custom-slot guessing needed (see this module's
     docstring) -- so `_find_substitution()`'s substitution-pair search is
     reused only for its "are these two string sets close enough" verdict;
     any actual substitution pair it proposes is meaningless here (there's
     no path to translate) and is ignored."""
     hash64: int
+    ext: str = "pfb"  # "pfb" | "user" | "scn" -- for logging only, see _RSZ_MAGICS
     result: bytes | None = None  # the exact bytes to write; None means "leave this entry exactly as shipped"
     kind: str = "unresolved"  # "already_current" | "crc" | "crc_extra" | "replace" | "forced" | "unresolved"
 
@@ -81,11 +92,11 @@ class PakPfbEntryPlan:
 class PakPlan:
     pak_path: Path
     mdf_entries: list[PakMdfEntryPlan] = field(default_factory=list)
-    pfb_entries: list[PakPfbEntryPlan] = field(default_factory=list)
+    rsz_entries: list[PakRszEntryPlan] = field(default_factory=list)
 
     @property
     def applicable(self) -> bool:
-        return len(self.mdf_entries) > 0 or len(self.pfb_entries) > 0
+        return len(self.mdf_entries) > 0 or len(self.rsz_entries) > 0
 
     @property
     def unresolved(self) -> bool:
@@ -99,33 +110,34 @@ class PakPlan:
         return any(e.unresolved for e in self.mdf_entries)
 
     @property
-    def pfb_unresolved_count(self) -> int:
-        return sum(1 for e in self.pfb_entries if e.unresolved)
+    def rsz_unresolved_count(self) -> int:
+        return sum(1 for e in self.rsz_entries if e.unresolved)
 
     @property
     def needs_rebuild(self) -> bool:
-        return any(e.needs_rebuild for e in self.mdf_entries) or any(e.needs_rebuild for e in self.pfb_entries)
+        return any(e.needs_rebuild for e in self.mdf_entries) or any(e.needs_rebuild for e in self.rsz_entries)
 
 
-def _plan_pak_pfb_entry(mod_bytes: bytes, donor_bytes: bytes | None,
-                         force_unresolved: bool, preserve_extra: bool) -> PakPfbEntryPlan | None:
-    """A .pfb entry bundled in the mod's own pak, planned the same safe way
-    loose-file pfb repair works (pfb_fix.py) -- CRC-only patch tried first,
-    then a resource-string closeness check before falling back to a
-    wholesale donor-bytes replace -- except there's no path to path-match
-    or character-code substitute here at all: the donor was already found
-    by an exact hash64 match (see this module's docstring), so whenever a
-    "wholesale replace" is warranted the result is simply the donor's own
-    current bytes verbatim. Confirmed real case this was written for: a
-    mod's own bundled .pfb silently never got touched at all before this
+def _plan_pak_rsz_entry(mod_bytes: bytes, donor_bytes: bytes | None, ext: str,
+                         force_unresolved: bool, preserve_extra: bool) -> PakRszEntryPlan | None:
+    """An RSZ-serialized entry (.pfb/.user/.scn) bundled in the mod's own
+    pak, planned the same safe way loose-file pfb repair works (pfb_fix.py)
+    -- CRC-only patch tried first, then a resource-string closeness check
+    before falling back to a wholesale donor-bytes replace -- except
+    there's no path to path-match or character-code substitute here at
+    all: the donor was already found by an exact hash64 match (see this
+    module's docstring), so whenever a "wholesale replace" is warranted
+    the result is simply the donor's own current bytes verbatim. Confirmed
+    real case this was written for: a mod's own bundled .pfb AND .user
+    (SilverWolf, Nexus 964) silently never got touched at all before this
     existed (pak-packaged mods only ever got their .mdf2 entries checked),
-    leaving a genuinely stale prefab in place -- REFramework reported it
-    [Invalid file] and the character rendered fully invisible, the same
-    failure signature loose-file pfb staleness produces (see pfb_fix.py).
-    Returns None if the entry can't be parsed as RSZ at all (caller leaves
-    it untouched, unrelated to this repair)."""
+    leaving genuinely stale RSZ content in place -- REFramework reported
+    both [Invalid file] and the character rendered fully invisible, the
+    same failure signature loose-file pfb staleness produces (see
+    pfb_fix.py). Returns None if the entry can't be parsed as RSZ at all
+    (caller leaves it untouched, unrelated to this repair)."""
     if donor_bytes is None:
-        return PakPfbEntryPlan(hash64=0, result=None, kind="unresolved")  # hash64 filled in by caller
+        return PakRszEntryPlan(hash64=0, ext=ext, result=None, kind="unresolved")  # hash64 filled in by caller
 
     mod_info = _parse_rsz(mod_bytes)
     donor_info = _parse_rsz(donor_bytes)
@@ -135,18 +147,18 @@ def _plan_pak_pfb_entry(mod_bytes: bytes, donor_bytes: bytes | None,
     crc_result = _crc_only_fix(mod_bytes, mod_info, donor_info, preserve_extra=preserve_extra)
     if crc_result is not None:
         patch, used_extra = crc_result
-        return PakPfbEntryPlan(hash64=0, result=patch, kind="crc_extra" if used_extra else "crc")
+        return PakRszEntryPlan(hash64=0, ext=ext, result=patch, kind="crc_extra" if used_extra else "crc")
 
     mod_strings = _resource_strings(mod_bytes, mod_info["rsz_off"])
     donor_strings = _resource_strings(donor_bytes, donor_info["rsz_off"])
     sub_result = _find_substitution(mod_strings, donor_strings, force=force_unresolved)
     if sub_result is None:
-        return PakPfbEntryPlan(hash64=0, result=None, kind="unresolved")
+        return PakRszEntryPlan(hash64=0, ext=ext, result=None, kind="unresolved")
 
     kind_tag, _sub = sub_result  # any substitution pair found is meaningless here -- see docstring
     if donor_bytes == mod_bytes:
-        return PakPfbEntryPlan(hash64=0, result=None, kind="already_current")
-    return PakPfbEntryPlan(hash64=0, result=donor_bytes, kind="forced" if kind_tag == "forced" else "replace")
+        return PakRszEntryPlan(hash64=0, ext=ext, result=None, kind="already_current")
+    return PakRszEntryPlan(hash64=0, ext=ext, result=donor_bytes, kind="forced" if kind_tag == "forced" else "replace")
 
 
 def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
@@ -175,7 +187,7 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
 
     for pak_path, archive in archives:
         units = []
-        pfb_plans = []
+        rsz_plans = []
         for h, entry in archive.entries.items():
             scanned += 1
             if scanned % _PROGRESS_STEP == 0 or scanned == total_entries:
@@ -186,14 +198,15 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                 log(f"    [warn] {pak_path.name}: couldn't read an entry ({e}), leaving it untouched")
                 continue
 
-            if raw[:4] == b"PFB\x00":
+            rsz_ext = _RSZ_MAGICS.get(raw[:4])
+            if rsz_ext is not None:
                 donor_bytes = game.read_by_hash(h)
-                plan = _plan_pak_pfb_entry(raw, donor_bytes, force_unresolved_pfbs, preserve_extra_pfb_components)
+                plan = _plan_pak_rsz_entry(raw, donor_bytes, rsz_ext, force_unresolved_pfbs, preserve_extra_pfb_components)
                 if plan is None:
-                    log(f"    [warn] {pak_path.name}#{h:016X}: couldn't parse this pfb entry's RSZ structure, leaving it untouched")
+                    log(f"    [warn] {pak_path.name}#{h:016X}: couldn't parse this .{rsz_ext} entry's RSZ structure, leaving it untouched")
                     continue
                 plan.hash64 = h
-                pfb_plans.append(plan)
+                rsz_plans.append(plan)
                 continue
 
             if raw[:4] != b"MDF\x00":
@@ -222,12 +235,12 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                 "donor_nv": donor_nv, "donor_bytes": donor_bytes, "donor_src": donor_src,
             })
 
-        raw_infos.append((pak_path, units, pfb_plans))
+        raw_infos.append((pak_path, units, rsz_plans))
 
     total_units = sum(len(units) for _, units, _ in raw_infos)
     resolved = 0
     plans = []
-    for pak_path, units, pfb_plans in raw_infos:
+    for pak_path, units, rsz_plans in raw_infos:
         entry_plans = []
         for u in units:
             resolved += 1
@@ -248,7 +261,7 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                 hash64=u["hash64"], mod_numVersion=u["mod_mdf"].numVersion, donor_numVersion=u["donor_nv"],
                 donor_bytes=u["donor_bytes"], donor_src=u["donor_src"], materials=mat_plans,
             ))
-        plans.append(PakPlan(pak_path, entry_plans, pfb_plans))
+        plans.append(PakPlan(pak_path, entry_plans, rsz_plans))
     return plans
 
 
@@ -323,7 +336,7 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> tuple[int, dict]:
     entry order is preserved as-is (not re-sorted) -- see pak_writer.py's
     module docstring for why all of this matters.
 
-    Each pfb entry (see PakPfbEntryPlan) is resolved independently of every
+    Each pfb entry (see PakRszEntryPlan) is resolved independently of every
     mdf entry and of every OTHER pfb entry -- one unresolved pfb doesn't
     stop a resolved one, or any mdf fix, from being written.
 
@@ -342,29 +355,29 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> tuple[int, dict]:
         total_changed += changed
         fixed[entry_plan.hash64] = (result, len(result))
 
-    for pfb_plan in pak_plan.pfb_entries:
-        if pfb_plan.kind == "already_current":
+    for rsz_plan in pak_plan.rsz_entries:
+        if rsz_plan.kind == "already_current":
             pfb_stats["already_current"] += 1
-        elif pfb_plan.kind == "unresolved":
+        elif rsz_plan.kind == "unresolved":
             pfb_stats["unresolved"] += 1
-        elif pfb_plan.result is not None:
-            fixed[pfb_plan.hash64] = (pfb_plan.result, len(pfb_plan.result))
+        elif rsz_plan.result is not None:
+            fixed[rsz_plan.hash64] = (rsz_plan.result, len(rsz_plan.result))
             pfb_stats["fixed"] += 1
-            if pfb_plan.kind == "crc":
+            if rsz_plan.kind == "crc":
                 pfb_stats["crc_only"] += 1
-                log(f"    [crc-patched] pfb#{pfb_plan.hash64:016X} -- structure identical to current donor, "
-                    f"only stale instance CRC(s) updated")
-            elif pfb_plan.kind == "crc_extra":
+                log(f"    [crc-patched] .{rsz_plan.ext}#{rsz_plan.hash64:016X} -- structure identical to "
+                    f"current donor, only stale instance CRC(s) updated")
+            elif rsz_plan.kind == "crc_extra":
                 pfb_stats["crc_only_extra"] += 1
-                log(f"    [crc-patched, custom parts kept] pfb#{pfb_plan.hash64:016X} -- some instances the "
-                    f"current donor doesn't have were left as shipped; only stale CRC(s) among shared "
-                    f"instances updated -- experimental option, verify in-game")
-            elif pfb_plan.kind == "forced":
+                log(f"    [crc-patched, custom parts kept] .{rsz_plan.ext}#{rsz_plan.hash64:016X} -- some "
+                    f"instances the current donor doesn't have were left as shipped; only stale CRC(s) "
+                    f"among shared instances updated -- experimental option, verify in-game")
+            elif rsz_plan.kind == "forced":
                 pfb_stats["forced"] += 1
-                log(f"    [forced-fix] pfb#{pfb_plan.hash64:016X} -- structure didn't safely reconcile; "
-                    f"forced anyway (experimental option), verify in-game")
+                log(f"    [forced-fix] .{rsz_plan.ext}#{rsz_plan.hash64:016X} -- structure didn't safely "
+                    f"reconcile; forced anyway (experimental option), verify in-game")
             else:
-                log(f"    [fixed] pfb#{pfb_plan.hash64:016X} <- current donor (direct pak-hash match)")
+                log(f"    [fixed] .{rsz_plan.ext}#{rsz_plan.hash64:016X} <- current donor (direct pak-hash match)")
 
     out_entries = []
     for h, entry in archive.entries.items():
