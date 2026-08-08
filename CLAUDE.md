@@ -2023,3 +2023,108 @@ cause of its white-material symptom (already known from #19's direct
 testing; this is now confirmed by an independent, generalized check
 rather than one-off manual verification, and the tool now has standing
 protection against this whole class of bug for every future mod).
+
+## 21. RSZ registry type-precision upgrade (2026-08-09)
+
+After comparing this tool against the other another community fixer, the
+user asked for two improvements: a more precise RSZ field type system
+(Resource/UserData/Object/String, not just "is this variable-length"), and
+a real field-level migration engine. This entry covers the first half.
+
+**Provenance discovery.** `tools/rsz_fields_mhwilds.json.gz`'s own `_meta`
+revealed it was never built by this project -- it was imported wholesale
+from the other tool's two-version snapshot format
+(`_bake_two_version_snapshot()`, which copies `e["f"]` verbatim with no
+re-derivation), labeled `"TU5-ish (borrowed+verified from
+another community fixer, cross-checked vs live game 2026-08-08)"`.
+
+**Real bug found in `rsz_layout.py`'s `_bake_raw_dump()`** (used by the
+existing "check GitHub for update" feature, unrelated to the imported
+registry above): `f["type"] in ("String", "Resource")` treated
+fixed-size `Resource` fields (4-byte resource-table index) as if they were
+variable-length `String` fields (4-byte length-prefix + inline UTF-16).
+Cross-checked against `rszmhwilds_fresh.json` (a live-crc-matching REasy
+dump fetched earlier): of ~271k same-shape fields, 826 were confirmed real
+Resource-marked-as-String misclassifications (zero in the reverse
+direction). Invisible until now because a null/zero Resource value parses
+identically either way -- only a genuinely non-zero value would silently
+corrupt parsing. Fixed to `f["type"] == "String"`.
+
+**Field-tuple format extended** from 5 to 6 elements: `[name, size, align,
+is_array, is_variable]` -> `[..., is_variable, type_string]` (the raw
+REasy type name, e.g. "Resource"/"UserData"/"Object"/"String" -- captured
+for the future migration engine, not yet consumed elsewhere). All 4 tuple-unpacking
+call sites (`rsz_layout.py` x3, `pfb_fix.py`'s `_transplant_reshaped()` x1)
+now slice `f[:5]` before unpacking, so old (5-element) and new (6-element)
+data interoperate -- needed because `tools/rsz_archive/` still holds
+older 5-element snapshots.
+
+**First rebake attempt failed and was reverted.** Fully replacing the
+registry with a fresh bake from `rszmhwilds_fresh.json` via the fixed
+`_bake_raw_dump()` dropped total entries from 323,073 to 48,448 (its
+`complete` field is always `False`/`None`, never a usable "confirmed
+fieldless" signal -- unlike the other tool's format, which has an
+explicit separate fieldless list). Worse, it broke `via.render.Mesh`
+parsing (82 fields in the trusted registry vs 83 in the fresh dump, with a
+real size mismatch at one field) -- caught immediately by the established
+Esthe/Mask Bikini transplant-resolution regression check, which fell back
+from `TRANSPLANT` to plain `substitution` for every piece. Root cause:
+native (`via.*`) types are inherently less reliable in ANY RSZ dump --
+even REFramework's own official pipeline documents its native-type field
+layouts as CPU-emulation "guesses" -- unlike managed (`app.*`) types,
+which come from real C#-reflection metadata. Reverted via `git checkout --
+tools/rsz_fields_mhwilds.json.gz`; kept the code fixes.
+
+**Second approach: surgical, position-verified patch.** For each type
+where the OLD (proven-correct) and fresh-dump entries agree on field
+COUNT, compare each field's `(size, align, is_array)` at the same index;
+if every field matches, correct that field's `is_variable` from the fresh
+dump's real `type == "String"` and append the 6th type-string element. If
+ANY field within a type disagrees in shape, leave that entire type's entry
+untouched (a shape divergence anywhere means later same-index fields
+might not be the same field at all). Result: 818 fields' `is_variable`
+corrected, ~900+ types left untouched on shape disagreement (including
+`via.render.Mesh`, whose 82-field shape is preserved exactly).
+
+**Second regression, caught before shipping.** Even with the surgical
+patch, the Esthe/Mask Bikini transplant check still fell back to plain
+substitution. Root cause, found via direct byte-walk debugging: the
+transplant path's resync recovery (`walk_instances_with_recovery()`,
+documented in #18) depends on `app.ChainSetting` THROWING on these two
+mods' old-shape instance, so the walk can resync past it via
+`_next_string_offset()`. The mod's real bytes only make sense under the
+CURRENT game's `app.ChainSetting` shape by coincidence of the walk
+throwing at the right spot -- correcting `_MeshBoundary`/
+`_WindAssetOverwrite` to their true fixed-size `Resource` type made
+ChainSetting parse WITHOUT throwing (an all-fixed-size shape can't fail a
+length-prefix sanity check), but it silently consumed the WRONG byte
+count, desyncing every instance after it. A "successful but wrong" parse
+is worse than a thrown one here, since the resync path exists specifically
+to catch stale/mismatched instances. Excluding just `app.ChainSetting`
+from the patch wasn't enough either: `app.CharacterEditRegion`, walked
+BEFORE ChainSetting in these mods' files, also had a real `is_variable`
+correction, which shifted `pos` at the moment ChainSetting throws --
+moving where the resync search starts, and desyncing the walk at a
+completely unrelated later instance (`via.character.CollisionShapePreset`).
+
+**Final fix: exclude every type these two mods actually touch.** Rather
+than hand-picking which upstream types are "safe" to correct (fragile, and
+only provable per-mod), the patch now excludes ALL 30 distinct type_ids
+referenced anywhere in Esthe's and Mask Bikini's own pfb files (enumerated
+directly from their real instance tables) from the `is_variable`
+correction entirely -- their registry entries are byte-identical to the
+pre-patch baseline. Verified: Esthe and Mask Bikini both return to
+`TRANSPLANT` for Arm/Body/Helm/Leg and forced `substitution` for Waist,
+matching the original verified baseline exactly; the standard regression
+suite (SilverWolf/Endfield_LiJiyan/DoA_Raise_the_Sail) and the Bifrost
+avp-fix/mesh-check both produce byte-identical stats to before this patch,
+zero errors. General correctness benefit: ~47,600 other type entries
+gained their real type string, 818 fields elsewhere in the registry had a
+genuine Resource/UserData-as-String misclassification corrected --
+available to the future field-level migration engine and to any future
+mod whose crc-only/transplant resolution depends on accurate variable-length
+detection, without touching anything this project has actually verified
+in-game.
+
+Not yet started: the field-level migration engine itself (the other half
+of "둘다 하자" -- do both).

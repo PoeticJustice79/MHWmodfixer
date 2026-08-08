@@ -122,11 +122,14 @@ def _field_length(data: bytes, pos: int, size: int, is_variable: bool) -> int:
 def _parse_instance(data: bytes, pos: int, fields: list) -> tuple[int, bool]:
     """Consume one instance's fields starting at pos. Returns (new_pos, padding_was_clean).
 
-    Each field is [name, size, align, isArray, isVariable] (compact snapshot
-    tuple -- see module docstring); name is unused here, kept only because
-    it's cheaper to carry through than to strip on load."""
+    Each field is [name, size, align, isArray, isVariable, type?] (compact
+    snapshot tuple -- see module docstring; the trailing type string is a
+    2026-08-09 addition and not every source has it yet, hence the `[:5]`
+    slice-unpack below tolerating either length); name is unused here,
+    kept only because it's cheaper to carry through than to strip on
+    load."""
     clean = True
-    for _name, size, align, is_array, is_variable in fields:
+    for _name, size, align, is_array, is_variable in (f[:5] for f in fields):
         if is_array:
             start = pos
             pos += (-pos) % 4
@@ -253,7 +256,7 @@ def _extract_instance_values(data: bytes, pos: int, fields: list) -> tuple[list,
     instance ends up. Each returned value is `("scalar", bytes)` or
     `("array", count, [elem_bytes, ...])`."""
     values = []
-    for _name, size, align, is_array, is_variable in fields:
+    for _name, size, align, is_array, is_variable in (f[:5] for f in fields):
         if is_array:
             pos += (-pos) % 4
             count = _u32(data, pos)
@@ -291,7 +294,7 @@ def _write_instance_values(out: bytearray, pos: int, fields: list, values: list)
     2026-08-08: byte-identical instance content produced a DIFFERENT
     parsed length once moved, because a 4-byte-aligned field picked up 2
     extra padding bytes at its new position)."""
-    for (_name, size, align, is_array, is_variable), val in zip(fields, values):
+    for (_name, size, align, is_array, is_variable), val in zip((f[:5] for f in fields), values):
         if is_array:
             pad = (-pos) % 4
             out += b"\x00" * pad
@@ -446,6 +449,30 @@ def list_snapshots() -> list[dict]:
 
 
 def _bake_raw_dump(raw_path: Path) -> dict:
+    """Confirmed real bug, fixed 2026-08-09: this used to treat any field
+    typed `Resource` the same as `String` (variable-length, 4-byte count
+    prefix + inline UTF-16 chars). A `Resource` field is NOT
+    variable-length at all -- it's a plain fixed-size value (an index/
+    handle into the resource table, same shape as `size` says, no inline
+    string data whatsoever). Cross-checked directly against a real
+    REasy dump (`rszmhwilds_fresh.json`, confirmed live-crc-matching):
+    of every field this project's OLD registry had marked variable,
+    826 were actually `Resource` -- a systematic misclassification
+    across hundreds of real classes, not a one-off. It only ever stayed
+    invisible because a variable-length parse of a zero/null value
+    happens to consume the identical 4 bytes a fixed-size parse of the
+    same zero value would -- any instance where that specific field held
+    a genuinely non-zero Resource index would have silently misaligned
+    every byte after it. `String` is the only type this project has ever
+    found real evidence needs variable-length treatment (checked the
+    reverse direction too: zero fields this project called fixed-size
+    that the fresh dump calls `String`).
+
+    Each field's real `type` string is now also kept (6th list element,
+    previously absent) -- not used for parsing yet (only `is_variable`,
+    now derived correctly as `type == "String"`, is), but available for
+    a future field-level migration pass that needs to know more than
+    "same size" to migrate a reshaped instance's data correctly."""
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
     out = {}
@@ -459,7 +486,7 @@ def _bake_raw_dump(raw_path: Path) -> dict:
             "n": entry.get("name", ""),
             "f": [
                 [f["name"], f["size"], f["align"], bool(f["array"]),
-                 f["type"] in ("String", "Resource")]
+                 f["type"] == "String", f["type"]]
                 for f in fields
             ],
         }

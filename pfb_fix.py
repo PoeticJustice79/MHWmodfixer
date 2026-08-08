@@ -417,7 +417,7 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
             if i in recovered:
                 d_s, _d_e = donor_span_by_index[i]
                 values, _ = rsz_layout._extract_instance_values(donor_data, d_s, entry["f"])
-                for (_name, _size, _align, _is_array, is_variable), val in zip(entry["f"], values):
+                for (_name, _size, _align, _is_array, is_variable), val in zip((f[:5] for f in entry["f"]), values):
                     if not is_variable:
                         continue
                     blobs = val[2] if val[0] == "array" else [val[1]]
