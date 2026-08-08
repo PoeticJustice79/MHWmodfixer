@@ -915,3 +915,51 @@ loose-mdf2 or pak-mdf2 path (both call the same `apply_texture_overrides()`)
 since the feature existed -- not a one-mod edge case. Any previously
 "fixed" mod a user is still using may be carrying the donor's
 shading_type/alpha_flags instead of its own.
+
+### 12. The SilverWolf crash's exact root cause was still live in LOOSE-file pfb repair (2026-08-08)
+
+The `require_fits` safety gate from #9 was only ever added to
+`pak_mod_fix.py`'s pak-bundled rsz path -- `pfb_fix.py::plan_pfb()`'s
+`_crc_only_fix()` call (loose files) deliberately kept the old,
+unverified behavior, on the stated reasoning "mature, independently-
+tested-in-game path, no crash evidence there -- don't change its risk
+profile without a reason." That reasoning held only until there WAS a
+reason.
+
+Real case, reported directly ("이거 복구했는데 두 모드다 외형 선택하면
+게임 크래시생겨" -- both mods crash the game when the outfit is
+selected): **Mangie Bunny Girl Suit** and **Mangie Harness**, both
+already run through this project's own force-fix. Traced each piece's
+resolution kind against the ORIGINAL (pre-fix) files the user separately
+provided:
+
+- Harness's Helm piece: `plan_pfb()` chose the CRC-only path
+  (`crc_patch` set). Ran it through `rsz_layout.fits_current_layout()`
+  retroactively -- **False**, a proven structural mismatch, the exact
+  same signature as the SilverWolf pfb.
+- Bunny Girl Suit's Body piece: same story -- CRC-only patch chosen,
+  `fits_current_layout()` **False**.
+
+Both mods reference REAL vanilla equipment paths directly (no custom-
+slot trick), so this isn't an edge case specific to slot-substitution
+mods either. The other 4 pieces in each mod resolved via ordinary/forced
+substitution (wholesale donor replace), which doesn't have this failure
+mode at all -- only the two that happened to land on the CRC-only branch
+were affected, which is exactly why a "confirmed working on Waist
+pieces, no crash evidence" track record for the FEATURE as a whole never
+caught this: most pieces take a different path, and the dangerous one is
+silent (no error, ships fine, fails only in-game).
+
+**Fix**: added `require_fits=True` to `plan_pfb()`'s
+`_crc_only_fix(...)` call, matching the pak-bundled path exactly.
+Verified directly: re-planning both crash pieces with the fix in place,
+both now fall through to the substitution path instead (Harness/Helm ->
+forced substitution, Bunny Girl Suit/Body -> ordinary "close"
+substitution) -- no regression on the SilverWolf suite.
+
+**There is no longer a code path in this project that trusts a bare
+type_id match for a CRC-only patch without registry verification** --
+loose and pak-bundled pfb/user/scn repair now share the identical safety
+gate. The "mature path, don't touch it" argument from #9 is retired; it
+was survivorship bias from a feature whose failure mode is silent until
+someone actually equips the broken piece in-game.

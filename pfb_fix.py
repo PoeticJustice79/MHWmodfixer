@@ -339,7 +339,7 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
         if donor_parsed is None:
             continue
 
-        crc_result = _crc_only_fix(mod_bytes, mod_parsed, donor_parsed, preserve_extra=preserve_extra)
+        crc_result = _crc_only_fix(mod_bytes, mod_parsed, donor_parsed, preserve_extra=preserve_extra, require_fits=True)
         if crc_result is not None:
             crc_patch, used_preserve_extra = crc_result
             return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True,
