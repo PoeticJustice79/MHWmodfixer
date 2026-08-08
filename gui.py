@@ -170,7 +170,16 @@ class App:
 
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
-        self.start_btn = ttk.Button(action_frame, text=t("btn_start"), command=self._start)
+        # Plain tk.Button, not ttk -- ttk buttons mostly ignore bg/fg under
+        # Windows' native "vista" theme (set below in main()), so this is
+        # the only reliable way to make the primary action visually stand
+        # out from the other buttons on this screen.
+        self.start_btn = tk.Button(
+            action_frame, text=t("btn_start"), command=self._start,
+            bg="#2e7d32", fg="white", activebackground="#256428", activeforeground="white",
+            disabledforeground="#a5c9a8", relief="flat", font=("Segoe UI", 10, "bold"),
+            padx=16, pady=6, cursor="hand2",
+        )
         self.start_btn.pack(side="left")
         self.btn_open_log = ttk.Button(action_frame, text=t("btn_open_log_folder"), command=self._open_log_folder)
         self.btn_open_log.pack(side="left", padx=6)
