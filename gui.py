@@ -44,7 +44,10 @@ from fluffy_repackage import repackage_for_fluffy
 from game_archive import GameArchive
 from i18n import t
 
-APP_TITLE = "MHWmodfixer by Littlefish (PoeticJustice79)"
+# Bump this by hand at release time -- not something to change unprompted
+# (versioning is the maintainer's call, not something automated here).
+APP_VERSION = "v0.5"
+APP_TITLE = f"MHWmodfixer {APP_VERSION} by Littlefish (PoeticJustice79)"
 ARCHIVE_EXTS = {".zip", ".7z", ".rar"}
 LOG_DIR = Path.home() / "AppData" / "Local" / "MHWmodfixer" / "logs"
 
