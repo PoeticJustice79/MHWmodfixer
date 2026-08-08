@@ -323,6 +323,25 @@ def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
     return bytes(result), has_extra
 
 
+def _dominant_code(strings: set[str]) -> str | None:
+    """The single character code (via `_CODE_RE`) that appears most often
+    across a pfb's own resource-path strings -- used as the "self code"
+    for a file that resolves via `_crc_only_fix()`, where no donor_code/
+    mod_code substitution pair exists at all (the file's own bytes are
+    kept as-is, or only CRC-patched in place). `_fix_dangling_physics_refs()`
+    still needs SOME code representing "this file's own slot" to build a
+    same-suffix candidate replacement path against `mod_provided_keys` --
+    this is that code, inferred directly from what the file's own strings
+    predominantly use rather than from any substitution result."""
+    counts: dict[str, int] = {}
+    for s in strings:
+        for m in _CODE_RE.finditer(s):
+            counts[m.group(0)] = counts.get(m.group(0), 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
+
+
 @dataclass
 class PfbPlan:
     rel: Path
@@ -334,6 +353,7 @@ class PfbPlan:
     forced: bool = False  # resolved only because force=True was passed to plan_pfb()
     crc_patch: bytes | None = None  # set instead of substitution: write these exact bytes (mod's own content, only stale CRCs patched) rather than a donor-replace
     crc_patch_preserved_extra: bool = False  # crc_patch also kept mod-only instances the donor doesn't have -- only possible when preserve_extra_pfb_components=True was passed in
+    self_code: str | None = None  # this pfb's own dominant character code (see _dominant_code()) -- used to run _fix_dangling_physics_refs() on the crc_patch path, which has no donor_code/mod_code substitution pair to reuse
 
 
 def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool = False,
@@ -351,6 +371,7 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
     if mod_parsed is None:
         return PfbPlan(rel, mod_path, None, None, None, False)
     mod_strings = _resource_strings(mod_bytes, mod_parsed["rsz_off"])
+    self_code = _dominant_code(mod_strings)
 
     for cand in candidate_donor_paths(base_no_version):
         found = game.find_versioned(cand, "pfb")
@@ -365,13 +386,15 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
         if crc_result is not None:
             crc_patch, used_preserve_extra = crc_result
             return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True,
-                            crc_patch=crc_patch, crc_patch_preserved_extra=used_preserve_extra)
+                            crc_patch=crc_patch, crc_patch_preserved_extra=used_preserve_extra,
+                            self_code=self_code)
 
         donor_strings = _resource_strings(donor_bytes, donor_parsed["rsz_off"])
         result = _find_substitution(mod_strings, donor_strings, force=force)
         if result is not None:
             kind, sub = result
-            return PfbPlan(rel, mod_path, donor_path, donor_bytes, sub, True, forced=(kind == "forced"))
+            return PfbPlan(rel, mod_path, donor_path, donor_bytes, sub, True, forced=(kind == "forced"),
+                            self_code=self_code)
         log(f"    [warn] {rel}: found donor {donor_path!r} but its content doesn't reconcile "
             f"with the mod's own -- leaving untouched (possible real customization)")
         return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, False)
@@ -379,14 +402,22 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
     return PfbPlan(rel, mod_path, None, None, None, False)
 
 
-_PHYSICS_EXTS = (".chain2", ".jcns")
+_PHYSICS_EXTS = (".chain2", ".jcns", ".mesh", ".mdf2")
+# Started as just chain2/jcns (physics rigs); widened to include mesh/mdf2
+# after a real report (Forte, 2026-08-08) showed the identical dangling-
+# third-code pattern on optional variant sub-parts (e.g. "..._0.mesh",
+# "..._9.mdf2") once #14's fix made Leg/Arm/Helm/Waist resolve via
+# crc_patch instead of substitution -- REFramework logged "[Missing file]"
+# for them at load, harmless in practice (the engine just skips an
+# unresolvable optional sub-part) but still worth eliminating the same way.
 
 
 def _fix_dangling_physics_refs(data: bytearray, mod_code: str, mod_provided_keys: set[str],
                                 game: GameArchive, log) -> int:
-    """Some donor pfbs reference their chain2 (cloth/fur sway physics) or
-    jcns (joint constraints) rig under a THIRD character code -- neither
-    the donor's own real code nor the mod's custom-slot code -- that turns
+    """Some donor pfbs reference resources -- their chain2 (cloth/fur sway
+    physics) or jcns (joint constraints) rig, or an optional mesh/mdf2
+    variant sub-part -- under a THIRD character code -- neither the
+    donor's own real code nor the mod's custom-slot code -- that turns
     out not to exist anywhere in the currently installed game at all.
     Confirmed real on two separate mods (Mangie "Afterglow" and "Forte"):
     the current vanilla ch03 piece's own resource table references
@@ -395,10 +426,18 @@ def _fix_dangling_physics_refs(data: bytearray, mod_code: str, mod_provided_keys
     apparently left behind. _apply_substitution()'s normal donor_code ->
     mod_code swap never touches this string at all (it doesn't contain
     donor_code), so it survives into the output completely unchanged --
-    still dangling. Left alone, the piece silently gets no physics (the
-    engine just skips a chain2/jcns it can't find), even though the mod
-    bundles its own working chain2/jcns file for the identical numbered
-    slot under its own code.
+    still dangling. Left alone, a physics reference silently gets no
+    physics (the engine just skips a chain2/jcns it can't find); a mesh/
+    mdf2 reference just logs a "[Missing file]" warning and is skipped --
+    even though the mod bundles its own working file for the identical
+    numbered slot under its own code.
+
+    `mod_code` is either the actual substitution target (pieces resolved
+    via _apply_substitution()) or the file's own dominant character code
+    (see _dominant_code()) for pieces that resolved via _crc_only_fix()
+    with no substitution pair at all -- either way it's "what this file's
+    own code for this slot is", which is all this function needs to build
+    a same-suffix candidate replacement path.
 
     Only redirects a reference that's PROVEN dangling (still resolves ->
     left alone, matching this project's existing donor_code substitution
@@ -519,6 +558,10 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
 
         if plan.crc_patch is not None:
             result = plan.crc_patch
+            if plan.self_code:
+                result_arr = bytearray(result)
+                if _fix_dangling_physics_refs(result_arr, plan.self_code, mod_provided_keys, game, log):
+                    result = bytes(result_arr)
         else:
             result = plan.donor_bytes
             if plan.substitution is not None:
