@@ -1121,3 +1121,73 @@ on SilverWolf/Endfield/DoA -- it now covers the case where a
 `crc_patch`-resolved piece has a dangling mesh/jcns/mdf2 reference AND
 the mod genuinely ships a same-suffix replacement for that exact slot,
 which just wasn't Forte's situation here.
+
+### 16. `find_donor_for_material()`'s "exact name" tier silently downgraded materials to a narrower same-named vanilla sibling (2026-08-08)
+
+Real report, worked through by comparing against another community tool
+(`another community fixer`) on real user files: a Nexus user (해골올챙이)
+reported that after running mods through this project's force-fix option,
+"레다젤트 감마 FM 옷은 모든 물리가 굳었고" (all physics on one piece went
+rigid) etc. Those exact mods weren't available to reproduce with, but
+investigating a *different* real report the user brought in parallel
+(DDDuck's Arkveld/ReyDau/AT-ReyDau "AIO" mods, Arca Live) surfaced a real,
+separate, high-blast-radius bug while comparing this project's output
+against the other tool's on the SAME files.
+
+The other tool reported 3 of 4 test files "ALREADY-OK - nothing
+outdated"; this project flagged every single material in those files
+(52/45/42 materials) as stale and rebuilt them, dropping
+`MultiBlend_ALBDMap`/`MultiBlend_NRMMap` texture slots and ~15 `Blend_*`
+props (a paint-layer customization feature) from nearly every one.
+
+**Root cause**: `slot_merge.py`'s `find_donor_for_material()` tier 1
+("own-file exact name") trusted a same-named current-vanilla material as
+the structural donor unconditionally, even when its mmtr differed from
+the mod's own. Traced directly: Capcom split a `_NoMultiBlend` sibling out
+of `MaterialShader/Variation/Base_Equip.mmtr` for these specific armor
+pieces' current vanilla files -- keeping the material NAME the same, so
+the exact-name tier matched it immediately -- while `Base_Equip.mmtr`
+itself is still fully alive game-wide (confirmed via
+`WholeGameIndex.find_by_mmtr()`: 310 materials currently use it). This
+was true even of a **freshly downloaded, never-before-processed original**
+mod file from the author (not just previously-"fixed" copies), ruling out
+any prior tool's involvement -- the MultiBlend props are genuine, original
+mod-author content.
+
+`_structure_key()`'s own docstring already correctly identifies mmtr as
+the thing that determines real structural compatibility, and
+`slot_merge.py` already had `_mmtr_variants()`/`_NoMultiBlend`-awareness
+for its cross-piece/whole-game fallback tiers -- but the "own-file exact
+name" tier ran BEFORE any of that and returned unconditionally on a name
+match, never considering whether the name-matched donor's mmtr was
+actually the right one to trust structurally.
+
+**Fix**: `find_donor_for_material()` now only takes the immediate
+exact-name/exact-mmtr fast path when both agree. When a same-named donor
+exists but its mmtr differs, it now first searches for a donor sharing
+the mod's own EXACT mmtr (own-file, then cross-piece, then whole-game,
+each via a plain `mmtr_path == own_mmtr` filter, not the variant-inclusive
+list used by the lower tiers) before falling back to the narrower
+same-name donor. This preserves the existing behavior for a genuinely
+retired shader (no live match anywhere in the game -> falls through to
+the same-name donor exactly as before) while fixing the common case where
+the mod's own shader variant is still perfectly valid.
+
+Verified directly: for a freshly downloaded Arkveld/ReyDau/AT-ReyDau
+original, materials that had 178 props (needing a real update -- Capcom
+added props to `Base_Equip.mmtr` itself since these mods were built) now
+correctly rebuild against a same-mmtr donor (191 props, MultiBlend
+preserved) instead of the narrower 176-prop `_NoMultiBlend` sibling --
+real staleness still gets fixed, but the shader's still-supported
+capability no longer gets discarded as a side effect. No regression on
+SilverWolf/Endfield/DoA or the Forte pfb suite.
+
+Not yet confirmed whether this is the actual root cause of the original
+"물리가 굳었다" report (MultiBlend is a texture paint-layer feature, not an
+obvious physics/joint mechanism) -- those specific mod files were never
+obtained. But the blast radius here is real and independently significant:
+any mod using a shader that later gained a `_NoMultiBlend`-style sibling
+for its specific vanilla asset (this pattern is confirmed to already
+recur across unrelated shader families per `_mmtr_variants()`'s own
+docstring) would have silently lost that capability on every affected
+material, for every mod ever processed by this tool before this fix.
