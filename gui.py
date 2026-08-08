@@ -617,6 +617,17 @@ class App:
                      f"safe donor anywhere in the game and were left exactly as shipped; everything else "
                      f"in the same file(s) was still fixed.")
 
+        # Diagnostic-only, can't be auto-fixed (would need to edit mesh
+        # geometry data, out of scope) -- see mesh_check.py. Surfaced as
+        # its own summary line, same as materials_left_unresolved above,
+        # since the per-mismatch detail already went into the log during
+        # processing and could easily scroll past unnoticed.
+        if stats.get("mesh_mdf2_mismatches"):
+            self.log(f"    [!] {mod_archive.name}: {stats['mesh_mdf2_mismatches']} mesh/mdf2 material "
+                     f"mismatch(es) found -- these are a pre-existing issue in the mod's own files this "
+                     f"tool can't fix (would need to edit mesh geometry data), and are very likely to "
+                     f"cause a black screen or checkerboard texture for the affected piece(s) in-game.")
+
         out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
         self.log(f"Zipping: {out_zip}")
         zip_folder(output_root, out_zip)

@@ -1592,3 +1592,434 @@ different outcomes observed from unchanged bytes). Ship plain forced
 substitution only, permanently, for any piece needing genuinely new
 physics/chain content added -- treat this as a hard boundary of what this
 tool can do, not a pending investigation.
+
+### 19. `.user` files were never scanned at all -- a real "avp" (Additional Visual Parts) wrong-slot-reference bug, and a new `resolve_and_fix_avp_files()` (2026-08-09)
+
+Real report (OVR Rogue "Bifrost", Nexus, a real vanilla-slot armor mod --
+no custom-slot substitution involved): wings missing, several materials
+rendering white/blank, no crash. Root cause, confirmed byte-level: the
+mod's own `041_001_avp.user.3` (`app.user_data.PlayerArmorVisualParam`
+and friends -- governs optional decorative sub-parts like wings/capes)
+carries an inline resource-path string that self-references a COMPLETELY
+DIFFERENT, unrelated armor set (`Armor/Male/036/000/036_000_avp.user`)
+instead of its own slot (`Armor/Male/041/001/041_001_avp.user` -- verified
+against the CURRENT donor at the same path, which correctly self-
+references). Structurally the file is entirely current
+(`fits_current_layout()` true, every instance crc matches the live donor)
+-- this is NOT a staleness/CRC problem, so `_crc_only_fix()`-style logic
+could never catch it; almost certainly a residual left over from however
+the mod was originally built (started from set 036's own avp.user as a
+template, never updated this one self-referencing string).
+
+**This project had NEVER scanned loose `.user` files for anything at
+all** -- `find_pfb_files()` only ever matched `*.pfb.*`. (The pak-bundled
+path already treats `.user`/`.scn` identically to `.pfb` since item #8; a
+real, pre-existing gap specific to loose files, not a new phenomenon.)
+Fixed narrowly with `find_avp_files()` / `_fix_avp_self_reference()` /
+`resolve_and_fix_avp_files()` in `pfb_fix.py`, wired into
+`process_mod()`: only this specific string pattern (an avp.user self-
+reference not matching the file's own set/variant numbers, derived from
+its own path) gets corrected, not a general `.user` repair pass -- this
+exact bug has a precise, mechanically verifiable correct answer (self-
+reference) that needs no donor lookup or structural comparison at all.
+Same-byte-length-only substitution, matching the existing in-place
+substitution safety margin used everywhere else in this file.
+
+**This fix is confirmed real and correct, but did NOT fully resolve the
+report** -- wings are still missing and materials still render wrong
+after this fix alone, so a second, deeper issue exists in the same mod
+(see below). Both are independently real; fixing one doesn't imply it
+was the only problem.
+
+**Investigating the remaining white-material symptom went through two
+wrong hypotheses before landing on the likely real one, worth recording
+so a future session doesn't repeat the same dead ends:**
+
+1. *Wrong hypothesis: mesh needs more materials than the mdf2 provides.*
+   The mod's own mdf2 material COUNT is lower than the CURRENT donor's
+   for all 5 pieces (e.g. Arm: mod has 1, donor has 5). This looked like
+   the answer, matching a real documented RE Engine rule (see below) --
+   but is a red herring here specifically: cloned `NSACloud/RE-Mesh-Editor`
+   (a real, maintained Python mesh parser, no bpy dependency for header/
+   name-list reading) and drove `file_re_mesh.py`'s `REMesh` class
+   directly against both the mod's own `.mesh` and the current donor's
+   `.mesh` (donor requires BOTH a main and a "streaming" companion file,
+   both fetchable via `game.find_versioned()` with an explicit
+   `version_range` -- the default `range(1,500)` is far too small for
+   real mesh version numbers like `241111606`, silently returning "not
+   found"). Result: the MOD's own mesh internally expects only 1 material
+   (`materialCount=1`), matching its own 1-material mdf2 exactly -- the
+   deployed mod ships a self-consistent pair. The donor's mesh needing 5
+   is irrelevant since the donor mesh is never deployed.
+2. *Second-order hypothesis, also ruled out: missing texture page.* The
+   mod's main loose page has ZERO `.tex` files -- textures only exist
+   inside two separate `.pak`-page variants (`OVR Rogue - Bifrost b`/`r`).
+   Confirmed via `Havens-Night/REEngine-Modding-Documentation`'s wiki
+   (`Custom-Model-Importing-Guide`, by RE-Mesh-Editor's own author): "In
+   MH Wilds and newer (RE9 too), textures can not be loaded as loose files
+   and must be put in patch pak files" -- a real, documented engine
+   requirement. Asked the user to confirm the `b`/`r` page was enabled
+   during testing -- it was, ruling this out too.
+3. *Current leading hypothesis, not yet confirmed in-game:* the mod's
+   original material's shader (`MaterialShader/Variation/Base_Equip_Fur.mmtr`,
+   full MultiBlend-capable) has been **completely retired** -- a whole-
+   game scan via `LazyWholeGameIndex.find_by_mmtr()` found ZERO current
+   materials anywhere using it (only the `_NoMultiBlend` sibling
+   survives). `slot_merge.py`'s mmtr-variant-tolerant matching picks the
+   closest available donor (`m_shellfur_UseSC`, `Base_Equip_Fur_NoMultiBlend.mmtr`)
+   -- but that donor is semantically a minor "shell-fur technique" utility
+   material in the donor's own file, not the PRIMARY full-body material
+   the mod's single combined material was designed to be. Every mod
+   texture/prop this specific donor lacks gets dropped by design
+   (`apply_texture_overrides()`), which may be discarding render-critical
+   settings even though the actually-restored textures (BaseDielectricMap
+   etc.) look individually correct. Unconfirmed because there's no way to
+   verify "this donor is the semantically wrong role" from static files
+   alone -- waiting on an updated file from the mod's actual author
+   (built with real tooling, not this project's donor-matching heuristic)
+   to compare against directly.
+
+**Confirmed-real, reusable documentation from this troubleshooting pass**
+(`Havens-Night/REEngine-Modding-Documentation` wiki, "Troubleshooting"
+page): "material count and material names need to match on BOTH the mesh
+and mdf files... not possible to have less or more material references in
+either file" -- the exact rule investigation #1 above is built on, now
+externally confirmed rather than just inferred from this project's own
+testing. Also: outdated `.PFB`/`.USER` files (not extracted from the
+latest patch) cause infinite loading -- the same principle behind this
+project's whole CRC-staleness detection approach, independently
+corroborated.
+
+### External resources map (compiled 2026-08-09, for future sessions)
+
+A broad research pass (prompted by the user wanting a fuller map of what
+exists before continuing to debug blind) turned up the wider RE Engine
+modding ecosystem this project has been operating adjacent to without
+fully cataloging. Worth checking before re-deriving something from
+scratch in a future session:
+
+- **`Havens-Night/REEngine-Modding-Documentation`** (GitHub, actively
+  maintained, has an actual wiki -- fetch pages via
+  `raw.githubusercontent.com/wiki/Havens-Night/REEngine-Modding-Documentation/<Page>.md`,
+  not the repo's own `main` branch) -- general RE Engine modding
+  knowledge, troubleshooting, ID lookup tables (including a Monster
+  Hunter Wilds item-ID table), a maintained tools list, and a Discord
+  server link. The single best "what already exists" index found.
+- **`praydog/REFramework`'s own `reversing/` folder** (NOT the main addon
+  code) -- the actual pipeline used to generate an authoritative RSZ
+  registry from scratch, straight from the tool's own author:
+  1. Dump the game's unpacked exe with x64dbg's Scylla.
+  2. REFramework's own `DeveloperTools -> ObjectExplorer -> Dump SDK`
+     button (already available, no extra install) produces
+     `il2cpp_dump.json` -- a full live extraction of every class's
+     fields/methods/crc/offsets from the RUNNING game's memory. This is
+     the actual ground truth REasy's own dumps (and by extension this
+     project's own registries) ultimately trace back to.
+  3. `reversing/rsz/emulation-dumper.py` -- uses the Unicorn CPU emulator
+     to literally EXECUTE each native (`via.*`) type's real deserializer
+     function to infer its field layout (their own docs call this a
+     "guess" even in the official pipeline -- worth remembering next time
+     this project's own registry turns out wrong for a native type; some
+     irreducible uncertainty is inherent to the whole ecosystem, not a
+     gap unique to this project).
+  4. `reversing/rsz/non-native-dumper.py` -- merges native + non-native
+     layouts into the final `rsz<game>.json`.
+     Needs Python <= 3.9 specifically (undocumented reason). Not run in
+     this project (needs x64dbg/Scylla, external to anything used so
+     far) but valuable to know the exact provenance and limitations of
+     the registries this project already depends on.
+- **`praydog/REFramework`'s own documentation book**
+  (`cursey.github.io/reframework-book`, source at
+  `github.com/cursey/reframework-book`) -- the TDB (Type Database)
+  concept, `ObjectExplorer`/`Chain Viewer` tool docs, and the full Lua/C#
+  scripting API reference. `Chain Viewer` specifically visualizes live
+  `via.motion.Chain` objects and their collisions -- directly relevant to
+  any future physics/chain investigation (see #17-18), never actually
+  used this session.
+- **`kagenocookie/RE-Engine-Lib`** (.NET) + **`kagenocookie/REE-Content-Editor`**
+  (desktop GUI built on it) -- a DIFFERENT, actively developed RSZ/file
+  editing stack descended from `RszTool` (see below), explicitly designed
+  to "make upgrading data easier after game updates break files with no
+  major structural differences." Does NOT currently list Monster Hunter
+  Wilds in its supported-games README (RE games, DD2, DMC5, Pragmata
+  only) -- worth re-checking in a future session since this ecosystem
+  moves fast.
+- **`kagenocookie/REE-Lib-Resources`** -- a resource-data repo with a
+  dedicated `mhwilds/` folder (updated 2026-08-04, five days before this
+  session), containing `il2cpp_cache.json` (~22MB) and
+  `file_extensions.json` -- a FOURTH potential independent registry
+  source alongside this project's own compact registry, the freshly-
+  fetched REasy dump, and `alphazolam/RE_RSZ`'s dump (see #18). Not yet
+  cross-checked against the others -- do that before trusting it if used.
+- **`czastack/RszTool`** (C#) -- another independent `.user`/`.pfb`/`.scn`
+  editor; `RE-Engine-Lib` above is explicitly a fork/expansion of it.
+  Not run this session (would need a .NET build), but a real alternate
+  cross-check source if Python-based tools ever disagree with each other.
+- **`SilverEzredes/MDF-XL`** -- a MHWilds-specific RUNTIME (not file-
+  editing) material preset editor/submesh toggler, built on REFramework.
+  Doesn't touch file structure at all, so it can't fix a structural
+  mismatch, but its submesh/material toggling could be used to LIVE-
+  inspect which submesh a "missing" part (e.g. Bifrost's wings) is
+  actually trying to use, which this project has no static way to
+  determine on its own.
+- **`NSACloud/RE-Asset-Library`** -- Blender addon for browsing/
+  extracting game files directly (an alternative to RETool/ree-pak-gui
+  for the "get the current donor's raw files" step this project's own
+  `game_archive.py` already does programmatically -- not a gap, just
+  worth knowing the manual-workflow equivalent exists).
+
+**Reusable technique demonstrated this session**: several of these tools
+(REasy's `RszFile`, RE-Chain-Editor's `Chain2File`, RE-Mesh-Editor's
+`REMesh`) are pure-Python, `bpy`-independent for at least their
+read/parse path, and can be driven directly as libraries (`sys.path`
+insert + import) without installing Blender or any GUI -- this is how
+this session cross-verified its own RSZ transplant logic (#18) and probed
+the mesh material-count question (#19) without needing hands-on tool
+usage. When a future investigation needs ground truth this project's own
+reverse-engineered code doesn't have, check whether the relevant
+community tool's parser can be borrowed this same way before building a
+new one from scratch.
+
+**Nexus Mods itself is not reachable by automated fetch** -- confirmed
+this session (`WebFetch` returns HTTP 403; the in-app Browser pane
+navigating there also became unresponsive/crashed the tab). Treat any
+Nexus mod page, article, or comment thread as something only the user can
+read and relay back -- don't spend a turn retrying different fetch
+methods against nexusmods.com.
+
+**A second, independent confirmation of the same "Dump SDK" ground-truth
+pipeline** (see the `praydog/REFramework` entry above): `Synthlight/RE-Editor`
+(a mature, actively maintained -- updated 2026-08-04, five days before
+this session -- `.user`-file GUI editor covering MHWilds among 10 RE
+Engine games at "93% write-test pass rate") generates ALL of its game-
+specific struct definitions from the exact same
+`Enums_Internal.hpp` + `il2cpp_dump.json` pair produced by REFramework's
+`ObjectExplorer -> Dump SDK` button. Two unrelated, independently-built
+community tools both treating that button's output as their own ultimate
+source of truth is strong confirmation: **if a future session needs to
+resolve an uncertain field layout with real authority (not another
+third-party snapshot that might itself be stale), the answer is always
+"click Dump SDK in the user's own currently-running, already-installed
+REFramework instance,"** not searching for yet another pre-made registry
+online. `Synthlight/RE-Editor` was not run this session (C#, needs a full
+Visual Studio build with generated structs from a local dump) but is a
+real alternate `.user`-file editor to reach for if REasy/RszTool ever
+disagree with each other on a `.user` (not `.pfb`/`.scn`) file
+specifically.
+
+**Chinese-language community resources -- a genuinely active, MHWilds-
+specific modding scene this project had not looked at until asked to**
+(`www.caimogu.cc`, "踩蘑菇社区" -- has a dedicated "怪物猎人荒野MOD圈"
+/ "Monster Hunter Wilds MOD Circle" section, distinct from the
+similarly-named but different old "怪物猎人世界" / Monster Hunter
+*World* section -- easy to confuse, double-check which game a hit is
+actually about):
+- **"mesh与mdf2不完全讲解"** (`caimogu.cc/post/1931564.html`, "An
+  Incomplete Explanation of mesh and mdf2") -- independently confirms, in
+  a completely separate write-up from Havens-Night's English wiki, the
+  exact same rule: mesh-embedded material names must match the mdf2's
+  material set exactly in count AND name, or the game black-screens on
+  entry; also documents the mesh's own submesh-naming convention
+  (`Group_[state-code]_Sub_[index]_[materialname]`, where state-code
+  distinguishes e.g. weapon-sheathed vs. weapon-drawn visibility) and a
+  concrete texture-channel reference (BaseDielectricMap/
+  NormalRoughnessOcclusionMap/EmissiveMap/AlphaTranslucentOcclusionSSSMap
+  channel packing) that matches what this project already reverse-
+  engineered independently via `mdf2_slice.py`.
+- **"从零开始的手搓物理-Chain2"** (`caimogu.cc/post/1950773.html`,
+  "Hand-Crafting Chain2 Physics From Scratch") -- the Blender-side
+  authoring workflow for adding NEW chain physics: bones must be named
+  `xx_00, xx_01, ..., xx_end` (a *contiguous*, correctly-terminated
+  sequence -- a gap in the numbering silently breaks the chain), weight-
+  painted to those bones, then "Create Chain From Bone" in RE Chain
+  Editor generates the actual chain data from the bone hierarchy. This is
+  the AUTHORING side of exactly the feature this project's own #17/#18
+  investigation was trying to reconstruct after the fact via raw byte
+  editing -- doesn't mention this project's specific boot-vs-live
+  symptom, but confirms real modders successfully ship NEW chain physics
+  Blender-authored from scratch, which this project's transplant/splice
+  approaches (editing existing bytes, never touching bone/skeleton data
+  at all) could never do even in principle. If chain-physics preservation
+  is ever revisited, authoring via this real Blender pipeline (not byte
+  surgery) is the only approach with a track record of actually working.
+- **"Mod解包与制作工具资源汇总帖"** (`caimogu.cc/post/1898548.html`) --
+  the community's own consolidated tool list; named a `.user`-file GUI
+  editor ("MHWS Editor", = `Synthlight/RE-Editor` above) this project's
+  English-language research pass hadn't surfaced on its own.
+- Circle index page (`caimogu.cc/circle/447.html`) lists further
+  MHWilds-specific technical posts, now all read:
+  - **"荒野法线贴图默认通道解决办法"** (`post/1912870.html`, normal-map
+    channel fix) -- MHWilds-extracted normal maps have red and alpha
+    channels swapped relative to the standard convention; fix is
+    channel-split, swap red<->alpha (synthesize a pure-white alpha if the
+    source has none), recombine. Pure texture-authoring detail, not RSZ/
+    PFB-related.
+  - **"ReChain碰撞flag解析以及碰撞常见问题"** (`post/1929506.html`,
+    ReChain collision-flag analysis) -- CLSP collision flags are a
+    bitwise filter: two colliders only interact if their flag values
+    share a set bit (e.g. flag 2 (010) and flag 4 (100) never collide;
+    flag 6 (110) collides with both). Documents concrete per-bone flag
+    values from a real official clip-value table (`spine_0->spine_1: 4`,
+    `spine_1->spine_2: 8`, a special spherical-collider value
+    `Spine_2: 67108864`, etc.) -- directly relevant to any mod bundling
+    its own `.clsp` files (confirmed present in Bifrost's own archive,
+    one per piece, never inspected this session). Common pitfalls named:
+    incomplete flag setup, bone axis orientation not matching (Z is NOT
+    always "up" -- verify via the bone-axis display), and `-1` as a flag
+    value causing unintended collisions.
+  - **"UV流动部分参数解析"** (`post/1928771.html`, UV-scroll parameters)
+    -- `UV_Scroll` is an on/off switch (usually left at 1, deferred to
+    the other two); `UV_Scroll_Vectel` (4 floats: h-speed, v-speed, two
+    unused-usually-0) sets direction+speed (positive h = rightward,
+    positive v = upward); `UV_Scroll_speed` is a global multiplier
+    (default 1.0) applied on top: `actual speed = Vectel * speed`.
+    `UV_Scroll_Vectel` takes priority if both are set. These exact prop
+    names appear in real mod materials this project has already dumped
+    (e.g. Bifrost's own material prop list) -- this is the first time
+    this project has had their actual semantics documented anywhere.
+  - **"荒野防具着色贴图"** (`post/1961567.html`, armor tint/stain map
+    authoring) -- **directly relevant to the still-open Bifrost
+    investigation**: confirms the `_UseSC` material-name suffix
+    (`"Use S(tain) C(olor)"`, presumably) specifically marks a material
+    variant that supports the in-game armor-dye/stain system, and
+    requires: a `ColorLayer_MaskMap` texture (R channel controls dye
+    slot 1 strength, G channel controls dye slot 2, painted as grayscale
+    per-channel, never drawn directly in RGB) plus `ColorLayer_R/G/B/A`
+    props for the default stain color, and the mesh's own submesh
+    material-name reference kept in sync with whatever the mdf2 names
+    the material. Cross-checked against this project's own earlier
+    material dump of Bifrost's mod material (`ch03_053_0011_arm_UseSC`):
+    it DOES already carry a real `ColorLayer_MaskMap` texture path AND
+    all four `ColorLayer_R/G/B/A` props -- the mod author correctly
+    implemented this system on their end. This reinforces (doesn't yet
+    prove) the "wrong donor role" hypothesis from #19: every donor
+    material sharing this mod's mmtr family is itself `_UseSC`-suffixed
+    (`m_shellfur_UseSC` etc.) -- i.e. every available current donor is
+    ALSO a specialized stain-capable variant of some narrower technique
+    (shell-fur, plain fur), never the current game's actual PRIMARY
+    full-body material -- consistent with (not yet independently
+    confirmed as) "this mod's exact original shader role no longer has
+    any living counterpart to donor-match against."
+  - **"关于贴图易错点、物理Chain2与Clsp的简单操作"** (`post/1951020.html`,
+    texture pitfalls + Chain2/Clsp quick operations) -- practical Chain2
+    authoring notes: hierarchy is Group > Link > Point (parent settings
+    govern children); collision targeting uses a bitwise "Flag A" value
+    per link (default `-1` = collide with everything; concrete worked
+    examples given, e.g. both-forearms = 512+128 = 640); a specific named
+    gotcha -- "if the constraint cone points upward the physics goes
+    haywire/spins -- delete the link and regenerate it, don't try to fix
+    the existing one in place." **Explicitly checked whether this
+    document says anything about PFB/GameObject BOOT-time problems: it
+    does not mention any** -- a real Chain2-authoring practitioner's
+    troubleshooting notes have no entry for the #17/#18 boot-vs-live
+    symptom at all. Weak but real negative evidence that the boot-time
+    race condition this project hit is specific to POST-HOC byte editing
+    of existing pfb/chain2 data (splice/transplant), not something
+    Blender-authored-from-scratch Chain2 mods commonly run into --
+    consistent with the "author it properly instead of byte-surgery"
+    conclusion already reached in #17/#18's postscript.
+  - **"发光参数测试和简单教程"** (`post/1912833.html`, emissive/glow
+    parameter testing) -- `Emissive_Power` (main control, ~5-10 typical)
+    and `Emissive_Intensity` (fine-tune, usually left at 1) must BOTH be
+    non-zero for glow to render at all; in-game "Filters" set to
+    official washes out glow, and "Lighting" set to off/low can make an
+    emissive texture look bleached. Minor material-tuning reference, not
+    tied to any open investigation.
+
+**Other communities checked, found less useful than Caimogu for THIS
+project's purposes (mod-creation/reverse-engineering depth, not
+installation/consumption):**
+- **Korean**: DCInside's "몬스터헌터 와일즈 마이너 갤러리" and
+  "몬스터헌터 시리즈 마이너 갤러리", and Arca Live's "몬스터 헌터 채널" --
+  real, active MHWilds communities, but sampled threads skew toward mod
+  discovery/installation/NSFW-mod discussion, not RSZ/PFB/material
+  reverse-engineering. Worth re-checking if a future session specifically
+  needs a Korean-language install-troubleshooting angle, not for format
+  research.
+- **NGA** (`bbs.nga.cn`) -- has an active MHWilds board but no specific
+  technical thread surfaced via search; would need direct forum
+  navigation (not indexed well by web search) to actually evaluate.
+- **Baidu Tieba** -- not evaluated beyond confirming Caimogu is the
+  search-engine-preferred result for the same queries.
+
+**A meaningful meta-finding from Caimogu's OWN "from scratch" tutorial**
+(`MHWS 从零开始做外观mod教程`, `post/1898851.html`): its author states
+plainly that texture conversion works but "**the material (材质) part is
+still being researched**" -- full material property implementation
+(metallic, roughness, reflectivity) is explicitly unfinished, community-
+wide, as of this tutorial. This is genuinely reassuring context for the
+still-open Bifrost investigation (#19): the difficulty this project is
+having with material/shader donor-matching isn't a sign of missing some
+well-known solution -- the most active MHWilds mod-creation community
+found this session hasn't fully solved general material authoring either.
+Caimogu (`www.caimogu.cc/circle/447.html`) remains the best technical
+source found across every language checked; it also runs a live QQ group
+(365063009) for real-time community discussion, not something this
+project can join but worth knowing exists if a future session wants to
+ask a specific unresolved question directly.
+
+### 20. New feature: `mesh_check.py` -- warns on a mesh/mdf2 material mismatch, this project's first time touching `.mesh` at all (2026-08-09)
+
+Direct outcome of the #19 research pass: with the mesh/mdf2 material-
+count-and-name-matching rule now independently confirmed by two unrelated
+sources (Havens-Night's wiki, Caimogu's "mesh与mdf2不完全讲解"), and this
+project having precisely zero prior ability to detect it, built a
+DIAGNOSTIC-ONLY check -- `mesh_check.py`'s `read_mesh_material_names()` +
+`check_mesh_mdf2_consistency()`, wired into the end of `process_mod()`
+(runs against OUTPUT_ROOT, after every other fix already ran) and
+surfaced both in the live processing log and as a `gui.py` summary line
+matching the existing `materials_left_unresolved` pattern.
+
+**Deliberately diagnostic-only, not a fix**: unlike everything else this
+project does, a genuine mesh/mdf2 mismatch has no safe automatic
+resolution available -- fixing it would mean editing mesh geometry/
+submesh data, a completely different (and, per #17-19's saga, far riskier)
+class of file this project has never touched before this addition and
+still doesn't write. Warns and names exactly which material names are
+missing on which side; never modifies anything.
+
+**Licensing note, explicitly asked of and decided by the user before
+writing a line of code**: the only real-world working parser for this
+format found anywhere (`NSACloud/RE-Mesh-Editor`) is GPLv3, and this
+project needed the format understanding without inheriting that license.
+Resolved by clean-room re-implementation: drove RE-Mesh-Editor's own
+parser against real files this session (already documented in #19) to
+learn the FACTS of the byte layout (field order, sizes, offsets -- not
+copyrightable expression, the same category of thing this project's own
+PFB/RSZ format knowledge was built from), then wrote fresh,
+independently-structured Python matching this project's own existing
+style (`struct.unpack_from` at fixed offsets, same shape as `_parse_rsz()`
+in `pfb_fix.py`), and verified the result byte-for-byte IDENTICAL to
+RE-Mesh-Editor's own output on a real file (Bifrost's own Arm mesh) as
+the correctness proof -- comparing independently-produced OUTPUTS, not
+comparing or copying CODE. `mesh_check.py`'s own module docstring
+records this provenance for the next person who touches this file.
+
+**Format specifics captured** (MHWilds-only -- returns `None`, never
+guesses, for anything below RE-Mesh-Editor's own "VERSION_ONI2" cutoff
+or an MPLY-format stage mesh): a 176-byte MHWilds-era `FileHeader`
+contains `meshGroupOffset` (whose LOD header holds `materialCount` as a
+single byte at `+1`), `materialNameRemapOffset` (an array of
+`materialCount` `u16` indices), and `nameOffsetsOffset` (an array of
+`nameCount` `u64` absolute string offsets, each pointing at a plain
+null-terminated ASCII/UTF-8 string -- NOT the UTF-16LE convention this
+project's other formats use for resource paths). Material names are
+resolved by using the remap indices to look up entries in the combined
+name table (which holds bone names too, not just materials -- the remap
+only ever indexes the material-relevant subset).
+
+**Verified**: byte-for-byte match against RE-Mesh-Editor's own parser
+on Bifrost's real Arm mesh; zero exceptions and 100% successful parse
+across every `.mesh` file in every real mod this project's regression
+suite covers (Bifrost, Esthe, Mask Bikini, DoA, SilverWolf -- 26 mesh
+files total, 0 raised, 0 returned `None`); a synthetic true-positive
+test (swapping a different piece's mdf2 into another piece's file slot)
+correctly produced exactly 1 mismatch, correctly naming both the missing
+and the unexpected-extra material. Zero regressions on the full suite
+(`mesh_mdf2_mismatches: 0` for every already-passing mod). Bifrost itself
+(the report that prompted this whole investigation) comes back clean --
+`0` mismatches -- meaning its own mesh/mdf2 pairs were never the actual
+cause of its white-material symptom (already known from #19's direct
+testing; this is now confirmed by an independent, generalized check
+rather than one-off manual verification, and the tool now has standing
+protection against this whole class of bug for every future mod).

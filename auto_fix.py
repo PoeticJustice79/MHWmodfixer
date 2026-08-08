@@ -52,7 +52,8 @@ from donor import candidate_donor_paths
 from game_archive import GameArchive
 from mdf2 import Mdf2File, numVersion_from_filename
 from mdf2_slice import assemble_mdf2, extract_material
-from pfb_fix import find_pfb_files, resolve_and_fix_pfbs
+from pfb_fix import find_pfb_files, resolve_and_fix_pfbs, resolve_and_fix_avp_files
+from mesh_check import check_mesh_mdf2_consistency
 from slot_merge import find_donor_for_material
 
 DEFAULT_GAME_DIR = r"D:\SteamLibrary\steamapps\common\MonsterHunterWilds"
@@ -434,11 +435,30 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
     else:
         pfb_stats = {"fixed": 0, "unresolved": 0, "forced": 0, "crc_only": 0, "crc_only_extra": 0}
 
+    avp_stats = resolve_and_fix_avp_files(mod_root, output_root, log)
+    if avp_stats["fixed"]:
+        log(f"\n({avp_stats['fixed']} avp.user file(s) had a self-reference pointing at "
+            f"the wrong armor slot, fixed)")
+    stats["fixed"] += avp_stats["fixed"]
+
     stats["pfb_fixed"] = pak_pfb_totals["fixed"] + pfb_stats["fixed"]
     stats["pfb_unresolved"] = pak_pfb_totals["unresolved"] + pfb_stats["unresolved"]
     stats["pfb_forced"] = pak_pfb_totals["forced"] + pfb_stats["forced"]
     stats["pfb_crc_only"] = pak_pfb_totals["crc_only"] + pfb_stats["crc_only"]
     stats["pfb_crc_only_extra"] = pak_pfb_totals["crc_only_extra"] + pfb_stats["crc_only_extra"]
+
+    # Diagnostic-only -- this project has no way to safely reconcile a
+    # mesh/mdf2 material mismatch (would need to touch mesh geometry data,
+    # completely out of scope), only to warn that one exists before the
+    # user finds out the hard way in-game. Runs against the final OUTPUT
+    # files, so it catches a pre-existing authoring issue in the mod
+    # itself just as well as anything this project's own fixes might
+    # (currently never do, but could in the future) introduce.
+    stats["mesh_mdf2_mismatches"] = check_mesh_mdf2_consistency(output_root, log)
+    if stats["mesh_mdf2_mismatches"]:
+        log(f"\n({stats['mesh_mdf2_mismatches']} mesh/mdf2 material mismatch(es) found -- "
+            f"these can NOT be auto-fixed by this tool, but are very likely to cause a "
+            f"black screen or checkerboard texture in-game for the affected piece(s))")
 
     return stats
 

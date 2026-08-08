@@ -707,6 +707,90 @@ def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
     return bytes(result)
 
 
+def find_avp_files(root: Path):
+    yield from root.rglob("*_avp.user.*")
+
+
+_AVP_OWN_SLOT_RE = re.compile(r"[\\/](\d{3})[\\/](\d{3})[\\/]\1_\2_avp\.user", re.IGNORECASE)
+_AVP_REF_RE = re.compile(r"Armor/(?:Male|Female)/(\d+)/(\d+)/(\d+)_(\d+)_avp\.user$", re.IGNORECASE)
+
+
+def _fix_avp_self_reference(data: bytes, own_set: str, own_variant: str, rel: Path, log) -> bytes | None:
+    """A `..._avp.user` file ("Additional Visual Parts" -- governs optional
+    decorative sub-meshes like wings/capes, `app.user_data.PlayerArmorVisualParam`
+    and friends) carries an inline resource-path string that references
+    ANOTHER avp.user file by its own armor-set/variant numbers. Confirmed
+    against a real donor (armor set 041/variant 001): the CURRENT vanilla
+    file always self-references its own slot
+    (`.../Armor/Male/041/001/041_001_avp.user`) -- always under "Male" even
+    for a Female-only piece, apparently a shared/gender-normalized template
+    path, not a copy-paste of the actual file location.
+
+    Confirmed real (OVR Rogue "Bifrost", 2026-08-09, reported as wings
+    missing + some textures rendering white/blank): the mod's own
+    avp.user for slot 041/001 instead references slot 036/000's avp.user --
+    a real, different, unrelated armor set, structurally valid on its own
+    but wrong for this piece. Structurally the file is otherwise completely
+    current (`fits_current_layout()` true, every instance crc matches the
+    live donor's) -- this ISN'T a staleness/CRC problem `_crc_only_fix()`
+    style logic could ever catch, since nothing about the RSZ instance data
+    itself is wrong. Almost certainly a residual left over from however the
+    mod was originally built (started from set 036's own avp.user as a
+    template and never updated this one self-referencing string to point
+    at the mod's own actual slot).
+
+    This project never scanned loose `.user` files for anything before now
+    -- `find_pfb_files()` only ever matched `*.pfb.*` (another community tool
+    reviewed for this project's #8 pak-repair work already treats `.user`
+    identically to `.pfb`/`.scn`, so this is a real, pre-existing gap, not
+    a new phenomenon). Fixed narrowly (this specific string pattern only,
+    not a general `.user` repair pass) rather than widening pfb-style
+    donor-diff/substitution machinery to `.user` files broadly, since this
+    exact bug has a precise, mechanically-verifiable correct answer (self-
+    reference) that doesn't need a donor lookup or any structural
+    comparison at all.
+
+    Only patches same-byte-length replacements (the existing in-place
+    substitution safety margin used everywhere else in this file) -- a
+    3-digit/3-digit set-variant swap is always same-length, but refuses
+    rather than risk an offset-shifting rewrite if that's ever not true.
+    Returns the patched bytes, or None if nothing needed fixing."""
+    expected = (f"GameDesign/Equip/_Prefab/Armor/Male/{own_set}/{own_variant}/"
+                f"{own_set}_{own_variant}_avp.user")
+    result = None
+    for off, s in _scan_utf16_strings(data):
+        if not _AVP_REF_RE.search(s) or s == expected:
+            continue
+        if len(s) != len(expected):
+            log(f"    [warn] {rel}: avp self-reference {s!r} looks wrong (expected "
+                f"{expected!r}) but the lengths differ -- can't safely patch in place, left as-is")
+            continue
+        if result is None:
+            result = bytearray(data)
+        new_bytes = expected.encode("utf-16-le")
+        result[off:off + len(new_bytes)] = new_bytes
+        log(f"    [fixed] {rel}: avp self-reference {s!r} -> {expected!r} "
+            f"(was pointing at a different, unrelated armor slot)")
+    return bytes(result) if result is not None else None
+
+
+def resolve_and_fix_avp_files(mod_root: Path, output_root: Path, log) -> dict:
+    stats = {"fixed": 0}
+    for avp_path in sorted(find_avp_files(mod_root)):
+        rel = avp_path.relative_to(mod_root)
+        m = _AVP_OWN_SLOT_RE.search(str(rel))
+        if not m:
+            continue
+        own_set, own_variant = m.group(1), m.group(2)
+        fixed = _fix_avp_self_reference(avp_path.read_bytes(), own_set, own_variant, rel, log)
+        if fixed is not None:
+            out_path = output_root / rel
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(fixed)
+            stats["fixed"] += 1
+    return stats
+
+
 def _read_resource_strings(data: bytes) -> list[str]:
     """The PFB-level `ResourceInfo` table (see file_re_pfb.py, a real
     working reference PFB parser found in another community tool's vendored
