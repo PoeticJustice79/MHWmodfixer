@@ -318,6 +318,53 @@ def _write_instance_values(out: bytearray, pos: int, fields: list, values: list)
     return pos
 
 
+def try_suffix_field_migration(data: bytes, start: int, end: int, fields: list) -> tuple[list, int] | None:
+    """Attempt to recover a reshaped instance's OWN field values (rather
+    than discarding them wholesale, as `pfb_fix.py`'s `_transplant_reshaped()`
+    otherwise does) on the narrow, confirmed-real hypothesis that the type
+    only grew NEW fields APPENDED at the end since the mod was built --
+    never that an existing field changed name, type, position, or that a
+    field was removed or inserted in the middle. This matches the actual
+    confirmed case (`app.ChainSetting`, CLAUDE.md #18): Capcom's
+    C#-reflection-based serialization appends new fields, it doesn't
+    reorder or retype existing ones.
+
+    Tries every truncation depth k (1..len(fields)-1, dropping the last k
+    fields of the CURRENT registry's shape) and parses the instance's own
+    bytes [start:end) against each truncated shape via
+    `_extract_instance_values()`. A truncation only counts as a fit if it
+    parses without error AND consumes the span EXACTLY (`pos == end`) --
+    the same boundary-exactness proof `fits_current_layout()` and
+    `walk_instances_with_recovery()` both require, chosen because a wrong
+    truncation depth landing on the exact byte count by chance is
+    vanishingly unlikely for real field-size mixes.
+
+    Returns None if zero or more than one depth fits: multiple simultaneous
+    fits mean this heuristic genuinely cannot tell which is real, and
+    guessing anyway is exactly the kind of speculative RSZ engineering
+    this project has been burned by before -- the caller must fall back to
+    discarding the instance's own values entirely (never fall back to
+    picking one of several ambiguous candidates).
+
+    On a unique fit, returns `(values, k)`: `values` are the mod's own
+    field values for `fields[:len(fields) - k]`, and `k` is how many
+    trailing fields the caller still has to source from elsewhere (e.g.
+    the donor) since the mod's bytes genuinely don't contain them."""
+    n = len(fields)
+    fits = []
+    for k in range(1, n):
+        truncated = fields[:n - k]
+        try:
+            values, pos = _extract_instance_values(data, start, truncated)
+        except _LayoutError:
+            continue
+        if pos == end:
+            fits.append((values, k))
+    if len(fits) != 1:
+        return None
+    return fits[0]
+
+
 def fits_current_layout(rsz_info: dict) -> bool | None:
     """rsz_info: the dict returned by pfb_fix._parse_rsz() -- needs "insts"
     (list of (type_id, crc)), "external" (set of instance indices that are

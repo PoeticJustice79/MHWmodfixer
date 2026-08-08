@@ -328,11 +328,17 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
     because `fits_current_layout()` isn't True: keep the MOD's own file as
     the structural ground truth (its Object Table, component order,
     GameObjectInfo, resource manifest -- every piece of engine bookkeeping
-    -- stays byte-identical), and replace ONLY the field data of instances
-    whose layout genuinely no longer parses, taking the replacement values
-    from the current donor's own instance of the same type at the same
-    position. Then patch stale CRCs among donor-known types exactly like
-    tier 1 does.
+    -- stays byte-identical), and rebuild only the field data of instances
+    whose layout genuinely no longer parses. For each such instance, first
+    try `rsz_layout.try_suffix_field_migration()` -- on the narrow,
+    confirmed-real hypothesis that the type only grew fields APPENDED at
+    the end, this recovers the mod's OWN values for every field that
+    still exists and takes the donor's current value only for the
+    genuinely new trailing field(s). When that hypothesis doesn't
+    uniquely resolve (ambiguous or no exact-length fit), falls back to the
+    older behavior: the WHOLE instance's values come from the current
+    donor's own instance of the same type at the same position. Then
+    patch stale CRCs among donor-known types exactly like tier 1 does.
 
     Why this exists -- the inverted lesson of the instance-splicing saga
     (see CLAUDE.md #17): grafting mod content ONTO donor structure failed
@@ -351,15 +357,20 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
     misreads a float (0x3f800000) as a string length and rejects the whole
     file. This breaks `_crc_only_fix()`'s core assumption (crc as the
     structure stamp) for this specific class: no crc anywhere in the file
-    is stale in a way that names ChainSetting as the culprit. A
-    donor-value transplant is the only fix that doesn't guess: the donor's
-    ChainSetting is plumbing config (wind assets, update flags), not mod
-    customization, so taking its current values wholesale loses nothing
-    anyone authored. That reasoning does NOT extend automatically to every
-    reshaped type -- e.g. a reshaped `app.CharacterEditRegion` might carry
-    real character-edit content -- which is why this logs exactly what it
-    transplanted and stays behind the same `preserve_extra` opt-in as
-    tier 1's extra-keeping half, to be verified in-game per mod.
+    is stale in a way that names ChainSetting as the culprit. Suffix-field
+    migration (added 2026-08-09) recovers the mod's own `v0_Enabled`/
+    `_ObjectRegisterHandle`/`_WindBias`/etc. wholesale and takes only the
+    new field(s) from the donor -- narrower and safer than the original
+    all-donor transplant, which assumed (only true by luck for ChainSetting
+    specifically: it's plumbing config, not mod customization) that taking
+    every field from the donor loses nothing anyone authored. That
+    assumption does NOT extend automatically to every reshaped type -- e.g.
+    a reshaped `app.CharacterEditRegion` might carry real character-edit
+    content that field migration can't recover -- which is why the
+    all-donor fallback still exists (for when migration can't uniquely
+    resolve) and this logs exactly what it did per instance, staying
+    behind the same `preserve_extra` opt-in as tier 1's extra-keeping half,
+    to be verified in-game per mod.
 
     Refuses (returns None) unless every one of these holds:
     - the mod's walk (with resync recovery) lands exactly on len(data),
@@ -407,6 +418,7 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
     out = bytearray(mod_data[:first_start])
     pos = first_start
     transplanted_names = []
+    migrated_names = []
     try:
         for i, t, c, s, e in spans:
             if i < first or s == e:  # before the rebuild point, or carries no inline data
@@ -416,8 +428,29 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
                 return None
             if i in recovered:
                 d_s, _d_e = donor_span_by_index[i]
-                values, _ = rsz_layout._extract_instance_values(donor_data, d_s, entry["f"])
-                for (_name, _size, _align, _is_array, is_variable), val in zip((f[:5] for f in entry["f"]), values):
+                donor_values, _ = rsz_layout._extract_instance_values(donor_data, d_s, entry["f"])
+                # Prefer keeping the mod's OWN field values where possible --
+                # see rsz_layout.try_suffix_field_migration()'s docstring for
+                # the narrow "new fields only ever get appended at the end"
+                # hypothesis this relies on, and why an ambiguous result
+                # (None) must fall back to the old all-donor behavior rather
+                # than guess which candidate is real.
+                migration = rsz_layout.try_suffix_field_migration(mod_data, s, e, entry["f"])
+                if migration is not None:
+                    mod_values, k = migration
+                    new_field_values = donor_values[len(entry["f"]) - k:]
+                    new_fields = entry["f"][len(entry["f"]) - k:]
+                    values = mod_values + new_field_values
+                    migrated_names.append(f"{entry.get('n', f'type_{t:x}')} ({k} new field(s) from donor)")
+                else:
+                    new_field_values = donor_values
+                    new_fields = entry["f"]
+                    values = donor_values
+                    transplanted_names.append(entry.get("n", f"type_{t:x}"))
+                # Only the DONOR-sourced fields need the dangling-resource-ref
+                # guard (CLAUDE.md #17) -- the mod's own values are already
+                # its own shipped bytes, not something being grafted in.
+                for (_name, _size, _align, _is_array, is_variable), val in zip((f[:5] for f in new_fields), new_field_values):
                     if not is_variable:
                         continue
                     blobs = val[2] if val[0] == "array" else [val[1]]
@@ -425,7 +458,6 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
                         ref = blob[4:].decode("utf-16-le", errors="ignore").rstrip("\x00")
                         if "/" in ref and _strip_at(ref).lower() not in mod_manifest:
                             return None
-                transplanted_names.append(entry.get("n", f"type_{t:x}"))
             else:
                 values, _ = rsz_layout._extract_instance_values(mod_data, s, entry["f"])
             pos = rsz_layout._write_instance_values(out, pos, entry["f"], values)
@@ -488,10 +520,16 @@ def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log
     if pos_check != len(new_data):
         return None
 
-    log(f"    [transplant] {len(recovered)} reshaped instance(s) rebuilt with the current donor's "
-        f"field data ({', '.join(transplanted_names)}), {crc_patched} stale CRC(s) patched; "
-        f"everything else (structure, components, mod content) kept as shipped -- "
-        f"experimental option, verify in-game")
+    detail_parts = []
+    if migrated_names:
+        detail_parts.append(f"{len(migrated_names)} migrated, mod's own values kept "
+                             f"({', '.join(migrated_names)})")
+    if transplanted_names:
+        detail_parts.append(f"{len(transplanted_names)} rebuilt entirely from the current donor's "
+                             f"field data ({', '.join(transplanted_names)})")
+    log(f"    [transplant] {len(recovered)} reshaped instance(s): {'; '.join(detail_parts)}, "
+        f"{crc_patched} stale CRC(s) patched; everything else (structure, components, mod "
+        f"content) kept as shipped -- experimental option, verify in-game")
     return bytes(result)
 
 

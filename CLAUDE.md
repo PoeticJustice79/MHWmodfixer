@@ -2128,3 +2128,46 @@ in-game.
 
 Not yet started: the field-level migration engine itself (the other half
 of "둘다 하자" -- do both).
+
+## 22. Suffix-only field migration for `_transplant_reshaped()` (2026-08-09)
+
+The other half of "둘다 하자": rather than a generic schema-diffing engine
+(rejected as scope -- would require knowing a mod's exact OLD field shape,
+which this project doesn't have for instances that predate even the
+archived TU4 snapshot, e.g. ChainSetting; guessing it is the same class of
+speculative RSZ engineering that's crashed this project 5 times), scoped
+down to the narrowest defensible version: `rsz_layout.try_suffix_field_migration()`
+tries dropping the CURRENT registry shape's trailing fields (1..n-1 of
+them) against a reshaped instance's own bytes, and accepts a truncation
+ONLY if it's the single unique depth whose parse lands exactly on the
+instance's byte boundary. `_transplant_reshaped()` now tries this first
+for each reshaped instance -- on a unique fit, the mod's own values are
+kept for every field that still exists, and only the genuinely-new
+trailing field(s) come from the donor; on no fit or multiple fits, it
+falls back unchanged to the original all-donor-values behavior.
+
+Verified safe: a synthetic unit test confirms a true tail-append (2 old
+fields, 1 new one) is uniquely recovered, and a garbage-length case
+correctly returns `None`. Full regression suite (SilverWolf/Endfield/DoA)
+and the Esthe/Mask Bikini `TRANSPLANT` resolution check both came back
+byte-identical to before this change -- zero regressions.
+
+**Honest limitation, found by testing against the only real case we
+have**: exhaustively enumerating every field-subset (not just suffixes)
+against the real Esthe ChainSetting instance's 19 bytes found 18
+DIFFERENT subsets that all fit exactly (dropping various combinations of
+`_MeshBoundary`/`_WindAssetOverwrite`/`_WindAssetOverwrite2`/etc., never
+a suffix-only combination). This means the real, confirmed mismatch is
+NOT a trailing-fields-appended case at all -- Capcom's actual change here
+landed in the middle of the field list, not the tail -- so the "new
+fields only ever get appended at the end" hypothesis this feature is
+built on genuinely doesn't apply to this case, and it correctly declines
+to migrate (falls back to the old, already-verified-safe all-donor
+transplant) rather than guess among 18 ambiguous candidates. The feature
+ships as safe, tested infrastructure for a FUTURE mod whose reshaped type
+really did just grow a field at the end -- it provides no improvement for
+ChainSetting specifically. Recovering ChainSetting's own wind-bias
+customization would need a different, more targeted approach (e.g. a
+hand-verified field whitelist for that one class) -- not attempted here,
+flagged as a possible future step if a user ever reports losing
+customization there.
