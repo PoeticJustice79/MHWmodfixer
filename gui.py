@@ -507,7 +507,7 @@ class App:
                 return
 
             batch = {"fixed": 0, "already_current": 0, "unresolved": 0, "unresolved_parts": 0,
-                     "errors": 0, "textures_restored": 0}
+                     "partial_materials": 0, "errors": 0, "textures_restored": 0}
             for i, mod_archive in enumerate(queue_snapshot, start=1):
                 self.set_status(t("status_processing", i=i, total=total, name=mod_archive.name))
                 self.log(f"\n{'=' * 60}\n[{i}/{total}] {mod_archive.name}")
@@ -526,6 +526,8 @@ class App:
             )
             if batch["unresolved_parts"]:
                 msg += "\n\n" + t("msg_unresolved_parts_hint", count=batch["unresolved_parts"])
+            if batch["partial_materials"]:
+                msg += "\n\n" + t("msg_partial_materials_hint", count=batch["partial_materials"])
             self.show_info(APP_TITLE, msg)
         except Exception as e:
             self.log(f"[error] {e}\n{traceback.format_exc()}")
@@ -551,7 +553,13 @@ class App:
 
         all_plans = list(file_plans) + [p for p in pak_plans if p.applicable]
         unresolved_plans = [p for p in all_plans if p.unresolved]
-        needs_fix = [p for p in all_plans if not p.unresolved and p.needs_rebuild]
+        # A loose .mdf2 with SOME unresolved materials can still have
+        # others worth fixing (process_mod() does that material-by-
+        # material now) -- so needs_rebuild alone decides whether there's
+        # a fix to write, independent of unresolved. pak_plans don't have
+        # this per-material split, so `not p.unresolved` still applies to
+        # them via needs_rebuild's own definition there.
+        needs_fix = [p for p in all_plans if p.needs_rebuild]
 
         # "nothing to fix" and "couldn't determine" are NOT the same thing --
         # a file with an unresolved material means we have no safe way to
@@ -598,6 +606,17 @@ class App:
                      f"Try re-running with \"{t('chk_force_unresolved')}\" checked, then verify "
                      f"in-game before trusting the result.")
 
+        # Distinct from pfb_unresolved above: a material with literally no
+        # vanilla file anywhere in the game using its shader has no donor
+        # to force-fix against at all (confirmed real case: "Endfield
+        # LiJiyan", Base_GOLD_Push.mmtr, 0 candidates game-wide) -- so this
+        # does NOT suggest the force-fix checkbox, which only helps pfb
+        # structural mismatches, not "no template exists" for a material.
+        if stats.get("materials_left_unresolved"):
+            self.log(f"    [!] {mod_archive.name}: {stats['materials_left_unresolved']} material(s) had no "
+                     f"safe donor anywhere in the game and were left exactly as shipped; everything else "
+                     f"in the same file(s) was still fixed.")
+
         out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
         self.log(f"Zipping: {out_zip}")
         zip_folder(output_root, out_zip)
@@ -606,6 +625,8 @@ class App:
         shutil.rmtree(output_root, ignore_errors=True)
         if stats.get("pfb_unresolved") and not force_unresolved:
             return "unresolved_parts"
+        if stats.get("materials_left_unresolved"):
+            return "partial_materials"
         return "fixed"
 
 

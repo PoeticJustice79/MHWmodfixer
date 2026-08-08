@@ -115,7 +115,12 @@ class FilePlan:
 
     @property
     def needs_rebuild(self) -> bool:
-        return any(m.stale for m in self.materials) and not self.unresolved
+        """True iff there's at least one RESOLVED, stale material worth
+        writing a fix for -- deliberately independent of `unresolved`
+        (process_mod() fixes what it can and leaves any unresolved
+        material exactly as shipped, rather than skipping the whole file
+        just because one material has no safe donor)."""
+        return any(m.stale for m in self.materials if m.donor_blob is not None)
 
 
 def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, int]:
@@ -280,7 +285,8 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
                  progress_cb=None) -> dict:
     from pak_mod_fix import write_fixed_pak
 
-    stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0}
+    stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0,
+              "materials_left_unresolved": 0}
 
     file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log, progress_cb=progress_cb,
                                       force_unresolved_pfbs=force_unresolved_pfbs,
@@ -293,17 +299,25 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
     for plan in file_plans:
         log(f"{plan.rel}")
 
-        if plan.unresolved:
-            for mp in plan.materials:
-                if mp.donor_blob is None:
-                    log(f"    [skip] no safe donor for material {mp.mod_mat['name']!r} "
-                        f"(mmtr {mp.mod_mat['mmtr_path']!r})")
-            stats["skipped"] += 1
-            continue
+        unresolved_mats = [mp for mp in plan.materials if mp.donor_blob is None]
+        resolved_stale = [mp for mp in plan.materials if mp.donor_blob is not None and mp.stale]
 
-        if not plan.needs_rebuild:
-            log("    [ok] already matches the current game version's structure -- left untouched")
-            stats["already_current"] += 1
+        if not resolved_stale:
+            # Nothing to fix on the materials we CAN verify -- either every
+            # material already matches the current structure (nothing to
+            # do at all), or the only stale ones are also unresolved (no
+            # donor to fix them against either way), so writing a file
+            # would be a byte-identical no-op. Report unresolved materials
+            # by name either way -- "0 fixed" must never look the same as
+            # "we couldn't tell" (see the batch-summary note below).
+            for mp in unresolved_mats:
+                log(f"    [skip] no safe donor for material {mp.mod_mat['name']!r} "
+                    f"(mmtr {mp.mod_mat['mmtr_path']!r})")
+            if unresolved_mats:
+                stats["skipped"] += 1
+            else:
+                log("    [ok] already matches the current game version's structure -- left untouched")
+                stats["already_current"] += 1
             continue
 
         try:
@@ -311,6 +325,11 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             total_changed = 0
             chosen_nv = plan.donor_nv
             for mp in plan.materials:
+                if mp.donor_blob is None:
+                    log(f"    [kept as shipped] material {mp.mod_mat['name']!r} -- no safe donor "
+                        f"found (mmtr {mp.mod_mat['mmtr_path']!r}); left exactly as the mod shipped it")
+                    rebuilt.append(mp.mod_mat)
+                    continue
                 log(f"    material {mp.mod_mat['name']!r} -> donor {mp.donor_blob['name']!r} "
                     f"from {mp.donor_src!r} ({mp.match_kind})")
                 new_mat, changed = apply_texture_overrides(mp.donor_blob, mp.mod_mat, log)
@@ -329,9 +348,18 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             if old_out_path != out_path and old_out_path.exists():
                 old_out_path.unlink()
 
-            log(f"    [fixed] {total_changed} texture path(s) restored -> {out_path.relative_to(output_root)}")
-            stats["fixed"] += 1
-            stats["textures_restored"] += total_changed
+            if unresolved_mats:
+                log(f"    [partial fix] {total_changed} texture path(s) restored on "
+                    f"{len(plan.materials) - len(unresolved_mats)} material(s); "
+                    f"{len(unresolved_mats)} left as shipped (no safe donor) -> "
+                    f"{out_path.relative_to(output_root)}")
+                stats["fixed"] += 1
+                stats["textures_restored"] += total_changed
+                stats["materials_left_unresolved"] += len(unresolved_mats)
+            else:
+                log(f"    [fixed] {total_changed} texture path(s) restored -> {out_path.relative_to(output_root)}")
+                stats["fixed"] += 1
+                stats["textures_restored"] += total_changed
         except Exception as e:
             log(f"    [error] {e}")
             stats["errors"] += 1

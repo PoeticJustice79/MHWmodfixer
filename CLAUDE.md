@@ -806,3 +806,59 @@ long descriptive label to double as a filename source.
 `MHWmodfixer.spec` now globs `tools/rsz_archive/*.json.gz` into `datas`
 instead of naming one fixed previous-file path, so the archive grows
 across releases automatically as more gets added to it.
+
+### 10. Loose `.mdf2` repair was all-or-nothing per file; now per-material (2026-08-08)
+
+Real case: "Endfield LiJiyan" (`C:\Users\User\Desktop\Endfield_LiJiyan.7z`)
+has one loose `.mdf2` with 9 materials. 7 (`body_01`, `cloth_01`,
+`cloth_02`, `face_01`, `hair_01`, `iris_01`, `guanggao`) matched a donor
+fine; 2 (`mb`, `mbface`) use `MaterialShader/Variation/Base_GOLD_Push.mmtr`,
+which **zero vanilla `.mdf2` anywhere in the currently installed game
+references** (confirmed: `LazyWholeGameIndex.find_by_mmtr(...)` returns
+`[]`, vs. 310 for the common `Base_Equip.mmtr`) -- so there is no template
+to verify or rebuild those two against, full stop, not a bug or a gap in
+donor-search logic. This is the same "coverage decides success, not the
+algorithm" limitation `another community fixer`'s own README documents for
+its analogous material-template system.
+
+Before this, `process_mod()` treated a `FilePlan` as all-or-nothing: `if
+plan.unresolved: skip the WHOLE file`, so this mod's 7 perfectly fixable
+materials never got touched just because 2 others had no donor anywhere.
+User's framing when asked to fix what's possible anyway: "그래도 일단
+가능한대로 복구해볼래?" -- changed `process_mod()`'s loose-`.mdf2` loop
+to resolve per material: materials with a donor get rebuilt via the
+existing `apply_texture_overrides()`; materials without one get their OWN
+`mod_mat` dict (from `extract_material()`) passed into `assemble_mdf2()`
+unchanged -- confirmed this is lossless and safe to do, since
+`extract_material()`/`assemble_mdf2()` already round-trip arbitrary
+materials this way elsewhere (building `global_pool`/`own_pool` from
+donor files that later get spliced into OTHER mods' output). Verified
+directly on this exact mod: output parses correctly, `mb`'s textures and
+props are byte-content-identical before and after.
+
+**A dependent bug this surfaced and fixed in the same pass**: `gui.py`'s
+`_run_one()` computed `needs_fix = [p for p in all_plans if not
+p.unresolved and p.needs_rebuild]` -- since `FilePlan.unresolved` is still
+True for this mod (2 materials genuinely have no donor), `not
+p.unresolved` was False, so this mod would never even reach
+`process_mod()` at all; the GUI's own pre-check gate would have reported
+"nothing could be safely auto-repaired" and returned early without ever
+attempting the 7 fixable materials. Fixed by redefining
+`FilePlan.needs_rebuild` to mean "at least one RESOLVED, stale material
+exists" (independent of `unresolved`, which still means what it always
+did: "at least one material has no donor," used for reporting), and
+dropping the `not p.unresolved` condition from `needs_fix`'s filter.
+Caught by directly checking `plan_mod()`'s output on this exact mod before
+trusting the fix -- `unresolved=True, needs_rebuild=True` is now correctly
+possible, where before it was a contradiction the old code couldn't
+express (`needs_rebuild` was defined to be False whenever `unresolved`
+was True).
+
+New `stats["materials_left_unresolved"]` (in `process_mod()`'s return)
+and `"partial fix"` log line distinguish this from a fully-clean fix, and
+`gui.py` surfaces a dedicated hint (`msg_partial_materials_hint`) when
+this happens in a batch run -- deliberately NOT the existing
+`msg_unresolved_parts_hint`/force-fix suggestion, since that option only
+helps a pfb whose structure didn't safely reconcile with a donor that
+DOES exist; it does nothing for a material with zero candidate donors
+anywhere in the game to force against.

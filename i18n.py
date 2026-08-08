@@ -323,6 +323,15 @@ _STRINGS = {
     "err_download_failed": {
         "ko": "다운로드에 실패했습니다:\n{e}", "en": "Download failed:\n{e}",
     },
+    "msg_partial_materials_hint": {
+        "ko": "참고: {count}개 모드에서 일부 재질은 게임 안에 참고할 수 있는 바닐라 파일이 아예 없어서 "
+              "고칠 수 없었고, 원본 그대로 남겨졌습니다. 같은 파일의 나머지 재질은 정상적으로 수정됐습니다. "
+              "이건 강제 수정 옵션으로도 해결되지 않습니다 (참고할 대상 자체가 없기 때문).",
+        "en": "Note: {count} mod(s) had one or more materials with no matching vanilla file anywhere in "
+              "the game to compare against, so those specific materials were left exactly as shipped -- "
+              "everything else in the same file(s) was still fixed normally. The \"force-fix\" option "
+              "won't help here (there's nothing to force it against).",
+    },
 }
 
 _current_lang = "en"
