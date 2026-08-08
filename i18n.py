@@ -262,6 +262,34 @@ _STRINGS = {
               "このようなパスでは一部のツール（アーカイブ展開など）が正しく動作しないことがあります。"
               "できるだけ英数字のみのパス（例：C:\\MHWmodfixer）に移動してご利用ください。",
     },
+    "menu_settings": {"ko": "설정", "en": "Settings"},
+    "menu_dev_options": {"ko": "개발자 옵션", "en": "Developer Options"},
+    "menu_rsz_snapshot": {"ko": "RSZ 스냅샷...", "en": "RSZ Snapshot..."},
+    "dlg_snapshot_title": {"ko": "RSZ 스냅샷 관리", "en": "RSZ Snapshot Manager"},
+    "snap_role_current": {"ko": "현재판", "en": "Current"},
+    "snap_role_previous": {"ko": "이전판", "en": "Previous"},
+    "snap_not_present": {"ko": "(없음)", "en": "(not present)"},
+    "snap_label": {"ko": "라벨", "en": "Label"},
+    "snap_game_date": {"ko": "게임 업데이트 날짜", "en": "Game update date"},
+    "snap_baked_at": {"ko": "생성 날짜", "en": "Baked at"},
+    "snap_type_count": {"ko": "타입 개수", "en": "Types"},
+    "dlg_choose_snapshot": {
+        "ko": "스냅샷 파일 선택 (.json.gz)", "en": "Select a snapshot file (.json.gz)",
+    },
+    "filetype_snapshot": {"ko": "RSZ 스냅샷", "en": "RSZ snapshot"},
+    "btn_import_snapshot": {"ko": "스냅샷 가져오기...", "en": "Import snapshot..."},
+    "btn_close": {"ko": "닫기", "en": "Close"},
+    "ask_snapshot_role": {
+        "ko": "이 스냅샷을 \"현재판\"으로 설치할까요?\n\n예: 현재판으로 설치 (실제 검증에 사용됨, 기존 현재판은 자동으로 이전판으로 보존됨)\n아니오: 이전판으로 설치 (참고용, 아직 실제 검증에는 쓰이지 않음)",
+        "en": "Install this snapshot as \"current\"?\n\nYes: install as current (actually used for verification; the existing current is automatically kept as previous)\nNo: install as previous (reference only, not used for verification yet)",
+    },
+    "msg_snapshot_installed": {
+        "ko": "설치 완료: {count}개 타입, 라벨 \"{label}\"",
+        "en": "Installed: {count} types, label \"{label}\"",
+    },
+    "err_snapshot_import": {
+        "ko": "스냅샷을 설치하지 못했습니다:\n{e}", "en": "Couldn't install the snapshot:\n{e}",
+    },
 }
 
 _current_lang = "en"

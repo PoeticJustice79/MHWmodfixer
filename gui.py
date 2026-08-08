@@ -36,6 +36,7 @@ except ImportError:
     _HAS_DND = False
 
 import i18n
+import rsz_layout
 from archive_extract import extract_archive
 from auto_fix import DEFAULT_GAME_DIR, process_mod
 from diagnose import diagnose, summarize
@@ -86,8 +87,25 @@ class App:
 
     # ---- UI layout ---------------------------------------------------
 
+    def _build_menubar(self):
+        # Rebuilt from scratch on every language change rather than
+        # entryconfigure()'d in place -- Windows' native menu widget was
+        # observed refusing "-label" on entryconfigure for a cascade menu
+        # here even though the same call works for plain ttk widgets;
+        # rebuilding sidesteps whatever index/native-menu quirk that was.
+        menubar = tk.Menu(self.root)
+        dev_menu = tk.Menu(menubar, tearoff=0)
+        dev_menu.add_command(label=t("menu_rsz_snapshot"), command=self._open_snapshot_dialog)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_cascade(label=t("menu_dev_options"), menu=dev_menu)
+        menubar.add_cascade(label=t("menu_settings"), menu=settings_menu)
+        self.root.config(menu=menubar)
+        self._menubar, self._settings_menu, self._dev_menu = menubar, settings_menu, dev_menu
+
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
+
+        self._build_menubar()
 
         top_frame = ttk.Frame(self.root)
         top_frame.pack(fill="x", **pad)
@@ -177,6 +195,7 @@ class App:
         self._retranslate()
 
     def _retranslate(self):
+        self._build_menubar()
         self.lbl_lang.configure(text=t("lbl_lang"))
         self.lbl_game_dir.configure(text=t("lbl_game_dir"))
         self.btn_browse_game.configure(text=t("btn_browse_game"))
@@ -198,6 +217,69 @@ class App:
             os.startfile(LOG_DIR)
         except OSError:
             pass
+
+    def _open_snapshot_dialog(self):
+        """Settings > Developer Options > RSZ Snapshot -- shows what's
+        currently installed (see rsz_layout.list_snapshots()) and lets a
+        user install a snapshot someone shared, without waiting for a new
+        MHWmodfixer release. See rsz_layout.py's module docstring for what
+        this snapshot actually protects."""
+        win = tk.Toplevel(self.root)
+        win.title(t("dlg_snapshot_title"))
+        win.geometry("560x380")
+        win.transient(self.root)
+
+        info_text = ScrolledText(win, height=14, state="disabled")
+        info_text.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def refresh():
+            lines = []
+            for entry in rsz_layout.list_snapshots():
+                role = t("snap_role_current") if entry["role"] == "current" else t("snap_role_previous")
+                lines.append(f"[{role}] {entry['path'].name}")
+                if not entry["exists"]:
+                    lines.append(f"  {t('snap_not_present')}")
+                else:
+                    meta = entry["meta"] or {}
+                    lines.append(f"  {t('snap_label')}: {meta.get('label', '?')}")
+                    lines.append(f"  {t('snap_game_date')}: {meta.get('game_update_date', '?')}")
+                    lines.append(f"  {t('snap_baked_at')}: {meta.get('baked_at', '?')}")
+                    lines.append(f"  {t('snap_type_count')}: {meta.get('entry_count', '?')}")
+                lines.append("")
+            info_text.configure(state="normal")
+            info_text.delete("1.0", "end")
+            info_text.insert("1.0", "\n".join(lines))
+            info_text.configure(state="disabled")
+
+        refresh()
+
+        def do_import():
+            path = filedialog.askopenfilename(
+                title=t("dlg_choose_snapshot"),
+                filetypes=[(t("filetype_snapshot"), ("*.json.gz", "*.json")), (t("filetype_allfiles"), "*.*")],
+            )
+            if not path:
+                return
+            role_yes = messagebox.askyesnocancel(APP_TITLE, t("ask_snapshot_role"), parent=win)
+            if role_yes is None:
+                return
+            role = "current" if role_yes else "previous"
+            try:
+                meta = rsz_layout.install_snapshot(Path(path), as_role=role)
+            except rsz_layout.SnapshotError as exc:
+                messagebox.showerror(APP_TITLE, t("err_snapshot_import", e=exc), parent=win)
+                return
+            except Exception as exc:
+                messagebox.showerror(APP_TITLE, t("err_unhandled", e=exc), parent=win)
+                return
+            messagebox.showinfo(
+                APP_TITLE, t("msg_snapshot_installed", count=meta["entry_count"], label=meta["label"]), parent=win)
+            refresh()
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(btn_frame, text=t("btn_import_snapshot"), command=do_import).pack(side="left")
+        ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right")
 
     def _browse_game_dir(self):
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))
