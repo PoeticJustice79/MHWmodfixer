@@ -124,9 +124,20 @@ class FilePlan:
 
 
 def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, int]:
-    """Returns (new_material_blob, num_textures_changed). Only textures are
-    ever taken from the mod; everything else (props, gpbf, mmtr, shading)
-    comes from the donor untouched.
+    """Returns (new_material_blob, num_textures_changed). Structural fields
+    that reflect the CURRENT mdf2 FORMAT (padding, prop/texture slot
+    layout, gpbf, mmtr) come from the donor, since those are what actually
+    go stale across a game update. shading_type and alpha_flags_raw do
+    NOT -- they're per-material RENDER STATE (e.g. two-sided/alpha-blend
+    behavior), the same kind of author-set tuning as texture paths and
+    prop values, not something a title update changes the "correct" value
+    of. Confirmed as a real bug via a Nexus report (Kersiak, 2026-08-08):
+    taking alpha_flags_raw from the donor was silently stripping a mod's
+    own alpha/two-sided settings on every material this function touched
+    -- verified directly against a real mod (Endfield LiJiyan) where all 7
+    resolved materials had a mod alpha_flags_raw of 9b000008 replaced with
+    the donor's 98000088, matching the reported "meshes that were
+    2sided-alpha now look transparent from the inside" symptom exactly.
 
     The material *name* is kept as the mod's own, not the donor's --
     confirmed via real in-game testing this matters when several materials
@@ -161,6 +172,8 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
             f"only the last one of each duplicate will be used as an override source")
     new_mat = copy.deepcopy(donor_mat)
     new_mat["name"] = mod_mat["name"]
+    new_mat["shading_type"] = mod_mat["shading_type"]
+    new_mat["alpha_flags_raw"] = mod_mat["alpha_flags_raw"]
     changed = 0
     donor_types = {t["type"] for t in new_mat["textures"]}
     for t in new_mat["textures"]:

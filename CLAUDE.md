@@ -862,3 +862,56 @@ this happens in a batch run -- deliberately NOT the existing
 helps a pfb whose structure didn't safely reconcile with a donor that
 DOES exist; it does nothing for a material with zero candidate donors
 anywhere in the game to force against.
+
+### 11. `apply_texture_overrides()` was silently discarding a mod's own alpha/render-state flags (2026-08-08)
+
+Real Nexus report (Kersiak, premium/41 kudos, 08 Aug 2026 6:07PM): "This
+is removing the alpha layer from textures, even the vanilla ones, plus
+the meshes that were 2sided-alpha now are no more, it means they will
+look transparent from the inside (an example for both issues on the same
+item is the death stench hood)." Took this seriously immediately rather
+than assuming user error, given the specificity (a named item, a
+specific rendering symptom) and the reporter's standing.
+
+Root cause, confirmed directly: `apply_texture_overrides()` builds
+`new_mat` as `copy.deepcopy(donor_mat)` and only ever overrides `name`,
+`textures`, and `props` from the mod -- `shading_type` and
+`alpha_flags_raw` (both captured per-material by `mdf2_slice.extract_material()`,
+see that function) were left as whatever the DONOR had, unconditionally,
+for every material this function ever touches. Verified on a real mod
+("Endfield LiJiyan," the same one from #10): all 7 resolved materials had
+mod `alpha_flags_raw = 9b000008` silently replaced with the donor's
+`98000088`/`98000008` -- matching the reported symptom exactly (alpha/
+two-sided render behavior is exactly what that flag controls).
+
+This is architecturally the same mistake the function's own docstring
+had already caught and fixed once for `props` ("Props are ALSO carried
+over from the mod... encode PER-INSTANCE tuning, not just shader
+structure") -- `shading_type`/`alpha_flags_raw` are the same kind of
+author-set render tuning, not structural layout information (padding,
+prop/texture counts) that genuinely needs to track the CURRENT mdf2
+format across a game update. The function's own opening docstring line
+("Only textures are ever taken from the mod; everything else... comes
+from the donor untouched") had gone stale the moment props got the same
+treatment, and nobody revisited shading_type/alpha_flags_raw when that
+happened -- worth remembering: when one field in a "comes from the
+donor" list gets reclassified as "actually per-instance, keep the mod's
+value," audit the REST of that list for the same reasoning, don't treat
+it as a one-off fix.
+
+Fix: `new_mat["shading_type"] = mod_mat["shading_type"]` and
+`new_mat["alpha_flags_raw"] = mod_mat["alpha_flags_raw"]`, added right
+next to the existing `new_mat["name"] = mod_mat["name"]` line. Both
+fields are fixed-size and present unconditionally per material
+(confirmed in `mdf2_slice.py`: read/written outside any `isV2`-gated
+block), so swapping the value carries no version-compatibility risk the
+way a prop/texture COUNT mismatch would. Verified: re-ran the exact
+Endfield case, all materials' `alpha_flags_raw` in the output now match
+the mod's original input byte-for-byte; SilverWolf regression suite
+unaffected.
+
+This bug affected EVERY material this project has ever "fixed" via the
+loose-mdf2 or pak-mdf2 path (both call the same `apply_texture_overrides()`)
+since the feature existed -- not a one-mod edge case. Any previously
+"fixed" mod a user is still using may be carrying the donor's
+shading_type/alpha_flags instead of its own.
