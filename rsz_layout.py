@@ -151,15 +151,26 @@ def fits_current_layout(rsz_info: dict) -> bool | None:
 #
 # The registry above goes stale exactly when a game title update reshapes
 # RSZ classes -- the same day it's needed most. These functions manage the
-# CURRENT/PREVIOUS snapshot pair so that gap can be closed by installing a
-# fresh snapshot (baked by a maintainer, or shared by anyone else who baked
-# one) without waiting for a whole new MHWmodfixer release. Used by both
-# gui.py (Settings -> RSZ Snapshot dialog) and tools/bake_rsz_snapshot.py
-# (the maintainer-side CLI, which additionally knows how to bake a snapshot
-# from a raw ~100MB community registry dump -- not needed here since an end
-# user only ever installs an already-baked, few-MB snapshot file).
+# CURRENT snapshot plus an unlimited ARCHIVE_DIR of every snapshot that was
+# ever current, so that gap can be closed by installing a fresh snapshot
+# (baked by a maintainer, fetched straight from its source, or shared by
+# someone else) without waiting for a whole new MHWmodfixer release. Used
+# by both gui.py (Settings -> RSZ Snapshot dialog) and
+# tools/bake_rsz_snapshot.py (the maintainer-side CLI, which additionally
+# knows how to bake a snapshot from a raw ~100MB community registry dump --
+# not needed here since an end user only ever installs an already-baked,
+# few-MB snapshot file).
+#
+# Originally this kept only ONE prior snapshot (a fixed "previous" slot,
+# overwritten every time a new one rotated in) -- changed to a growing,
+# dated archive per the user's own reasoning (2026-08-08): "스냅샷도
+# 버전별로 계속 저장될 수 있게 해야할것 같아" ("snapshots should keep
+# accumulating per version too") -- a single previous slot loses anything
+# more than one update back, which would block migrating across a gap
+# wider than one title update once real field migration gets built.
 
-_KNOWN_PATHS = {"current": CURRENT_PATH, "previous": PREVIOUS_PATH}
+ARCHIVE_DIR = _HERE / "tools" / "rsz_archive"
+PREVIOUS_PATH = ARCHIVE_DIR  # old name, now a directory rather than one file -- see above
 
 
 class SnapshotError(Exception):
@@ -182,18 +193,57 @@ def snapshot_meta(path: Path) -> dict | None:
     return meta
 
 
+def _archive_filename(meta: dict) -> str:
+    """A filesystem-safe, sorts-in-date-order name for archiving one
+    snapshot: <game_update_date-or-baked_at>_<sanitized label>.json.gz."""
+    date = meta.get("game_update_date")
+    if not date or date == "unknown":
+        date = meta.get("baked_at", "unknown-date")
+    label = meta.get("label") or "snapshot"
+    safe_label = "".join(c if c.isalnum() or c in "-_." else "_" for c in label)[:60]
+    return f"{date}_{safe_label}.json.gz"
+
+
+def _unique_path(directory: Path, filename: str) -> Path:
+    """filename, or filename with -2/-3/... inserted before the extension
+    if it already exists -- archiving must never silently overwrite an
+    earlier entry just because two snapshots share a label."""
+    candidate = directory / filename
+    if not candidate.exists():
+        return candidate
+    stem = filename[:-len(".json.gz")] if filename.endswith(".json.gz") else candidate.stem
+    n = 2
+    while True:
+        candidate = directory / f"{stem}-{n}.json.gz"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def list_snapshots() -> list[dict]:
-    """One dict per known snapshot slot (current, previous): role, path,
-    exists, and its _meta fields if it does. Always returns both slots,
-    even if one has no file yet, so a caller can render a consistent UI."""
+    """The current snapshot plus every archived one, newest first by
+    game_update_date (falling back to baked_at). Each entry: role
+    ("current" or "archived"), path, exists, file_size, meta (or None if
+    unreadable/missing)."""
     out = []
-    for role, path in _KNOWN_PATHS.items():
-        meta = snapshot_meta(path) if path.exists() else None
-        out.append({
-            "role": role, "path": path, "exists": path.exists(),
-            "file_size": path.stat().st_size if path.exists() else 0,
-            **({"meta": meta} if meta else {"meta": None}),
-        })
+    meta = snapshot_meta(CURRENT_PATH) if CURRENT_PATH.exists() else None
+    out.append({
+        "role": "current", "path": CURRENT_PATH, "exists": CURRENT_PATH.exists(),
+        "file_size": CURRENT_PATH.stat().st_size if CURRENT_PATH.exists() else 0,
+        "meta": meta,
+    })
+
+    archived = []
+    if ARCHIVE_DIR.is_dir():
+        for path in ARCHIVE_DIR.glob("*.json.gz"):
+            meta = snapshot_meta(path)
+            archived.append({
+                "role": "archived", "path": path, "exists": True,
+                "file_size": path.stat().st_size, "meta": meta,
+            })
+    archived.sort(key=lambda e: (e["meta"] or {}).get("game_update_date")
+                  or (e["meta"] or {}).get("baked_at") or "", reverse=True)
+    out.extend(archived)
     return out
 
 
@@ -267,28 +317,51 @@ def detect_and_convert(path: Path, half: str | None = None) -> tuple[dict, str]:
     return entries, path.stem
 
 
+def _write_gz(dest: Path, payload: dict):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=9) as f:
+        json.dump(payload, f, separators=(",", ":"))
+    tmp.replace(dest)
+
+
+def archive_current() -> Path | None:
+    """Copies the existing "current" snapshot into ARCHIVE_DIR under a name
+    derived from its own metadata, without touching CURRENT_PATH itself.
+    Returns the archived path, or None if there was no current snapshot to
+    archive. Called automatically by install_snapshot(as_role="current")
+    before it overwrites current -- exposed separately too, in case a
+    caller ever needs to archive without immediately replacing it."""
+    if not CURRENT_PATH.exists():
+        return None
+    meta = snapshot_meta(CURRENT_PATH) or {}
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _unique_path(ARCHIVE_DIR, _archive_filename(meta))
+    shutil.copyfile(CURRENT_PATH, dest)
+    return dest
+
+
 def install_snapshot(source_path: Path, as_role: str, label: str | None = None,
                       game_update_date: str | None = None, rotate: bool = True,
                       half: str | None = None) -> dict:
-    """Installs `source_path` as the "current" or "previous" snapshot.
-    When as_role == "current" and rotate is True (the default -- see this
-    module's docstring on why losing "previous" is the exact gap that
-    blocked full migration on 2026-08-08), any existing current snapshot is
-    archived to "previous" first, so today's current survives as tomorrow's
-    previous instead of being silently overwritten.
+    """Installs `source_path` as either:
+    - "current": the single active snapshot fits_current_layout() reads.
+      When rotate is True (the default -- see this module's docstring on
+      why losing history is the exact gap that blocked full migration on
+      2026-08-08), whatever was current before this call is archived
+      first via archive_current(), so nothing is ever silently discarded.
+    - "archive": stashed directly into ARCHIVE_DIR without touching
+      "current" at all -- for saving a snapshot for possible future
+      migration use without activating it.
 
     Returns the new snapshot's _meta dict. Raises SnapshotError on anything
     that would leave a broken or empty snapshot installed -- never writes a
     partial result."""
-    if as_role not in _KNOWN_PATHS:
+    if as_role not in ("current", "archive"):
         raise SnapshotError(f"unknown role {as_role!r}")
     entries, default_label = detect_and_convert(source_path, half)
     if not entries:
         raise SnapshotError(f"{source_path.name} converted to zero typed classes -- refusing to install it")
-
-    dest = _KNOWN_PATHS[as_role]
-    if as_role == "current" and rotate and dest.exists():
-        shutil.copyfile(dest, PREVIOUS_PATH)
 
     payload = dict(entries)
     payload["_meta"] = {
@@ -298,14 +371,16 @@ def install_snapshot(source_path: Path, as_role: str, label: str | None = None,
         "source": f"imported from {source_path.name}",
         "entry_count": len(entries),
     }
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=9) as f:
-        json.dump(payload, f, separators=(",", ":"))
-    tmp.replace(dest)
 
     if as_role == "current":
+        if rotate:
+            archive_current()
+        _write_gz(CURRENT_PATH, payload)
         global _registry_cache
         _registry_cache = None  # next fits_current_layout() call re-reads the new file
+    else:
+        dest = _unique_path(ARCHIVE_DIR, _archive_filename(payload["_meta"]))
+        _write_gz(dest, payload)
 
     return payload["_meta"]
 

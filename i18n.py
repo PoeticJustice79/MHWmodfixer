@@ -267,7 +267,7 @@ _STRINGS = {
     "menu_rsz_snapshot": {"ko": "RSZ 스냅샷...", "en": "RSZ Snapshot..."},
     "dlg_snapshot_title": {"ko": "RSZ 스냅샷 관리", "en": "RSZ Snapshot Manager"},
     "snap_role_current": {"ko": "현재판", "en": "Current"},
-    "snap_role_previous": {"ko": "이전판", "en": "Previous"},
+    "snap_role_archived": {"ko": "보관됨", "en": "Archived"},
     "snap_not_present": {"ko": "(없음)", "en": "(not present)"},
     "snap_label": {"ko": "라벨", "en": "Label"},
     "snap_game_date": {"ko": "게임 업데이트 날짜", "en": "Game update date"},
@@ -280,8 +280,8 @@ _STRINGS = {
     "btn_import_snapshot": {"ko": "스냅샷 가져오기...", "en": "Import snapshot..."},
     "btn_close": {"ko": "닫기", "en": "Close"},
     "ask_snapshot_role": {
-        "ko": "이 스냅샷을 \"현재판\"으로 설치할까요?\n\n예: 현재판으로 설치 (실제 검증에 사용됨, 기존 현재판은 자동으로 이전판으로 보존됨)\n아니오: 이전판으로 설치 (참고용, 아직 실제 검증에는 쓰이지 않음)",
-        "en": "Install this snapshot as \"current\"?\n\nYes: install as current (actually used for verification; the existing current is automatically kept as previous)\nNo: install as previous (reference only, not used for verification yet)",
+        "ko": "이 스냅샷을 \"현재판\"으로 설치할까요?\n\n예: 현재판으로 설치 (실제 검증에 사용됨, 기존 현재판은 자동으로 보관됨)\n아니오: 보관만 함 (참고용, 아직 실제 검증에는 쓰이지 않음)",
+        "en": "Install this snapshot as \"current\"?\n\nYes: install as current (actually used for verification; whatever was current is automatically archived)\nNo: just archive it (reference only, not used for verification yet)",
     },
     "msg_snapshot_installed": {
         "ko": "설치 완료: {count}개 타입, 라벨 \"{label}\"",

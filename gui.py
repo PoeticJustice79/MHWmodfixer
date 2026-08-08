@@ -235,7 +235,7 @@ class App:
         def refresh():
             lines = []
             for entry in rsz_layout.list_snapshots():
-                role = t("snap_role_current") if entry["role"] == "current" else t("snap_role_previous")
+                role = t("snap_role_current") if entry["role"] == "current" else t("snap_role_archived")
                 lines.append(f"[{role}] {entry['path'].name}")
                 if not entry["exists"]:
                     lines.append(f"  {t('snap_not_present')}")
@@ -288,7 +288,7 @@ class App:
             role_yes = messagebox.askyesnocancel(APP_TITLE, t("ask_snapshot_role"), parent=win)
             if role_yes is None:
                 return
-            role = "current" if role_yes else "previous"
+            role = "current" if role_yes else "archive"
             try:
                 meta = rsz_layout.install_snapshot(Path(path), as_role=role)
             except rsz_layout.SnapshotError as exc:

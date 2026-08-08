@@ -1,8 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
+import glob
 from PyInstaller.utils.hooks import collect_all
 
 datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools'),
-         ('tools/rsz_fields_mhwilds.json.gz', 'tools'), ('tools/rsz_fields_mhwilds_previous.json.gz', 'tools')]
+         ('tools/rsz_fields_mhwilds.json.gz', 'tools')]
+datas += [(p, 'tools/rsz_archive') for p in glob.glob('tools/rsz_archive/*.json.gz')]
 binaries = []
 hiddenimports = ['pak_mod_fix', 'whole_game_index']
 tmp_ret = collect_all('tkinterdnd2')

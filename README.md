@@ -338,20 +338,22 @@ it describes, how many classes it covers) — and either:
   pre-processed snapshot file with you (Nexus comments, Discord, etc.).
 
 Either way it takes effect immediately, no restart needed, and installing
-a new "current" snapshot automatically keeps the previous one around
-instead of discarding it — nothing about this is destructive. A fetch or
-import gets sanity-checked against one of your own installed game files
-where possible; if that check can't be confirmed either way (a known
-limitation of the raw source data, not a sign anything's wrong), you're
-told so plainly rather than being given a false green light.
+a new "current" snapshot automatically archives whatever was current
+before it (every snapshot this ever installs stays available, dated, for
+as long as it might be needed later) instead of discarding it — nothing
+about this is destructive. A fetch or import gets sanity-checked against
+one of your own installed game files where possible; if that check can't
+be confirmed either way (a known limitation of the raw source data, not
+a sign anything's wrong), you're told so plainly rather than being given
+a false green light.
 
 Maintainers: `tools/bake_rsz_snapshot.py` (a CLI on top of the same
 underlying functions the GUI dialog uses, in `rsz_layout.py`) manages
-this snapshot — `bake --rotate` after a title update keeps the previous
-snapshot around instead of discarding it (today's "current" becomes
-tomorrow's "previous"), `list` shows what's currently bundled, and
-`import` installs a snapshot someone else shares instead of generating
-one from scratch. See its module docstring for details.
+this — `bake --rotate` after a title update archives whatever was
+current under `tools/rsz_archive/` before replacing it, `list` shows
+current plus every archived snapshot, and `import` installs a snapshot
+someone else shares (as current, or straight into the archive) instead
+of generating one from scratch. See its module docstring for details.
 
 ## Limitations
 

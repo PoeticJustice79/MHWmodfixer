@@ -774,3 +774,35 @@ restored with `git checkout -- tools/rsz_fields_mhwilds*.json.gz` before
 committing. Worth remembering: testing `install_snapshot()` against the
 real tracked files, not a throwaway copy, is convenient but always needs
 this exact check afterward.
+
+**Fixed single "previous" slot replaced with an unlimited, dated
+archive.** User's own reasoning: "스냅샷도 버전별로 계속 저장될 수
+있게 해야할것 같아" ("snapshots should keep getting saved per version
+too") -- correctly spotted that the original current/previous pair loses
+anything more than one title update back, since every new rotation just
+overwrites the single previous slot. That's fine for the CRC-only-fix
+safety check (only ever reads "current"), but would block real field
+migration across a gap wider than one update once that gets built --
+migrating a mod stuck two versions behind would need the registry from
+exactly that older version, and it wouldn't exist anymore.
+
+`PREVIOUS_PATH` (a single file) became `ARCHIVE_DIR`
+(`tools/rsz_archive/`, a directory) in `rsz_layout.py`. `install_snapshot(
+as_role="current", rotate=True)` now calls `archive_current()` first,
+which copies whatever's current into the archive under a name derived
+from ITS OWN metadata (`<game_update_date-or-baked_at>_<label>.json.gz`,
+collision-safe via `_unique_path()` appending `-2`/`-3`/...) rather than
+a fixed filename -- so nothing is ever silently discarded, and `list`
+shows the whole history, not just one slot back. `install_snapshot(
+as_role="archive")` stashes a snapshot directly into the archive without
+touching current at all, for saving something for possible future use
+without activating it. The old `tools/rsz_fields_mhwilds_previous.json.gz`
+(TU4) was migrated into this archive as its first entry
+(`tools/rsz_archive/2026-08-08_TU4.json.gz`) and removed from git; a
+first attempt at this migration produced an unusably long filename by
+slugifying the ENTIRE label sentence verbatim -- fixed by re-running with
+a short explicit `label="TU4"` instead of trusting the existing overly-
+long descriptive label to double as a filename source.
+`MHWmodfixer.spec` now globs `tools/rsz_archive/*.json.gz` into `datas`
+instead of naming one fixed previous-file path, so the archive grows
+across releases automatically as more gets added to it.
