@@ -1060,3 +1060,64 @@ in their own latest release. Our tool correctly recognized that and left
 them completely untouched instead of needlessly (and, per #13, riskily)
 re-substituting something that didn't need it. No regression on
 SilverWolf, Endfield, or DoA Raise the Sail.
+
+### 15. `_fix_dangling_physics_refs()` widened to mesh/mdf2 and to the crc_patch path -- and a genuinely unfixable case found along the way (2026-08-08)
+
+After #14, Forte's Waist/Body/Leg started resolving via `crc_patch`
+("already current") instead of substitution -- which meant #13's fix
+never ran on them at all (it was only ever wired into the
+`_apply_substitution()` call site in `resolve_and_fix_pfbs()`). The user
+then reported REFramework `[Missing file]` warnings at load for several
+`ch02_017_*` paths, ending in `.jcns`, `.mesh`, and `.mdf2` -- the mod
+still worked (the engine just skips an unresolvable optional sub-part),
+but the warnings were new territory: `.mesh`/`.mdf2` weren't in
+`_PHYSICS_EXTS` at all, and the crc_patch path had no fix hook regardless
+of extension.
+
+**Fix, two parts:**
+1. `_PHYSICS_EXTS` widened from `(".chain2", ".jcns")` to add `".mesh"`
+   and `".mdf2"` -- same dangling-third-code pattern, just on optional
+   mesh/mdf2 variant sub-parts instead of physics rigs.
+2. New `_dominant_code()`: the most-frequent `_CODE_RE` match across a
+   pfb's own pre-RSZ resource strings. `_apply_substitution()`-resolved
+   pieces have an actual `(donor_code, mod_code)` pair to hand
+   `_fix_dangling_physics_refs()`; `crc_patch`-resolved pieces don't (no
+   substitution happened at all), so `PfbPlan` now carries `self_code`
+   (this function's result) for that path instead. `resolve_and_fix_pfbs()`
+   runs the same fix on `plan.crc_patch` when `self_code` is set.
+
+**Investigating Forte's specific report turned up something important**:
+none of it was fixable. Scanning the mod's own Body/Leg/Waist pfb bytes
+(full-file `_scan_utf16_strings`, not the narrower pre-RSZ
+`_resource_strings` used for the mod-vs-donor diff -- these dangling
+strings live past `rsz_off`, in the RSZ data block) found the exact
+`ch02_017_...` paths reported. But cross-checking directly against
+`game.find_versioned()`: **the CURRENT VANILLA donor pfb for this same
+slot (`ch03_017_0005`, fetched fresh, unrelated to any mod) contains the
+identical `ch02_017_0005_RS.jcns` / `_SC.jcns` / `_cloth.jcns` /
+`.chain2` references verbatim**, and none of them resolve under `ch02`,
+`ch03`, or the mod's own `mh03` custom-slot code anywhere in the
+currently installed game. This is a bare Capcom-side leftover in the
+game's own current data -- a genuinely unmodified ch03_017 piece would
+show the identical REFramework warnings. There is no file anywhere for
+`_fix_dangling_physics_refs()` to redirect to (its whole safety model
+requires `mod_provided_keys` to confirm a real replacement exists), so
+this specific report can't be resolved by this project at all, by design
+-- redirecting to nothing would mean inventing a file reference out of
+thin air, which is exactly the kind of guess this project's fixes have
+always refused to make.
+
+Separately checked whether another community tool (`another community fixer`,
+reviewed earlier for #9-#12) has an equivalent: it doesn't, and
+structurally can't -- `rsz_crc_fix.py`'s own docstring states resource
+strings are "never touched" by design, and it has no character-code
+substitution feature at all (its own `--substitute-retired` is a
+same-shader-family swap, unrelated). It simply doesn't do the kind of
+resource-path rewriting that creates or needs to fix this class of
+problem, so this isn't a feature gap relative to it.
+
+The widened fix itself is still real and kept -- verified no regression
+on SilverWolf/Endfield/DoA -- it now covers the case where a
+`crc_patch`-resolved piece has a dangling mesh/jcns/mdf2 reference AND
+the mod genuinely ships a same-suffix replacement for that exact slot,
+which just wasn't Forte's situation here.
