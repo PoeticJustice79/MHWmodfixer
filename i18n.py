@@ -290,6 +290,39 @@ _STRINGS = {
     "err_snapshot_import": {
         "ko": "스냅샷을 설치하지 못했습니다:\n{e}", "en": "Couldn't install the snapshot:\n{e}",
     },
+    "btn_check_github": {
+        "ko": "GitHub에서 최신 데이터 확인...", "en": "Check GitHub for latest data...",
+    },
+    "progress_phase_downloading_rsz": {
+        "ko": "RSZ 데이터 다운로드 중", "en": "Downloading RSZ data",
+    },
+    "ask_confirm_download": {
+        "ko": "REasy 프로젝트(github.com/seifhassine/REasy)에서 최신 RSZ 타입 데이터(~100MB)를 "
+              "다운로드해서 \"현재판\"으로 설치합니다. 기존 현재판은 자동으로 \"이전판\"으로 "
+              "보존됩니다. 계속할까요?",
+        "en": "This downloads the latest RSZ type data (~100MB) from the REasy project "
+              "(github.com/seifhassine/REasy) and installs it as \"current\". The existing "
+              "current snapshot is automatically kept as \"previous\". Continue?",
+    },
+    "msg_snapshot_verify_ok": {
+        "ko": "\n\n실제 게임 파일로 검증: 통과 (이 스냅샷이 현재 설치된 게임 버전과 일치함을 확인)",
+        "en": "\n\nVerified against a real game file: passed (confirmed this snapshot matches your installed game version)",
+    },
+    "msg_snapshot_verify_fail": {
+        "ko": "\n\n⚠ 실제 게임 파일로 검증: 불일치 -- 이 스냅샷이 현재 설치된 게임 버전과 안 맞을 "
+              "수 있습니다. 이전판으로 되돌리는 것을 고려하세요.",
+        "en": "\n\n⚠ Verified against a real game file: MISMATCH -- this snapshot may not match "
+              "your installed game version. Consider reverting to the previous snapshot.",
+    },
+    "msg_snapshot_verify_unknown": {
+        "ko": "\n\n실제 게임 파일로 검증: 확인 불가 (검증 대상 파일 자체가 커버리지 밖이라 판단할 "
+              "수 없음 -- 실패는 아님)",
+        "en": "\n\nVerified against a real game file: inconclusive (the check file itself falls "
+              "outside this data's coverage -- not a failure, just no confirmation either way)",
+    },
+    "err_download_failed": {
+        "ko": "다운로드에 실패했습니다:\n{e}", "en": "Download failed:\n{e}",
+    },
 }
 
 _current_lang = "en"

@@ -44,6 +44,8 @@ import json
 import shutil
 import struct
 import sys
+import tempfile
+import urllib.request
 from pathlib import Path
 
 _HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -306,3 +308,68 @@ def install_snapshot(source_path: Path, as_role: str, label: str | None = None,
         _registry_cache = None  # next fits_current_layout() call re-reads the new file
 
     return payload["_meta"]
+
+
+# ---- fetching a fresh dump straight from its source ----------------------
+#
+# Confirmed live source (2026-08-08): the REasy project (github.com/
+# seifhassine/REasy) keeps a per-game RSZ type-registry dump under
+# resources/data/dumps/ -- this is the same origin this project's own
+# tools/rszmhwilds.json (the TU4 "previous" snapshot) was fetched from
+# earlier in this project's history. Checked again while wiring this up:
+# the file there is already 103,929,358 bytes, larger than this project's
+# bundled 103,163,427-byte copy -- i.e. REasy's own dump had already moved
+# on since this project's copy was taken, which is exactly the kind of gap
+# this fetch-and-bake feature exists to close without a whole new
+# MHWmodfixer release.
+
+GITHUB_DUMP_URL = "https://raw.githubusercontent.com/seifhassine/REasy/master/resources/data/dumps/rszmhwilds.json"
+
+# A real vanilla (non-mod) .pfb, identified by its path hash -- used only to
+# sanity-check a freshly fetched/imported "current" snapshot against
+# whatever game build is actually installed, the same way this project's
+# own bundled registry was caught being one whole title update stale
+# (2026-08-08, see CLAUDE.md #9). Any equip .pfb would do; this one was
+# already confirmed reachable via GameArchive.read_by_hash() on that date.
+SAMPLE_PFB_HASH = 0x93538AED5435EFA9
+
+
+def fetch_latest_dump(progress_cb=None, timeout: int = 30) -> Path:
+    """Downloads the current rszmhwilds.json from GITHUB_DUMP_URL to a fresh
+    temp file and returns its path. progress_cb(bytes_done, bytes_total), if
+    given, is called after each chunk; bytes_total is -1 if the server
+    didn't send a Content-Length. Raises on any network/HTTP error --
+    callers should not treat a partial temp file as usable."""
+    req = urllib.request.Request(GITHUB_DUMP_URL, headers={"User-Agent": "MHWmodfixer"})
+    dest = Path(tempfile.mkdtemp(prefix="mhwmodfix_rsz_")) / "rszmhwilds.json"
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        total = int(resp.headers.get("Content-Length", -1))
+        done = 0
+        with open(dest, "wb") as f:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if progress_cb:
+                    progress_cb(done, total)
+    return dest
+
+
+def verify_against_live_game(game) -> bool | None:
+    """Sanity-checks the just-installed "current" snapshot against a real
+    file from `game` (a GameArchive). Returns True/False/None with the same
+    meaning as fits_current_layout() -- see that function's docstring --
+    applied to SAMPLE_PFB_HASH specifically. None also covers "the sample
+    itself isn't present in this install" (e.g. a non-standard game
+    location), which should be treated as inconclusive, not a failure."""
+    from pfb_fix import _parse_rsz  # local import: pfb_fix imports this module at load time
+
+    data = game.read_by_hash(SAMPLE_PFB_HASH)
+    if data is None:
+        return None
+    info = _parse_rsz(data)
+    if info is None:
+        return None
+    return fits_current_layout(info)

@@ -326,17 +326,24 @@ Everything else (materials, textures, path fixes) is unaffected and
 keeps working immediately, since those read the game's files live.
 
 **You don't have to wait for a new MHWmodfixer release to close that gap
-yourself.** If a fresh snapshot gets shared (in the Nexus comments,
-Discord, etc. — the maintainer can bake one within minutes of a title
-update, well before a full new build is ready), open
-**Settings → Developer Options → RSZ Snapshot...** in the app, click
-**Import snapshot...**, and pick the file. It shows what's currently
-installed (label, which game update it describes, how many classes it
-covers) before and after, and takes effect immediately — no restart
-needed. Installing a new "current" snapshot automatically keeps the
-previous one around instead of discarding it, so nothing about this is
-destructive; if in doubt, install it as "previous" instead, which is
-purely informational and doesn't change any repair's behavior.
+yourself.** Open **Settings → Developer Options → RSZ Snapshot...** in
+the app — it shows what's currently installed (label, which game update
+it describes, how many classes it covers) — and either:
+
+- Click **Check GitHub for latest data...** to download and install the
+  current type-registry dump straight from its source
+  ([github.com/seifhassine/REasy](https://github.com/seifhassine/REasy),
+  ~100MB — you'll be asked to confirm before it downloads anything), or
+- Click **Import snapshot...** if someone's already shared a smaller,
+  pre-processed snapshot file with you (Nexus comments, Discord, etc.).
+
+Either way it takes effect immediately, no restart needed, and installing
+a new "current" snapshot automatically keeps the previous one around
+instead of discarding it — nothing about this is destructive. A fetch or
+import gets sanity-checked against one of your own installed game files
+where possible; if that check can't be confirmed either way (a known
+limitation of the raw source data, not a sign anything's wrong), you're
+told so plainly rather than being given a false green light.
 
 Maintainers: `tools/bake_rsz_snapshot.py` (a CLI on top of the same
 underlying functions the GUI dialog uses, in `rsz_layout.py`) manages

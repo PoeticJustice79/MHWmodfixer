@@ -712,3 +712,65 @@ snapshot files (`tools/rsz_fields_mhwilds.json.gz` AND
 `..._previous.json.gz`) are now in `MHWmodfixer.spec`'s `datas` as of
 this GUI addition -- previous is no longer maintainer-only reference
 material once a user-facing "list what's installed" view exists.
+
+**One-click fetch straight from the source, not just "import a shared
+file."** User's next ask: "새로운 몬헌 업데이트가 진행되면 나는 어떻게
+해야해? RSZ를 내가 굽고 싶은데", then, once a real source was confirmed,
+"그래야지" -- wanting to bake a fresh registry themselves rather than
+depend on someone else sharing one. Where this project's own
+`tools/rszmhwilds.json` (the "previous"/TU4 snapshot) actually came from
+had gone unrecorded; grepping this session's own transcript
+(`C:\Users\User\.claude\projects\D--\91b1e6e3-....jsonl`, searched via
+Grep/a small Python parser since the file is one JSON object per line and
+plain grep truncates matches) turned up the answer: an earlier segment of
+this same session used WebSearch/WebFetch/the GitHub API to locate it at
+**github.com/seifhassine/REasy**, `resources/data/dumps/rszmhwilds.json`
+-- confirmed by matching the exact byte count GitHub reported
+(103,163,427) against the file already on disk. The user had not
+downloaded it themselves.
+
+Confirmed live again while building this (2026-08-08): the raw URL is
+`https://raw.githubusercontent.com/seifhassine/REasy/master/resources/data/dumps/rszmhwilds.json`
+-- **branch is `master`, not `main`** (checked via
+`api.github.com/repos/seifhassine/REasy`'s `default_branch` field before
+hardcoding anything; the `main` guess 404s). The file there was already
+103,929,358 bytes, larger than this project's own bundled copy from 3
+days earlier -- i.e. REasy's dump had already moved on, which is exactly
+the gap this feature exists to close without a whole new MHWmodfixer
+release.
+
+`rsz_layout.fetch_latest_dump()` streams that URL to a temp file with a
+progress callback (stdlib `urllib.request` only, no new dependency);
+`verify_against_live_game()` sanity-checks a freshly installed "current"
+snapshot by reading one specific real vanilla `.pfb`
+(`SAMPLE_PFB_HASH = 0x93538AED5435EFA9`, a Slinger armor piece --
+base-game content, not mod-specific, so it's present in any normal
+install) and running it through `fits_current_layout()` -- reuses that
+function as-is rather than adding new parsing code. **This can return
+None (inconclusive) even for a perfectly good fetch**: a raw
+`rszmhwilds.json` dump has no "confirmed fieldless" marker the way the
+borrowed two-version snapshot does (see above), so
+`_bake_raw_dump()`/`detect_and_convert()` treats every empty-fields type
+as unverifiable -- confirmed by testing this exact path end-to-end, where
+the sample pfb hit the SAME `via.render.StreamingMeshController` gap
+found earlier tonight and returned None rather than True. That's an
+honest "can't confirm," not a bug -- the GUI reports it as inconclusive,
+not as a failure, and doesn't block the install either way (the old
+current is already safely preserved as previous via the normal rotate
+path).
+
+GUI wiring (`gui.py::_open_snapshot_dialog`'s "Check GitHub for
+update..." button): confirms with the user first (states the ~100MB size
+and source up front), runs the download+install+verify in a background
+thread (`threading.Thread`, matching the existing repair-worker pattern
+in this file) with progress reported via `win.after(0, ...)` callbacks
+rather than the main window's existing `_progress_queue` (the dialog is
+a separate `Toplevel`, and its own small progress bar is simpler than
+routing through machinery built for the main window). Mid-test, an
+end-to-end run of this exact path (download real ~104MB file, install,
+verify) was accidentally left installed as "current" and "previous" --
+**caught by `git status` showing both tracked snapshot files modified**,
+restored with `git checkout -- tools/rsz_fields_mhwilds*.json.gz` before
+committing. Worth remembering: testing `install_snapshot()` against the
+real tracked files, not a throwaway copy, is convenient but always needs
+this exact check afterward.

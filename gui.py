@@ -253,6 +253,31 @@ class App:
 
         refresh()
 
+        progress_frame = ttk.Frame(win)
+        progress_frame.pack(fill="x", padx=10, pady=(0, 4))
+        dlg_progress = ttk.Progressbar(progress_frame, mode="determinate", maximum=100)
+        dlg_progress.pack(side="left", fill="x", expand=True)
+        dlg_progress_label = ttk.Label(progress_frame, text="", width=10, anchor="e")
+        dlg_progress_label.pack(side="left", padx=(6, 0))
+
+        def _set_busy(busy: bool):
+            state = "disabled" if busy else "normal"
+            btn_import.configure(state=state)
+            btn_check.configure(state=state)
+            if not busy:
+                dlg_progress.configure(value=0)
+                dlg_progress_label.configure(text="")
+
+        def _report_install(meta: dict, verify_result: bool | None):
+            suffix = (t("msg_snapshot_verify_ok") if verify_result is True else
+                      t("msg_snapshot_verify_fail") if verify_result is False else
+                      t("msg_snapshot_verify_unknown"))
+            messagebox.showinfo(
+                APP_TITLE, t("msg_snapshot_installed", count=meta["entry_count"], label=meta["label"]) + suffix,
+                parent=win)
+            _set_busy(False)
+            refresh()
+
         def do_import():
             path = filedialog.askopenfilename(
                 title=t("dlg_choose_snapshot"),
@@ -272,13 +297,44 @@ class App:
             except Exception as exc:
                 messagebox.showerror(APP_TITLE, t("err_unhandled", e=exc), parent=win)
                 return
-            messagebox.showinfo(
-                APP_TITLE, t("msg_snapshot_installed", count=meta["entry_count"], label=meta["label"]), parent=win)
-            refresh()
+            verify_result = None
+            if role == "current" and Path(self.game_dir.get()).is_dir():
+                game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
+                verify_result = rsz_layout.verify_against_live_game(game)
+            _report_install(meta, verify_result)
+
+        def do_check_github():
+            if not messagebox.askyesno(APP_TITLE, t("ask_confirm_download"), parent=win):
+                return
+            _set_busy(True)
+
+            def update_progress(done, total):
+                pct = round(done / total * 100) if total > 0 else 0
+                label = f"{pct}%" if total > 0 else f"{done // 1_000_000}MB"
+                win.after(0, lambda: (dlg_progress.configure(value=pct), dlg_progress_label.configure(text=label)))
+
+            def worker():
+                try:
+                    dump_path = rsz_layout.fetch_latest_dump(progress_cb=update_progress)
+                    meta = rsz_layout.install_snapshot(dump_path, as_role="current")
+                    verify_result = None
+                    if Path(self.game_dir.get()).is_dir():
+                        game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
+                        verify_result = rsz_layout.verify_against_live_game(game)
+                except Exception as exc:
+                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, t("err_download_failed", e=exc), parent=win),
+                                          _set_busy(False)))
+                    return
+                win.after(0, lambda: _report_install(meta, verify_result))
+
+            threading.Thread(target=worker, daemon=True).start()
 
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill="x", padx=10, pady=(0, 10))
-        ttk.Button(btn_frame, text=t("btn_import_snapshot"), command=do_import).pack(side="left")
+        btn_import = ttk.Button(btn_frame, text=t("btn_import_snapshot"), command=do_import)
+        btn_import.pack(side="left")
+        btn_check = ttk.Button(btn_frame, text=t("btn_check_github"), command=do_check_github)
+        btn_check.pack(side="left", padx=(6, 0))
         ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right")
 
     def _browse_game_dir(self):
