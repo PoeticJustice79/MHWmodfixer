@@ -264,8 +264,6 @@ def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
     donor_types = {t for t, _ in donor_info["insts"]}
     mod_types = {t for t, _ in mod_info["insts"]}
     has_extra = bool(mod_types - donor_types)
-    if has_extra and not preserve_extra:
-        return None
 
     if require_fits and rsz_layout.fits_current_layout(mod_info) is not True:
         # A crc match doesn't prove the field LAYOUT is unchanged -- only
@@ -298,7 +296,31 @@ def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
             continue
         struct.pack_into("<I", result, mod_info["inst_table_pos"] + i * 8 + 4, current_crc)
         changed += 1
-    return (bytes(result), has_extra) if changed else None
+
+    # has_extra only matters once we're about to WRITE a patch -- deciding
+    # whether mod-only instances are real customization or stale leftovers
+    # (see the docstring above) is irrelevant when changed == 0, since
+    # nothing about those instances is being touched or judged either way.
+    # Gating a zero-change, fits()-verified result on preserve_extra was
+    # itself the bug: it sent an ALREADY-CURRENT file down the wholesale
+    # donor-replace path instead, silently discarding its mod-only
+    # instances there -- confirmed real on Forte's Leg piece (2026-08-08).
+    if changed and has_extra and not preserve_extra:
+        return None
+
+    # Always return once the gates above are passed, even when changed ==
+    # 0 -- that means the mod's own bytes ALREADY match the
+    # current game with zero patching needed, which is strictly safe
+    # regardless (nothing is being written that wasn't already there).
+    # Returning None here used to be indistinguishable from "refused,
+    # unsafe" to the caller, incorrectly sending an ALREADY-CURRENT file
+    # (mod-only extra instances and all) down the wholesale donor-replace
+    # path instead -- confirmed real on a mod (Forte's Leg piece, 2026-08-08)
+    # whose 4 mod-only RSZ instances were silently discarded by that
+    # fallback, making the leg mesh disappear in-game, even though the
+    # file needed zero actual changes (require_fits confirmed True, zero
+    # CRC mismatches among the shared instance types).
+    return bytes(result), has_extra
 
 
 @dataclass

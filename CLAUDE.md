@@ -1008,3 +1008,55 @@ recovered). No regression on the SilverWolf suite. This is very likely
 NOT specific to these two mods -- any custom-slot mod whose forced/
 substituted donor piece has this pattern in the CURRENT game build would
 have hit the identical silent physics loss.
+
+### 14. `_crc_only_fix()` couldn't tell "verified, zero changes needed" apart from "refused" -- silently discarded mod-only instances that needed no fixing at all (2026-08-08)
+
+Immediately after #13's fix, still reported: Forte's Leg piece rendered
+with **completely invisible legs**. Traced with the same rigor: Leg's own
+pfb has 23 RSZ instances where its current donor has only 19 -- 4 mod-
+only "extra" ones. `plan_pfb()` tries `_crc_only_fix()` first; that
+function's `require_fits` check (added in #9) actually confirmed the
+mod's OWN bytes parse EXACTLY under the current registry
+(`fits_current_layout() == True`) with **zero CRC mismatches** among the
+19 shared instance types -- meaning the file needs no patching
+whatsoever and is already 100% valid, extras included. But
+`_crc_only_fix()`'s last line was `return (bytes(result), has_extra) if
+changed else None` -- when `changed == 0`, it returned bare `None`,
+**indistinguishable to the caller from "refused, unsafe to trust."**
+`plan_pfb()` then fell through to `_find_substitution()`'s wholesale
+donor-replace, which silently dropped all 4 mod-only instances (the
+donor doesn't have them) -- making the leg mesh disappear in-game despite
+the file having needed exactly zero changes to already be correct.
+
+**Fix, in two parts:**
+1. `_crc_only_fix()` now returns `(bytes(result), has_extra)`
+   unconditionally once its safety gates pass, even when `changed == 0` --
+   a zero-byte-change result is trivially safe regardless (nothing is
+   being written that wasn't already there), so there's no reason to
+   collapse it into the same `None` as "verification failed." The
+   downstream caller (`resolve_and_fix_pfbs`) already had its own
+   `if result == mod_path.read_bytes(): stats["already_current"] += 1`
+   check, so this one-line fix was enough to route an already-current
+   file correctly without any other code change.
+2. The `has_extra and not preserve_extra` refusal was moved to AFTER
+   computing `changed`, and now only fires `if changed and has_extra and
+   not preserve_extra`. The ambiguity that gate exists for (is an "extra"
+   instance real customization or a stale leftover? -- see #`_crc_only_fix`'s
+   own docstring) is only relevant when a patch is actually about to be
+   WRITTEN; it says nothing about whether a file that needs **no** patch
+   is safe to leave alone. Confirmed this matters: with only fix #1,
+   Leg still needed `preserve_extra=True` (an opt-in the GUI doesn't
+   default to) to resolve correctly; with fix #2 too, it resolves
+   correctly with every option left at its default.
+
+Verified: Leg now resolves via `crc_patch` (not substitution), byte-
+identical to the mod's own original file, both with and without
+`preserve_extra`. Separately discovered while re-testing this on the
+user's freshly-fetched modder update ("망기가 수정한 최신 파일 가져왔어"):
+Forte's Arm/Helm/Waist pieces -- which an OLDER copy of this same mod
+needed force-substitution for -- now ALSO resolve as already-current
+against this newer file, meaning the mod author had already fixed them
+in their own latest release. Our tool correctly recognized that and left
+them completely untouched instead of needlessly (and, per #13, riskily)
+re-substituting something that didn't need it. No regression on
+SilverWolf, Endfield, or DoA Raise the Sail.
