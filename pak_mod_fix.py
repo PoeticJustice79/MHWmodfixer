@@ -25,6 +25,7 @@ from mdf2 import Mdf2File, detect_numVersion
 from mdf2_slice import assemble_mdf2, extract_material
 from pak_reader import PakArchive
 from pak_writer import compress_for, write_pak
+from pfb_fix import _crc_only_fix, _find_substitution, _parse_rsz, _resource_strings
 from slot_merge import find_donor_for_material
 
 
@@ -54,25 +55,103 @@ class PakMdfEntryPlan:
 
 
 @dataclass
-class PakPlan:
-    pak_path: Path
-    mdf_entries: list[PakMdfEntryPlan] = field(default_factory=list)
-
-    @property
-    def applicable(self) -> bool:
-        return len(self.mdf_entries) > 0
+class PakPfbEntryPlan:
+    """A .pfb entry bundled inside the mod's own pak. Unlike loose-file pfb
+    repair (pfb_fix.py), the donor here is found by matching this entry's
+    hash64 directly against the current game's pak index -- exact and
+    unambiguous, no mh<->ch custom-slot guessing needed (see this module's
+    docstring) -- so `_find_substitution()`'s substitution-pair search is
+    reused only for its "are these two string sets close enough" verdict;
+    any actual substitution pair it proposes is meaningless here (there's
+    no path to translate) and is ignored."""
+    hash64: int
+    result: bytes | None = None  # the exact bytes to write; None means "leave this entry exactly as shipped"
+    kind: str = "unresolved"  # "already_current" | "crc" | "crc_extra" | "replace" | "forced" | "unresolved"
 
     @property
     def unresolved(self) -> bool:
-        return any(e.unresolved for e in self.mdf_entries)
+        return self.kind == "unresolved"
 
     @property
     def needs_rebuild(self) -> bool:
-        return any(e.needs_rebuild for e in self.mdf_entries)
+        return self.result is not None
+
+
+@dataclass
+class PakPlan:
+    pak_path: Path
+    mdf_entries: list[PakMdfEntryPlan] = field(default_factory=list)
+    pfb_entries: list[PakPfbEntryPlan] = field(default_factory=list)
+
+    @property
+    def applicable(self) -> bool:
+        return len(self.mdf_entries) > 0 or len(self.pfb_entries) > 0
+
+    @property
+    def unresolved(self) -> bool:
+        """Deliberately mdf-only (unchanged from before pfb entries existed):
+        this gates whether auto_fix.py attempts to write the pak AT ALL, and
+        an unresolved pfb entry shouldn't block mdf fixes that already work
+        fine on their own -- write_fixed_pak() already skips each pfb entry
+        independently (see its own unresolved check), so an unresolved pfb
+        alongside fully-resolved mdf entries still gets the mdf fixes
+        written, just with that one pfb entry correctly left untouched."""
+        return any(e.unresolved for e in self.mdf_entries)
+
+    @property
+    def pfb_unresolved_count(self) -> int:
+        return sum(1 for e in self.pfb_entries if e.unresolved)
+
+    @property
+    def needs_rebuild(self) -> bool:
+        return any(e.needs_rebuild for e in self.mdf_entries) or any(e.needs_rebuild for e in self.pfb_entries)
+
+
+def _plan_pak_pfb_entry(mod_bytes: bytes, donor_bytes: bytes | None,
+                         force_unresolved: bool, preserve_extra: bool) -> PakPfbEntryPlan | None:
+    """A .pfb entry bundled in the mod's own pak, planned the same safe way
+    loose-file pfb repair works (pfb_fix.py) -- CRC-only patch tried first,
+    then a resource-string closeness check before falling back to a
+    wholesale donor-bytes replace -- except there's no path to path-match
+    or character-code substitute here at all: the donor was already found
+    by an exact hash64 match (see this module's docstring), so whenever a
+    "wholesale replace" is warranted the result is simply the donor's own
+    current bytes verbatim. Confirmed real case this was written for: a
+    mod's own bundled .pfb silently never got touched at all before this
+    existed (pak-packaged mods only ever got their .mdf2 entries checked),
+    leaving a genuinely stale prefab in place -- REFramework reported it
+    [Invalid file] and the character rendered fully invisible, the same
+    failure signature loose-file pfb staleness produces (see pfb_fix.py).
+    Returns None if the entry can't be parsed as RSZ at all (caller leaves
+    it untouched, unrelated to this repair)."""
+    if donor_bytes is None:
+        return PakPfbEntryPlan(hash64=0, result=None, kind="unresolved")  # hash64 filled in by caller
+
+    mod_info = _parse_rsz(mod_bytes)
+    donor_info = _parse_rsz(donor_bytes)
+    if mod_info is None or donor_info is None:
+        return None
+
+    crc_result = _crc_only_fix(mod_bytes, mod_info, donor_info, preserve_extra=preserve_extra)
+    if crc_result is not None:
+        patch, used_extra = crc_result
+        return PakPfbEntryPlan(hash64=0, result=patch, kind="crc_extra" if used_extra else "crc")
+
+    mod_strings = _resource_strings(mod_bytes, mod_info["rsz_off"])
+    donor_strings = _resource_strings(donor_bytes, donor_info["rsz_off"])
+    sub_result = _find_substitution(mod_strings, donor_strings, force=force_unresolved)
+    if sub_result is None:
+        return PakPfbEntryPlan(hash64=0, result=None, kind="unresolved")
+
+    kind_tag, _sub = sub_result  # any substitution pair found is meaningless here -- see docstring
+    if donor_bytes == mod_bytes:
+        return PakPfbEntryPlan(hash64=0, result=None, kind="already_current")
+    return PakPfbEntryPlan(hash64=0, result=donor_bytes, kind="forced" if kind_tag == "forced" else "replace")
 
 
 def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
-                       whole_game_lookup, log, progress_cb=None) -> list[PakPlan]:
+                       whole_game_lookup, log, progress_cb=None,
+                       force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False) -> list[PakPlan]:
     """`progress_cb(phase: str, done: int, total: int)`, if given, is called
     periodically (not on every single entry -- see _PROGRESS_STEP) during
     the two genuinely slow passes over a large pak's entry table: "pak_scan"
@@ -96,6 +175,7 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
 
     for pak_path, archive in archives:
         units = []
+        pfb_plans = []
         for h, entry in archive.entries.items():
             scanned += 1
             if scanned % _PROGRESS_STEP == 0 or scanned == total_entries:
@@ -105,6 +185,17 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
             except Exception as e:
                 log(f"    [warn] {pak_path.name}: couldn't read an entry ({e}), leaving it untouched")
                 continue
+
+            if raw[:4] == b"PFB\x00":
+                donor_bytes = game.read_by_hash(h)
+                plan = _plan_pak_pfb_entry(raw, donor_bytes, force_unresolved_pfbs, preserve_extra_pfb_components)
+                if plan is None:
+                    log(f"    [warn] {pak_path.name}#{h:016X}: couldn't parse this pfb entry's RSZ structure, leaving it untouched")
+                    continue
+                plan.hash64 = h
+                pfb_plans.append(plan)
+                continue
+
             if raw[:4] != b"MDF\x00":
                 continue
 
@@ -131,12 +222,12 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                 "donor_nv": donor_nv, "donor_bytes": donor_bytes, "donor_src": donor_src,
             })
 
-        raw_infos.append((pak_path, units))
+        raw_infos.append((pak_path, units, pfb_plans))
 
-    total_units = sum(len(units) for _, units in raw_infos)
+    total_units = sum(len(units) for _, units, _ in raw_infos)
     resolved = 0
     plans = []
-    for pak_path, units in raw_infos:
+    for pak_path, units, pfb_plans in raw_infos:
         entry_plans = []
         for u in units:
             resolved += 1
@@ -157,7 +248,7 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                 hash64=u["hash64"], mod_numVersion=u["mod_mdf"].numVersion, donor_numVersion=u["donor_nv"],
                 donor_bytes=u["donor_bytes"], donor_src=u["donor_src"], materials=mat_plans,
             ))
-        plans.append(PakPlan(pak_path, entry_plans))
+        plans.append(PakPlan(pak_path, entry_plans, pfb_plans))
     return plans
 
 
@@ -222,7 +313,7 @@ def _rebuild_entry(entry_plan: "PakMdfEntryPlan", log) -> tuple[bytes, int]:
     return result, total_changed
 
 
-def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> int:
+def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> tuple[int, dict]:
     """Rebuilds pak_plan.pak_path into out_path: entries whose mdf2 needed
     fixing get the rebuilt bytes (compressed the same way the ORIGINAL
     entry was -- verified against a real mod .pak that these are stored
@@ -230,10 +321,19 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> int:
     the game even with byte-identical decompressed content). Everything
     else is passed through as its exact original compressed bytes, and
     entry order is preserved as-is (not re-sorted) -- see pak_writer.py's
-    module docstring for why all of this matters."""
+    module docstring for why all of this matters.
+
+    Each pfb entry (see PakPfbEntryPlan) is resolved independently of every
+    mdf entry and of every OTHER pfb entry -- one unresolved pfb doesn't
+    stop a resolved one, or any mdf fix, from being written.
+
+    Returns (total_changed_texture_paths, pfb_stats) -- pfb_stats has the
+    same key names as pfb_fix.py's resolve_and_fix_pfbs() for consistency:
+    fixed/crc_only/crc_only_extra/forced/already_current/unresolved."""
     archive = PakArchive(pak_plan.pak_path)
     total_changed = 0
     fixed: dict[int, tuple[bytes, int]] = {}  # hash64 -> (new_result_bytes, decompressed_size)
+    pfb_stats = {"fixed": 0, "crc_only": 0, "crc_only_extra": 0, "forced": 0, "already_current": 0, "unresolved": 0}
 
     for entry_plan in pak_plan.mdf_entries:
         if entry_plan.unresolved or not entry_plan.needs_rebuild:
@@ -241,6 +341,30 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> int:
         result, changed = _rebuild_entry(entry_plan, log)
         total_changed += changed
         fixed[entry_plan.hash64] = (result, len(result))
+
+    for pfb_plan in pak_plan.pfb_entries:
+        if pfb_plan.kind == "already_current":
+            pfb_stats["already_current"] += 1
+        elif pfb_plan.kind == "unresolved":
+            pfb_stats["unresolved"] += 1
+        elif pfb_plan.result is not None:
+            fixed[pfb_plan.hash64] = (pfb_plan.result, len(pfb_plan.result))
+            pfb_stats["fixed"] += 1
+            if pfb_plan.kind == "crc":
+                pfb_stats["crc_only"] += 1
+                log(f"    [crc-patched] pfb#{pfb_plan.hash64:016X} -- structure identical to current donor, "
+                    f"only stale instance CRC(s) updated")
+            elif pfb_plan.kind == "crc_extra":
+                pfb_stats["crc_only_extra"] += 1
+                log(f"    [crc-patched, custom parts kept] pfb#{pfb_plan.hash64:016X} -- some instances the "
+                    f"current donor doesn't have were left as shipped; only stale CRC(s) among shared "
+                    f"instances updated -- experimental option, verify in-game")
+            elif pfb_plan.kind == "forced":
+                pfb_stats["forced"] += 1
+                log(f"    [forced-fix] pfb#{pfb_plan.hash64:016X} -- structure didn't safely reconcile; "
+                    f"forced anyway (experimental option), verify in-game")
+            else:
+                log(f"    [fixed] pfb#{pfb_plan.hash64:016X} <- current donor (direct pak-hash match)")
 
     out_entries = []
     for h, entry in archive.entries.items():
@@ -254,4 +378,4 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> int:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     write_pak(out_entries, str(out_path))
-    return total_changed
+    return total_changed, pfb_stats

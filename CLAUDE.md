@@ -462,6 +462,58 @@ under 20 minutes.
   (9,939 known paths) are enough to re-run either scan in a couple
   minutes -- no need to install anything the mod archive itself.
 
+### 8. pak-packaged mods' own `.pfb` entries were never touched at all (2026-08-08)
+
+Confirmed real case: "SilverWolf" (Nexus 964), a mod packaged as its own
+standalone `.pak` (see the "Mods packaged as their own `.pak`" section
+below), rendered the character fully invisible with REFramework showing
+`[Invalid file]` for a `.pfb` and a `.user` (HairAdjustList) path.
+Root cause: `pak_mod_fix.py::resolve_pak_files()` only ever recognized
+entries whose magic was `MDF\0` (`if raw[:4] != b"MDF\x00": continue`) --
+**any `PFB\0` (or other) entry bundled in a mod's own pak was silently
+skipped entirely**, never diagnosed or fixed, regardless of how stale it
+was. This is a completely different code path from loose-file pfb repair
+(`pfb_fix.py`), which was already working correctly -- the gap was
+specific to the own-pak case. Re-running the existing regression suite
+after fixing this found a SECOND real mod already silently affected:
+Mangie "MooMoo"'s `Alma.pak` piece also bundles a stale pfb that was
+never being fixed.
+
+Fixed by extending `resolve_pak_files()` to also recognize `PFB\0`
+entries and plan a fix via `PakPfbEntryPlan`, reusing `pfb_fix.py`'s
+existing helpers directly (`_parse_rsz`, `_crc_only_fix`,
+`_resource_strings`, `_find_substitution`) rather than reimplementing
+parallel logic. One real simplification versus the loose-file case: a
+pak entry's donor is already found by an exact hash64 match (see this
+file's own docstring on why that's unambiguous), so there's no mh<->ch
+custom-slot code to substitute back into the donor's bytes at all --
+whenever a wholesale replace is warranted, the result is simply the
+donor's own current bytes verbatim, no substitution step needed.
+`_find_substitution()` is still reused for its "are these two string
+sets close enough" verdict, but any substitution pair it proposes is
+just ignored (meaningless in a hash-matched context).
+
+Ships as core, default-on behavior (not a new checkbox) -- the user's
+own call on this ("이건 기능 새로 선택 옵션으로 추가하는게 맞지 않을까?")
+was to make it inherit the SAME safe-default / opt-in-experimental split
+loose-file pfb repair already has, rather than invent a third toggle:
+the always-safe CRC-only tier applies unconditionally, and the two
+existing checkboxes (`force_unresolved_pfbs`, `preserve_extra_pfb_components`)
+now also govern pak-bundled pfb entries, not just loose ones.
+
+**Design note on `PakPlan.unresolved`**: deliberately kept mdf-only (does
+NOT consider `pfb_entries`) -- this property gates whether
+`auto_fix.py` attempts `write_fixed_pak()` AT ALL, and an unresolved pfb
+entry must not block mdf fixes that already work fine on their own.
+`write_fixed_pak()` already resolves each pfb entry fully independently
+of every mdf entry and of every OTHER pfb entry (matching the same
+per-file independence loose-file pfb/mdf2 repair already has) -- so an
+unresolved pfb alongside fully-resolved mdf entries still gets the mdf
+fixes written, with just that one pfb entry correctly left untouched.
+`stats["pfb_unresolved"]` (and the sibling `pfb_*` stats) are the sum of
+BOTH the loose-file and pak-bundled counts, under the same keys, since
+conceptually they're the same thing -- a `.pfb` that needed fixing.
+
 ## Practical diagnostic workflow for a new broken mod
 
 1. Ask for (or reproduce) the exact original mod archive and the exact

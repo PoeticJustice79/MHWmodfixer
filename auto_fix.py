@@ -239,7 +239,8 @@ def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, a
     return plans
 
 
-def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lambda s: None, progress_cb=None):
+def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lambda s: None, progress_cb=None,
+             force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False):
     """Resolves donors and determines staleness for every .mdf2 file (loose
     or inside the mod's own .pak files), but never writes anything --
     shared by the diagnostic pass (diagnose.py) and the actual fixer
@@ -251,7 +252,16 @@ def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lam
     of the loose-file / pak-entry scans is running -- see their own
     docstrings for what `phase` can be. There's no single unified 0-100%
     across the whole function (the two scans have unrelated totals); the
-    GUI shows `phase` alongside done/total instead of pretending otherwise."""
+    GUI shows `phase` alongside done/total instead of pretending otherwise.
+    `force_unresolved_pfbs`/`preserve_extra_pfb_components` only affect
+    pak_plans' pfb_entries (a .pfb bundled inside a mod's own .pak); the
+    diagnostic pass (diagnose.py) calls this without them, which is fine
+    for the CRC-only/close-enough cases (still correctly flagged as
+    needing a fix either way) but means a pak-pfb that would ONLY resolve
+    with force/preserve-extra on isn't distinguishable from "nothing to
+    fix" during diagnosis -- the exact same pre-existing gap loose-file
+    pfb staleness already has (diagnose.py doesn't look at pfb_fix.py's
+    plans at all), not a new one introduced here."""
     from pak_mod_fix import resolve_pak_files  # local import: avoids a cycle at module load time
     from whole_game_index import LazyWholeGameIndex
 
@@ -260,7 +270,8 @@ def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lam
     file_plans = _resolve_loose_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
                                        progress_cb=progress_cb)
     pak_plans = resolve_pak_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
-                                   progress_cb=progress_cb)
+                                   progress_cb=progress_cb, force_unresolved_pfbs=force_unresolved_pfbs,
+                                   preserve_extra_pfb_components=preserve_extra_pfb_components)
     return file_plans, pak_plans
 
 
@@ -271,7 +282,9 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
 
     stats = {"fixed": 0, "already_current": 0, "skipped": 0, "errors": 0, "textures_restored": 0}
 
-    file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log, progress_cb=progress_cb)
+    file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log, progress_cb=progress_cb,
+                                      force_unresolved_pfbs=force_unresolved_pfbs,
+                                      preserve_extra_pfb_components=preserve_extra_pfb_components)
     if not file_plans and not pak_plans:
         log(f"No .mdf2 content found under {mod_root} (loose or packed) -- nothing to fix "
             f"(other files will still be copied as-is)")
@@ -323,6 +336,12 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             log(f"    [error] {e}")
             stats["errors"] += 1
 
+    # Accumulated across every pak_plan's pfb_entries (a mod can bundle more
+    # than one .pak) -- merged with loose-file pfb_fix.py's own stats below
+    # under the SAME stats["pfb_*"] keys, since both are just ".pfb needed
+    # fixing," regardless of whether it shipped loose or inside a pak.
+    pak_pfb_totals = {"fixed": 0, "crc_only": 0, "crc_only_extra": 0, "forced": 0, "unresolved": 0}
+
     for pak_plan in pak_plans:
         rel = pak_plan.pak_path.relative_to(mod_root)
         log(f"{rel}")
@@ -338,13 +357,19 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             continue
 
         try:
-            total_changed = write_fixed_pak(pak_plan, output_root / rel, log)
+            total_changed, pak_pfb_stats = write_fixed_pak(pak_plan, output_root / rel, log)
             log(f"    [fixed] {total_changed} texture path(s) restored -> {rel}")
             stats["fixed"] += 1
             stats["textures_restored"] += total_changed
+            for k in pak_pfb_totals:
+                pak_pfb_totals[k] += pak_pfb_stats[k]
         except Exception as e:
             log(f"    [error] {e}")
             stats["errors"] += 1
+
+    if any(pak_pfb_totals.values()):
+        log(f"    ({pak_pfb_totals['fixed']} pak-bundled pfb file(s) fixed, "
+            f"{pak_pfb_totals['unresolved']} left unresolved)")
 
     pfb_files = list(find_pfb_files(mod_root))
     if pfb_files:
@@ -365,11 +390,14 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
             log(f"    ({pfb_stats['crc_only_extra']} pfb file(s) also kept extra instances the current "
                 f"donor doesn't have -- experimental option, please verify these pieces in-game)")
         stats["fixed"] += pfb_stats["fixed"]
-        stats["pfb_fixed"] = pfb_stats["fixed"]
-        stats["pfb_unresolved"] = pfb_stats["unresolved"]
-        stats["pfb_forced"] = pfb_stats["forced"]
-        stats["pfb_crc_only"] = pfb_stats["crc_only"]
-        stats["pfb_crc_only_extra"] = pfb_stats["crc_only_extra"]
+    else:
+        pfb_stats = {"fixed": 0, "unresolved": 0, "forced": 0, "crc_only": 0, "crc_only_extra": 0}
+
+    stats["pfb_fixed"] = pak_pfb_totals["fixed"] + pfb_stats["fixed"]
+    stats["pfb_unresolved"] = pak_pfb_totals["unresolved"] + pfb_stats["unresolved"]
+    stats["pfb_forced"] = pak_pfb_totals["forced"] + pfb_stats["forced"]
+    stats["pfb_crc_only"] = pak_pfb_totals["crc_only"] + pfb_stats["crc_only"]
+    stats["pfb_crc_only_extra"] = pak_pfb_totals["crc_only_extra"] + pfb_stats["crc_only_extra"]
 
     return stats
 

@@ -168,6 +168,12 @@ differently:
 - Every other entry besides the fixed mdf2(s) **reuses its original
   compressed bytes verbatim** (compression scheme untouched), keeping the
   original entry order, to write the new `.pak` (`pak_writer.py`).
+- A `.pfb` entry bundled in the mod's own pak is repaired the same safe
+  way loose-file `.pfb` repair works (see the pfb section further down),
+  reusing the exact same helpers — CRC-only patch tried first, falling
+  back to a wholesale donor-bytes replace when the two are close enough.
+  The donor is already found by an exact hash match here too, so there's
+  no path/character-code substitution step at all.
 
 ### Bugs found (only ever showed up via real in-game testing — keep this in mind for the next one)
 
