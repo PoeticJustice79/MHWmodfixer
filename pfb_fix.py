@@ -323,6 +323,178 @@ def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
     return bytes(result), has_extra
 
 
+def _transplant_reshaped(mod_bytes: bytes, mod_info: dict, donor_info: dict, log) -> bytes | None:
+    """Tier 2 of the crc-only path, tried when `_crc_only_fix()` refuses
+    because `fits_current_layout()` isn't True: keep the MOD's own file as
+    the structural ground truth (its Object Table, component order,
+    GameObjectInfo, resource manifest -- every piece of engine bookkeeping
+    -- stays byte-identical), and replace ONLY the field data of instances
+    whose layout genuinely no longer parses, taking the replacement values
+    from the current donor's own instance of the same type at the same
+    position. Then patch stale CRCs among donor-known types exactly like
+    tier 1 does.
+
+    Why this exists -- the inverted lesson of the instance-splicing saga
+    (see CLAUDE.md #17): grafting mod content ONTO donor structure failed
+    5 times in-game because it required replicating engine bookkeeping
+    this project provably doesn't fully understand. This direction never
+    touches that bookkeeping at all: the mod file is a live proof that its
+    own structure + component set loads (it worked in-game for months
+    before the update), so the only thing that can be wrong with it is
+    the DATA of reshaped types and stale CRCs -- both of which the donor
+    supplies verbatim.
+
+    The trigger case, confirmed byte-level (Esthe/Mask Bikini, 2026-08-09):
+    Capcom added a field to `app.ChainSetting` (`_WindAssetOverwrite`, a
+    second variable-length string) WITHOUT changing the class's crc -- the
+    mod's copy is 20 bytes where the current donor's is 27, so the engine
+    misreads a float (0x3f800000) as a string length and rejects the whole
+    file. This breaks `_crc_only_fix()`'s core assumption (crc as the
+    structure stamp) for this specific class: no crc anywhere in the file
+    is stale in a way that names ChainSetting as the culprit. A
+    donor-value transplant is the only fix that doesn't guess: the donor's
+    ChainSetting is plumbing config (wind assets, update flags), not mod
+    customization, so taking its current values wholesale loses nothing
+    anyone authored. That reasoning does NOT extend automatically to every
+    reshaped type -- e.g. a reshaped `app.CharacterEditRegion` might carry
+    real character-edit content -- which is why this logs exactly what it
+    transplanted and stays behind the same `preserve_extra` opt-in as
+    tier 1's extra-keeping half, to be verified in-game per mod.
+
+    Refuses (returns None) unless every one of these holds:
+    - the mod's walk (with resync recovery) lands exactly on len(data),
+    - the donor's own walk is fully clean with ZERO recoveries,
+    - every unparseable mod instance has the donor's instance at the SAME
+      index with the SAME type (positional match -- the value source),
+    - every instance from the first transplant onward re-serializes
+      without error (alignment padding is recomputed per position, see
+      rsz_layout._write_instance_values()),
+    - the rebuilt file passes `fits_current_layout()` is True.
+    The caller falls through to the substitution path in that case,
+    exactly as if this tier didn't exist."""
+    spans, ok, recovered = rsz_layout.walk_instances_with_recovery(mod_info)
+    if not ok or not recovered:
+        return None
+    donor_spans, donor_ok, donor_recovered = rsz_layout.walk_instances_with_recovery(donor_info)
+    if not donor_ok or donor_recovered:
+        return None
+
+    donor_insts = donor_info["insts"]
+    donor_span_by_index = {i: (s, e) for i, t, c, s, e in donor_spans}
+    for i in recovered:
+        if i >= len(donor_insts) or donor_insts[i][0] != mod_info["insts"][i][0]:
+            return None
+        if i in donor_info["external"] or i not in donor_span_by_index:
+            return None
+
+    registry = rsz_layout._registry()
+    mod_data = mod_info["data"]
+    donor_data = donor_info["data"]
+    first = min(recovered)
+    span_by_index = {i: (s, e) for i, t, c, s, e in spans}
+    first_start = span_by_index[first][0]
+
+    # An RSZ instance referencing a resource path that the pfb's own
+    # ResourceInfo manifest doesn't declare crashes the game outright
+    # (confirmed real during the splicing saga, CLAUDE.md #17) -- so donor
+    # values are only accepted if every path-like string in them is one the
+    # mod's own manifest already declares. In the confirmed trigger case
+    # (app.ChainSetting) the donor's string fields are all empty, so this
+    # guard costs nothing there; it exists for whatever reshaped type shows
+    # up next.
+    mod_manifest = {_strip_at(s).lower() for s in _read_resource_strings(mod_bytes)}
+
+    out = bytearray(mod_data[:first_start])
+    pos = first_start
+    transplanted_names = []
+    try:
+        for i, t, c, s, e in spans:
+            if i < first or s == e:  # before the rebuild point, or carries no inline data
+                continue
+            entry = registry.get(format(t, "x"))
+            if entry is None:
+                return None
+            if i in recovered:
+                d_s, _d_e = donor_span_by_index[i]
+                values, _ = rsz_layout._extract_instance_values(donor_data, d_s, entry["f"])
+                for (_name, _size, _align, _is_array, is_variable), val in zip(entry["f"], values):
+                    if not is_variable:
+                        continue
+                    blobs = val[2] if val[0] == "array" else [val[1]]
+                    for blob in blobs:
+                        ref = blob[4:].decode("utf-16-le", errors="ignore").rstrip("\x00")
+                        if "/" in ref and _strip_at(ref).lower() not in mod_manifest:
+                            return None
+                transplanted_names.append(entry.get("n", f"type_{t:x}"))
+            else:
+                values, _ = rsz_layout._extract_instance_values(mod_data, s, entry["f"])
+            pos = rsz_layout._write_instance_values(out, pos, entry["f"], values)
+    except rsz_layout._LayoutError:
+        return None
+
+    data_offset_abs = len(mod_bytes) - len(mod_data)  # data block always extends to EOF for a pfb
+    result = bytearray(mod_bytes[:data_offset_abs] + bytes(out))
+
+    # Same stale-CRC patch as _crc_only_fix() tier 1, applied to the rebuilt
+    # bytes. Safe under the same SilverWolf rule (#9/#12): every patched
+    # instance's data is now layout-current -- non-recovered ones parsed
+    # cleanly at their span, recovered ones carry the donor's own current
+    # values by construction.
+    donor_crc_by_type: dict[int, int] = {}
+    inconsistent: set[int] = set()
+    for t, c in donor_insts:
+        if t in donor_crc_by_type and donor_crc_by_type[t] != c:
+            inconsistent.add(t)
+            continue
+        donor_crc_by_type[t] = c
+    for t in inconsistent:
+        donor_crc_by_type.pop(t, None)
+    crc_patched = 0
+    for i, (mod_type, mod_crc) in enumerate(mod_info["insts"]):
+        current_crc = donor_crc_by_type.get(mod_type)
+        if current_crc is None or current_crc == mod_crc:
+            continue
+        struct.pack_into("<I", result, mod_info["inst_table_pos"] + i * 8 + 4, current_crc)
+        crc_patched += 1
+
+    # Final proof: the rebuilt data block must strict-parse (no resync
+    # recovery allowed this time) to EXACTLY its full length. Deliberately
+    # NOT fits_current_layout() here: that also demands all-zero alignment
+    # padding, and these mods' own untouched instances carry nonzero
+    # padding bytes Capcom's own writer left behind (confirmed real:
+    # app.CharacterEditRegion/via.render.StreamingTextureController in
+    # every Esthe/Mask Bikini piece) -- bytes the engine demonstrably
+    # accepted for months and which this function raw-copies verbatim.
+    # Rejecting the file over pre-existing donor-era padding would refuse
+    # every real case this tier exists for. Tier 1's require_fits gate is
+    # unaffected and stays strict.
+    new_info = _parse_rsz(bytes(result))
+    if new_info is None:
+        return None
+    new_data = new_info["data"]
+    pos_check = 0
+    for i, (t, _c) in enumerate(new_info["insts"]):
+        if i == 0 or i in new_info["external"]:
+            continue
+        entry = registry.get(format(t, "x"))
+        if entry is None:
+            return None
+        if entry.get("fieldless"):
+            continue
+        try:
+            pos_check, _clean = rsz_layout._parse_instance(new_data, pos_check, entry["f"])
+        except rsz_layout._LayoutError:
+            return None
+    if pos_check != len(new_data):
+        return None
+
+    log(f"    [transplant] {len(recovered)} reshaped instance(s) rebuilt with the current donor's "
+        f"field data ({', '.join(transplanted_names)}), {crc_patched} stale CRC(s) patched; "
+        f"everything else (structure, components, mod content) kept as shipped -- "
+        f"experimental option, verify in-game")
+    return bytes(result)
+
+
 def _dominant_code(strings: set[str]) -> str | None:
     """The single character code (via `_CODE_RE`) that appears most often
     across a pfb's own resource-path strings -- used as the "self code"
@@ -353,6 +525,7 @@ class PfbPlan:
     forced: bool = False  # resolved only because force=True was passed to plan_pfb()
     crc_patch: bytes | None = None  # set instead of substitution: write these exact bytes (mod's own content, only stale CRCs patched) rather than a donor-replace
     crc_patch_preserved_extra: bool = False  # crc_patch also kept mod-only instances the donor doesn't have -- only possible when preserve_extra_pfb_components=True was passed in
+    transplanted: bool = False  # crc_patch came from _transplant_reshaped(): reshaped instances' field data was rebuilt from the donor, not just CRCs patched
     self_code: str | None = None  # this pfb's own dominant character code (see _dominant_code()) -- used to run _fix_dangling_physics_refs() on the crc_patch path, which has no donor_code/mod_code substitution pair to reuse
 
 
@@ -388,6 +561,13 @@ def plan_pfb(mod_path: Path, mod_root: Path, game: GameArchive, log, force: bool
             return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True,
                             crc_patch=crc_patch, crc_patch_preserved_extra=used_preserve_extra,
                             self_code=self_code)
+
+        if preserve_extra:
+            transplant = _transplant_reshaped(mod_bytes, mod_parsed, donor_parsed, log)
+            if transplant is not None:
+                return PfbPlan(rel, mod_path, donor_path, donor_bytes, None, True,
+                                crc_patch=transplant, crc_patch_preserved_extra=True,
+                                transplanted=True, self_code=self_code)
 
         donor_strings = _resource_strings(donor_bytes, donor_parsed["rsz_off"])
         result = _find_substitution(mod_strings, donor_strings, force=force)
@@ -527,6 +707,28 @@ def _apply_substitution(donor_bytes: bytes, donor_code: str, mod_code: str,
     return bytes(result)
 
 
+def _read_resource_strings(data: bytes) -> list[str]:
+    """The PFB-level `ResourceInfo` table (see file_re_pfb.py, a real
+    working reference PFB parser found in another community tool's vendored
+    source) -- a flat manifest of every resource path this pfb depends
+    on, entirely separate from the resource-path strings scattered inline
+    through the RSZ instance data itself (see `_resource_strings()`/
+    `_scan_utf16_strings()`). Each entry is just an 8-byte absolute
+    stringOffset into a shared, null-terminated UTF16LE string pool."""
+    resource_count = struct.unpack_from("<I", data, 8)[0]
+    resource_info_offset = struct.unpack_from("<Q", data, 32)[0]
+    out = []
+    for i in range(resource_count):
+        str_off = struct.unpack_from("<Q", data, resource_info_offset + i * 8)[0]
+        end = str_off
+        while end + 1 < len(data) and not (data[end] == 0 and data[end + 1] == 0):
+            end += 2
+        out.append(data[str_off:end].decode("utf-16-le", errors="replace"))
+    return out
+
+
+
+
 def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, log,
                           force_unresolved: bool = False, preserve_extra: bool = False) -> dict:
     """`force_unresolved` is the GUI's opt-in "experimental: force-fix"
@@ -580,7 +782,10 @@ def resolve_and_fix_pfbs(mod_root: Path, output_root: Path, game: GameArchive, l
         stats["fixed"] += 1
         if plan.crc_patch is not None:
             stats["crc_only"] += 1
-            if plan.crc_patch_preserved_extra:
+            if plan.transplanted:
+                log(f"    [transplanted] {plan.rel}  -- reshaped instance data rebuilt from current donor "
+                    f"{plan.donor_path!r}, all mod structure/content kept -- experimental option, verify in-game")
+            elif plan.crc_patch_preserved_extra:
                 stats["crc_only_extra"] += 1
                 log(f"    [crc-patched, custom parts kept] {plan.rel}  -- some instances the current donor "
                     f"doesn't have were left as shipped (possible custom content); only stale CRC(s) among "

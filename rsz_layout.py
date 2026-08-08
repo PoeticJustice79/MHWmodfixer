@@ -51,8 +51,10 @@ from pathlib import Path
 _HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 CURRENT_PATH = _HERE / "tools" / "rsz_fields_mhwilds.json.gz"
 PREVIOUS_PATH = _HERE / "tools" / "rsz_fields_mhwilds_previous.json.gz"
+OBJECT_FIELDS_PATH = _HERE / "tools" / "rsz_object_fields.json.gz"
 _REGISTRY_PATH = CURRENT_PATH  # old name, kept for anything still importing it directly
 _registry_cache: dict | None = None
+_object_fields_cache: dict | None = None
 
 
 def _registry() -> dict:
@@ -64,6 +66,41 @@ def _registry() -> dict:
         except OSError:
             _registry_cache = {}
     return _registry_cache
+
+
+def _object_fields_registry() -> dict:
+    """`{type_id_hex: [field_index, ...]}` -- which of a type's fields (by
+    position in `_registry()[type_id]["f"]`) are RSZ "Object" type, i.e.
+    hold an instance-index reference to ANOTHER RSZ instance, not plain
+    data. `_registry()` itself doesn't carry this (it only has enough to
+    compute byte lengths -- size/align/array/isVariable -- not RE Engine's
+    actual field type enum), so this is baked from a SEPARATE, richer
+    source: a fresh fetch of the REasy project's raw dump (which does
+    carry real field types), cross-verified field-by-field against
+    `_registry()`'s own compact entries and keeping ONLY the field indices
+    where both agree on size/align/array -- seen a real, unignorable
+    field mismatch rate even between same-crc dumps from different tools
+    (`tools/rszmhwilds.json`, this project's own long-bundled REasy dump,
+    turned out to be a whole title update stale relative to `_registry()`
+    -- see CLAUDE.md; a FRESH same-day pull from REasy's GitHub was needed
+    to get an actually-current comparison), so trusting a field's identity
+    without this cross-check is not safe.
+
+    Existing purely to let `pfb_fix.py`'s `_splice_mod_extras()` correctly
+    remap an instance-index reference when the instance it points to gets
+    relocated to a new index -- confirmed necessary the hard way (a real
+    crash, 2026-08-08: splicing a mod's own `via.motion.Chain2` instance
+    without remapping its `EnvWind` reference to the relocated
+    `via.motion.ChainWind` instance's new index left that reference
+    pointing at a garbage/out-of-range instance)."""
+    global _object_fields_cache
+    if _object_fields_cache is None:
+        try:
+            with gzip.open(OBJECT_FIELDS_PATH, "rt", encoding="utf-8") as f:
+                _object_fields_cache = json.load(f)
+        except OSError:
+            _object_fields_cache = {}
+    return _object_fields_cache
 
 
 class _LayoutError(Exception):
@@ -115,6 +152,167 @@ def _parse_instance(data: bytes, pos: int, fields: list) -> tuple[int, bool]:
                 raise _LayoutError(f"field past end of block at {pos}")
             pos += length
     return pos, clean
+
+
+def _next_string_offset(data: bytes, after: int) -> int | None:
+    """First UTF16LE printable-ASCII run starting strictly after `after`,
+    returned as the offset of its own 4-byte length-prefix (offset - 4 from
+    where the text itself starts) -- i.e. where a String/Resource field's
+    OWN field data would begin. Deliberately a lightweight local scanner
+    (not pfb_fix.py's `_scan_utf16_strings`) to avoid a circular import;
+    only used by `walk_instances_with_recovery()`'s resync fallback, where
+    "first non-garbage-looking run" is all that's needed, not every string
+    in the buffer."""
+    i = max(after, 0)
+    n = len(data)
+    while i < n - 1:
+        if data[i + 1] == 0 and 0x20 <= data[i] < 0x7F:
+            j = i
+            count = 0
+            while j < n - 1 and data[j + 1] == 0 and data[j] != 0:
+                count += 1
+                j += 2
+            if count > 2:
+                return i - 4 if i >= 4 else None
+            i = j if j > i else i + 1
+        else:
+            i += 1
+    return None
+
+
+def walk_instances_with_recovery(rsz_info: dict) -> tuple[list[tuple[int, int, int, int, int]], bool]:
+    """Like `fits_current_layout()`, but returns per-instance byte spans
+    instead of a single verdict, and tries to recover from a single
+    unwalkable instance instead of giving up at the first one.
+
+    Confirmed necessary for real mods (Mangie "Esthe"/"Mask Bikini",
+    2026-08-08): both bundle a custom `app.ChainSetting` instance built
+    against an OLDER field shape than this registry describes (neither the
+    current registry's crc-matched entry -- Capcom apparently changed
+    ChainSetting's own wind-related fields without bumping its crc -- nor
+    the archived TU4 snapshot's entry actually fit the mod's raw bytes;
+    the mod predates both). Guessing that field's true shape isn't
+    attempted -- instead, on a parse failure the walk resyncs by finding
+    the next recognizable UTF16 string in the buffer (via
+    `_next_string_offset()`) and resumes from there, on the theory that
+    whatever the failed instance's TRUE length actually is, the NEXT
+    instance's own first string field (if it has one) is still findable
+    directly. This only recovers the byte BOUNDARY, never reconstructs
+    what the failed instance's own fields "really" are -- callers that
+    need to preserve that instance's bytes (see pfb_fix.py's
+    `_splice_mod_extras()`) must treat it as an opaque blob, not
+    reinterpret its fields.
+
+    Returns (spans, ok, recovered). Each span is (instance_index, type_id,
+    crc, start, end) in `rsz_info["data"]`-relative byte offsets
+    (start==end for the null instance and external/userdata instances,
+    which carry no inline data). `ok` is True only if the walk (with any
+    resyncs) landed EXACTLY on `len(data)` at the end -- the same "no
+    leftover, no overshoot" proof `fits_current_layout()` requires, and
+    the only reason a resync is trusted at all: a wrong resync point would
+    need an almost impossible coincidence to still sum to the exact total
+    length across every remaining instance. `recovered` is the set of
+    instance indices whose own bytes did NOT parse (their span boundary
+    came from a resync, not a clean parse) -- exactly the instances a
+    caller must treat as opaque/reshaped; every index NOT in it parsed
+    cleanly under the current registry at its recorded span."""
+    registry = _registry()
+    data = rsz_info["data"]
+    external = rsz_info["external"]
+    spans = []
+    recovered = set()
+    pos = 0
+    for i, (type_id, crc) in enumerate(rsz_info["insts"]):
+        if i == 0 or i in external:
+            spans.append((i, type_id, crc, pos, pos))
+            continue
+        entry = registry.get(format(type_id, "x"))
+        if entry is None:
+            return spans, False, recovered
+        if entry.get("fieldless"):
+            spans.append((i, type_id, crc, pos, pos))
+            continue
+        start = pos
+        try:
+            pos, _clean = _parse_instance(data, pos, entry["f"])
+        except _LayoutError:
+            resync = _next_string_offset(data, pos)
+            if resync is None or resync < pos:
+                return spans, False, recovered
+            pos = resync
+            recovered.add(i)
+        spans.append((i, type_id, crc, start, pos))
+    return spans, pos == len(data), recovered
+
+
+def _extract_instance_values(data: bytes, pos: int, fields: list) -> tuple[list, int]:
+    """Like `_parse_instance()`, but returns the actual field VALUE bytes
+    (padding discarded) instead of just a position -- padding is always
+    zero and position-dependent, so it's meaningless to preserve; it gets
+    recomputed fresh by `_write_instance_values()` for wherever the
+    instance ends up. Each returned value is `("scalar", bytes)` or
+    `("array", count, [elem_bytes, ...])`."""
+    values = []
+    for _name, size, align, is_array, is_variable in fields:
+        if is_array:
+            pos += (-pos) % 4
+            count = _u32(data, pos)
+            if count > 0xFFFFFF:
+                raise _LayoutError(f"implausible array count {count} at {pos}")
+            pos += 4
+            elems = []
+            for _ in range(count):
+                pos += (-pos) % align
+                length = _field_length(data, pos, size, is_variable)
+                if pos + length > len(data):
+                    raise _LayoutError(f"array element past end of block at {pos}")
+                elems.append(data[pos:pos + length])
+                pos += length
+            values.append(("array", count, elems))
+        else:
+            pos += (-pos) % align
+            length = _field_length(data, pos, size, is_variable)
+            if pos + length > len(data):
+                raise _LayoutError(f"field past end of block at {pos}")
+            values.append(("scalar", data[pos:pos + length]))
+            pos += length
+    return values, pos
+
+
+def _write_instance_values(out: bytearray, pos: int, fields: list, values: list) -> int:
+    """Inverse of `_extract_instance_values()`: appends one instance's
+    field values to `out`, inserting fresh zero-padding computed for
+    wherever `pos` (the position in `out`, i.e. in the NEW file) actually
+    is -- NOT wherever it was in the source the values came from. This is
+    what makes relocating an instance to a different absolute position
+    (as `_splice_mod_extras()` does) safe: alignment padding is
+    position-dependent, so copying a source instance's raw bytes verbatim
+    into a new position can silently misalign it (confirmed real,
+    2026-08-08: byte-identical instance content produced a DIFFERENT
+    parsed length once moved, because a 4-byte-aligned field picked up 2
+    extra padding bytes at its new position)."""
+    for (_name, size, align, is_array, is_variable), val in zip(fields, values):
+        if is_array:
+            pad = (-pos) % 4
+            out += b"\x00" * pad
+            pos += pad
+            _kind, count, elems = val
+            out += struct.pack("<I", count)
+            pos += 4
+            for elem_bytes in elems:
+                pad2 = (-pos) % align
+                out += b"\x00" * pad2
+                pos += pad2
+                out += elem_bytes
+                pos += len(elem_bytes)
+        else:
+            pad = (-pos) % align
+            out += b"\x00" * pad
+            pos += pad
+            _kind, content = val
+            out += content
+            pos += len(content)
+    return pos
 
 
 def fits_current_layout(rsz_info: dict) -> bool | None:

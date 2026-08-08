@@ -1191,3 +1191,404 @@ for its specific vanilla asset (this pattern is confirmed to already
 recur across unrelated shader families per `_mmtr_variants()`'s own
 docstring) would have silently lost that capability on every affected
 material, for every mod ever processed by this tool before this fix.
+
+### 17. RSZ instance splicing for `preserve_extra`'s substitution path: built, crashed 4 times for 4 different reasons, finally restricted to an evidence-based allowlist (2026-08-08/09)
+
+Real reports: Mangie "Esthe" and "Mask Bikini" bundle their own chest
+jiggle-physics RSZ instances that plain `_apply_substitution()` (wholesale
+donor-replace) silently dropped, since that path only ever wrote the
+donor's own bytes -- reported as "가슴 피직스가 죽어버린다" (chest physics
+dies). `_crc_only_fix()`'s `preserve_extra` half already solved the
+analogous problem for the CRC-only path (see item on `preserve_extra_pfb_components`
+above); the substitution path had no equivalent at all. Built
+`_splice_mod_extras()` to fill that gap: append any RSZ instance whose TYPE
+the donor doesn't have at all onto the end of the substituted donor's own
+instance table.
+
+**This required reverse-engineering undocumented binary structure with no
+real spec to check against, and every wrong guess only surfaced as a real
+in-game crash, never as a static check failure.** Four consecutive deploys
+crashed, each for a genuinely different reason, discovered strictly in this
+order:
+
+1. **PFB-level resource manifest** (`ResourceInfo` table, a flat dependency
+   list separate from inline RSZ resource-path strings) not updated for a
+   newly-referenced resource (Mask Bikini's spliced Chain2 pointed at its own
+   `.chain2` file, which the donor's manifest never listed) -- crashed
+   outright on an undeclared-but-referenced resource. Fixed with
+   `_read_resource_strings()`/`_add_resource_manifest_entries()`.
+2. **RSZ instance-index cross-reference fields** (Object-type fields, e.g.
+   Chain2's own "EnvWind" field pointing at its ChainWind sibling BY INDEX)
+   copied verbatim without remapping to the relocated instance's new index --
+   "Heap allocation failed" in both mods. Fixed via a cross-verified
+   Object-field registry (`rsz_layout._object_fields_registry()`,
+   `tools/rsz_object_fields.json.gz`) built by cross-checking TWO independent
+   RSZ dumps (this project's bundled compact registry vs. a freshly-fetched
+   REasy dump) and only trusting a field's Object-type classification where
+   both agree exactly on `(size, align, is_array)` at the same field index --
+   the two dumps disagree on some types' field counts/shapes even at the same
+   CRC vintage, so agreement-at-index is the only safe signal.
+3. **The RSZ "Object Table"** (a separate array from the instance table,
+   right after the 48-byte RSZ header, sized by `objectCount` -- NOT the same
+   thing as "instances following the GameObject") never grown to match
+   `componentCount` after it was incremented -- identical "Heap allocation
+   failed" crash in BOTH mods again, including for extras with zero
+   Object-reference fields, proving fix #2 wasn't the cause of this one.
+   `componentCount` (PFB `GameObjectInfo`) counts Object Table entries
+   belonging to the GameObject, confirmed against a real donor file
+   (`componentCount=12` exactly matched `Object Table size(13) - 1`). Fixed
+   by growing the Object Table (excluding instances that are themselves an
+   Object-type reference TARGET, e.g. ChainWind, which the donor's own object
+   table already excludes the same way) and incrementing `componentCount` by
+   only the count of entries actually added to THAT table, not the total
+   extra-instance count. **A one-line bug was found and fixed during this
+   same pass**: the RSZ header's `objectCount` field write used the wrong
+   byte offset (`rsz_off+4`, the `version` field) instead of `rsz_off+8` --
+   the write silently corrupted `version` instead of growing the Object
+   Table at all, discovered immediately by re-testing with direct
+   verification (`fits_current_layout`, Object Table bounds check,
+   componentCount-matches-added-count check) rather than trusting the code
+   read-through.
+4. **A genuine access violation** (`Exception occurred: c0000005`, NOT the
+   previous "Heap allocation failed" engine assertion -- a different failure
+   class), even with #1-#3 all independently verified correct
+   (`fits_current_layout()==True`, every Object Table entry in-bounds,
+   `componentCount` exactly matching added entries). REFramework's own crash
+   log (`reframework_crash.dmp` companion `re2_framework_log.txt` in the game
+   install folder, plus `reframework_faulty_files.txt` -- check these before
+   asking for a screenshot next time a crash has no dialog) named
+   `ace.ClothManagerBase<app.ClothSetting,app.ClothSettingCollection>...doUpdateClothSettingCollection`
+   in the stack, but **this could not be trusted at face value**: neither
+   `app.ClothSetting` nor `app.ClothSettingCollection` exist as an RSZ
+   instance anywhere in either mod's own data, and every single native
+   `MonsterHunterWilds.exe` frame in that stack resolved to the identical
+   `Ordinal398` symbol -- proof REFramework's stack walker was guessing
+   ("TDB" = heuristic nearest-known-VM-method label) rather than reporting a
+   real symbolized stack this deep into JIT'd game code. Not reliable
+   evidence of which system actually crashed.
+
+**Because the crash log couldn't be trusted, root-caused this the only way
+left: real in-game bisection**, not further static analysis. Built one test
+variant per mod that spliced ONLY `via.render.ShellFurMesh`/`ShellFurParam`
+(fur, purely visual, no physics simulation) and left everything else as
+plain forced-substitution, and another that spliced ONLY the
+`via.motion.Chain2`/`ChainWind`/`ChildSecondary` group (the actual physics
+chain) the same way. Result, confirmed directly in-game:
+- Fur-only splice: **crash-free in both mods** (two different pieces, two
+  different mods -- Esthe's Helm and Mask Bikini's Arm).
+- Chain-only splice: **crashes on game start** (Mask Bikini's Body+Leg).
+- Separately, and importantly: **Esthe's chest physics turned out to already
+  work with ZERO splicing at all** -- its donor piece already contains its
+  own `via.motion.ChainWind`/`Chain2` natively (a pre-existing, unrelated
+  vanilla chain), so ordinary forced substitution (this session's other
+  fixes: dangling-physics-ref redirection, mmtr donor-priority fix, forced
+  Waist substitution) was already sufficient. The splicing feature was never
+  actually necessary for Esthe's reported bug at all.
+
+**Given real, reproducible, twice-confirmed evidence that splicing
+brand-new physics/chain instances onto a GameObject with zero prior
+physics content crashes the game -- via TWO different failure mechanisms
+across two attempts, with no further tooling available to inspect why
+(no RSZ dumper, no debugger, and the one crash log available proved
+unreliable) -- stopped trying to fix it further and instead scoped the
+whole feature down to only what's been positively proven safe.**
+`_splice_mod_extras()` now filters candidate extras through
+`_SPLICE_SAFE_TYPE_NAMES = {"via.render.ShellFurMesh", "via.render.ShellFurParam"}`
+-- an ALLOWLIST, not a denylist, on purpose: reasoning by analogy about
+which OTHER types might also be safe (e.g. `via.motion.JointConstraints`/
+`JointConstraintsLayer`, `ace.cDampingParam` -- all seen as real extras in
+these same mods but never isolated in their own bisection test) is exactly
+the kind of unverified guess that produced four straight crashes; only add
+a type here after it's been isolated and confirmed crash-free in-game the
+same way this pair was, never because it "seems similarly harmless." An
+extra instance whose type isn't in the allowlist is silently dropped from
+the splice (exactly like plain wholesale donor-replace already did before
+this feature existed) rather than refusing the whole piece, so a mod with
+both fur and chain extras still gets its fur preserved.
+
+**Net outcome for the two real mods that started this investigation**:
+Esthe ships fully fixed (working chest physics, needed no splicing after
+all). Mask Bikini ships safe and crash-free but WITHOUT its bundled chest
+physics -- genuinely not achievable by this tool with what's currently
+knowable about the format. If a future session wants to revisit
+chain-physics splicing specifically, don't restart from theory: get an
+actual RSZ dumper/debugger (the kind REasy Toolkit uses, i.e. live
+memory-scanning of the running game) capable of showing what per-GameObject
+bookkeeping the engine's cloth/chain manager actually reads, since four
+rounds of "fix what the last crash proved was missing" converged on
+diminishing, no-longer-diagnosable returns rather than a working feature.
+`tools/rsz_object_fields.json.gz` (Object-reference field registry) and the
+Object Table growth logic in `_splice_mod_extras()` remain in place and
+correct -- they were never the problem in attempt #4, and are exercised
+correctly by the fur-only case that IS shipping.
+
+### 18. A 6th attempt (`_transplant_reshaped()`, tier 2 of the crc-only path): the inverse of splicing, structurally sound, and STILL not safe -- a real, undiagnosed boot-time-only defect (2026-08-09)
+
+After #17 shipped, the user pushed to keep thinking rather than accept
+Mask Bikini losing its chest physics: "스플라이싱 제대로 완벽하게 구현하는
+방법이 뭐가 더 있을지 조금만 더 고민해보고 안되면 포기해야겠다." Re-probing
+both mods' pfbs found something #17's investigation never surfaced: across
+8 of the 10 armor pieces in both mods (everything except each mod's most
+structurally-diverged Waist), the ONLY instance that fails to parse under
+the current registry is a single `app.ChainSetting` -- Capcom added a field
+(`_WindAssetOverwrite`, a second variable-length string) without bumping
+the class's crc, so the mod's 20-byte-old copy gets misread as a 27-byte
+current one and rejects the whole file. Every other instance in those 8
+pieces round-trips byte-identically already.
+
+This is the exact INVERSE of splicing's direction: instead of grafting mod
+content onto donor structure (5 real crashes across #17's attempts), keep
+the mod's own file as ground truth -- Object Table, component order,
+GameObjectInfo, resource manifest, Chain2/ChainWind/ChildSecondary all
+stay byte-identical -- and replace ONLY the reshaped `app.ChainSetting`
+instance's field data with the current donor's own values (verified safe
+to donor-source: it's engine wind/update-flag plumbing, not mod
+customization), plus the same stale-CRC patch tier 1 already does.
+Implemented as `_transplant_reshaped()`, wired as tier 2 of the crc-only
+path in `plan_pfb()` (tried after tier 1's `_crc_only_fix()` refuses,
+before falling through to substitution), reusing `rsz_layout.walk_instances_with_recovery()`'s
+new `recovered` return (the set of instance indices whose span came from a
+resync, not a clean parse -- exactly the instances needing a donor
+transplant) and the splicing saga's `_extract_instance_values()`/
+`_write_instance_values()` pair. Verification deliberately does NOT reuse
+`fits_current_layout()` (which also demands zero alignment padding) --
+these mods' own untouched instances carry real nonzero padding bytes
+Capcom's own writer left behind, accepted by the game for months; a
+from-scratch strict re-walk to exactly `len(data)` is the actual proof
+used instead. 8 of 10 pieces resolved this way, transplant-only, mod
+structure 100% preserved, `_apply_substitution()` never touched.
+
+**Confirmed via a genuinely independent third source that the byte-size
+math is right, even though the field NAMES probably aren't**: cloned
+`alphazolam/RE_RSZ` (a maintained 010 Editor template with its own
+`rszmhwilds.json`) and found ITS `app.ChainSetting` entry has a completely
+different field layout (`_WindAssetOverwrite` typed as a plain 4-byte
+Resource reference, not a string; no `_MeshBoundary` field at all) --
+but its declared crc (`89f3eaf6`) doesn't match the live game's actual
+instance crc (`7fbd8f3f` on both mods' donor AND mod copies), so it's a
+different game version, not directly usable. What IS usable: this
+project's own registry parses the LIVE-crc donor's real 27-byte
+`app.ChainSetting` instance to exactly 27 bytes with zero overrun/leftover
+-- strong evidence the transplant's byte accounting is correct for the
+crc that's actually installed, regardless of whether the field names are
+exactly right. (Also checked `NSACloud/RE-Chain-Editor`: it edits the
+EXTERNAL standalone `.chain2` resource FILE format, a completely separate
+binary structure from the inline `via.motion.Chain2` RSZ component
+involved here -- not applicable to this bug.)
+
+**Shipped, then failed anyway -- but silently, and only at boot.** Built
+delivery zips with `preserve_extra_pfb_components=True` for both mods.
+Esthe: chest physics confirmed working in-game. Mask Bikini: chest physics
+ALSO confirmed working live. Then: "esthe는 가슴이랑 다리가 사라짐" (Esthe
+legs/chest vanish) and separately Mask Bikini went black-screen -- but
+specifically **only when booting with that outfit as the saved loadout;
+live-equipping the identical content after boot works perfectly every
+time.** First assumed this was another instance of the save-state
+mechanism from item #1 (a stale record pointing at old broken content,
+the "Snow Trigger" pattern) and suggested the documented recovery cycle
+(neutral outfit + save, reboot, THEN live-equip target + save). The user
+did this exact cycle and it STILL black-screened on the next boot --
+correctly pointing out that no legitimate content should ever require a
+save dance to load, and that a genuinely fixed file can't need one.
+That's the right call: item #1's mechanism is a stale reference to
+OLD/broken content; here the save was freshly written from the CURRENT,
+verified-correct build and still failed identically at boot every time,
+which rules out staleness as the explanation.
+
+**Isolated the true cause via bisection, since REFramework's own crash log
+had NOTHING to show this time** (no exception, no dump, `reframework_faulty_files.txt`
+unrelated) -- confirming this isn't a crash at all, a silent boot-time
+load failure. Rebuilt Mask Bikini with the transplant applied to ONLY the
+Body piece (the one piece that actually carries the chest-jiggle
+Chain2/ChainWind/ChildSecondary) and every other piece on plain forced
+substitution. **Still black-screened at boot.** This proves Body's own
+transplant is independently sufficient to trigger it -- not an
+interaction between multiple transplanted pieces, and (re-reading the
+Esthe incident in this light) very likely the SAME underlying defect hit
+Esthe too, not a save-file issue as first assumed; reverting Esthe to
+plain substitution (which it never structurally needed in the first
+place -- its donor already has native Chain2) coincidentally "fixed" it
+by avoiding transplant entirely, not by breaking any stale-save cycle.
+
+**Conclusion: `_transplant_reshaped()` has a real, currently undiagnosed
+defect -- content it produces is structurally verified correct by every
+static check available (exact byte-count re-walk, cross-checked against
+two independent field registries, byte-identical to the mod's own
+original structure) and loads correctly via live equip, but something
+about how MHWilds constructs a GameObject during the synchronous
+boot-time default-loadout path treats it differently and fails silently.**
+No crash, no log entry, no faulty-file report -- nothing left to diagnose
+further with tools available to this project. Both `_splice_mod_extras()`
+(#17) and `_transplant_reshaped()` (#18) are now confirmed, by real
+in-game testing, to have a failure mode specifically in
+`app.ChainSetting`/chain-physics-adjacent content that neither approach's
+static verification catches. **Both remain in the source** (their
+non-Chain2 use -- e.g. `_transplant_reshaped()` on a piece whose reshaped
+type isn't chain-adjacent -- is unverified either way, not disproven) but
+`plan_pfb()`'s tier-2 call and `_splice_mod_extras()`'s call site are
+gated behind `preserve_extra_pfb_components`, which stays off by default;
+**do not enable it for a real delivery without a fresh in-game boot test
+of that exact build**, live-equip alone is not sufficient evidence anymore.
+
+**Independently re-verified against REasy Toolkit itself, 2026-08-09, after
+the user pushed back on stopping** ("조금 더 안정적으로 확실하게 이 문제를
+해결할 방법이 아예 없는걸까?"): cloned `seifhassine/REasy`'s
+`file_handlers/rsz/rsz_file.py` (its core `RszFile` parser, PySide6-free
+and usable as a plain library) and drove it directly against the SAME
+already-downloaded, live-crc-confirmed `rszmhwilds.json` dump used earlier
+in this session. Result: REasy's own independent parser hits the IDENTICAL
+failure at the IDENTICAL byte offset trying to parse the mod's stale
+`app.ChainSetting` under the current registry (`struct.error: unpack_from
+requires a buffer of at least 2130707516 bytes...`) -- proving the parse
+failure is a real property of the mod's stale bytes, not a bug in this
+project's own registry or parser. More decisively: REasy's parse of the
+DONOR's own ChainSetting instance produced field values (`_WindBias=1.0`,
+`_CullingLengthBias=1.0`, matching the two `0x3f800000` float patterns
+visible in the raw hex) that, when checked against this project's actual
+shipped transplant output, are **byte-for-byte identical** --
+`ni["data"][11's span]` vs `donor_info["data"][11's span]` compared
+directly, exact match, not just structurally equivalent. This closes the
+one remaining open question from earlier in this investigation ("is
+this maybe just a bug in OUR OWN implementation that a real editor would
+avoid?") -- a real, independently-maintained tool confirms the file
+content this project produces is exactly correct. The boot-time failure
+is conclusively NOT a file-correctness problem; whatever differs between
+live-equip and boot-time loading happens somewhere this project has no
+way to observe without a live debugger/ObjectExplorer session, not in the
+bytes on disk.
+
+Final shipped state for both mods: plain forced substitution only
+(`preserve_extra_pfb_components=False`), matching the safest,
+longest-verified code path in this project. Esthe: fully fixed, chest
+physics intact (never needed the experimental path). Mask Bikini: safe
+and stable, without its bundled chest physics -- confirmed not
+achievable by either of this project's two independent attempts at
+preserving/repairing that specific content, both of which produce
+data that's provably correct by every static and live-equip test
+available yet fails at boot for reasons this project has no tooling
+left to diagnose. If a future session revisits this, the necessary next
+step is the ObjectExplorer/EMV-Engine-Lua path outlined in this session's
+own suggestion (inspect the live GameObject's actual component tree at
+the moment of boot-time construction, compared against live-equip) --
+static analysis of the file bytes alone, however careful, has been run
+to the end of what it can prove.
+
+**Further pushed on ("이거 외에는 아예 방법이 없는거야?"), and now conclusively
+confirmed via a clean, controlled real-mod test -- `_transplant_reshaped()`
+(not just this specific content) is the root cause, full stop.** Four more
+avenues were tried and eliminated in order, each a genuinely different
+hypothesis, none requiring further guessing beyond this point:
+
+1. **GitHub/community research** (`gh`/GitHub search API, since local `gh`
+   CLI wasn't installed): found `NSACloud/RE-Chain-Editor` issue #7
+   ("Jiggle node Issues in MHWilds"), where the tool's own author suggested
+   a real MHWilds jiggle-physics quirk: "The game might be disabling
+   certain chain settings IDs, adding a couple blank chain settings before
+   anything else may fix it." Implemented this literally against a real
+   mod's own external `.chain2` resource file (NOT the inline RSZ
+   component) by driving `RE-Chain-Editor`'s own `file_re_chain2.py`
+   (`Chain2GroupData.settingID` references `Chain2SettingsData.id`, an
+   explicit field, NOT list position -- confirmed via
+   `blender_re_chain.py`'s own `chainSettingIDDict[chainSettings.id]`
+   lookup pattern -- so renumbering existing real settings +2 and
+   prepending 2 blank id=0/1 entries, then letting `Chain2File.write()`
+   recalculate every offset itself, is a safe, correct edit). **Also
+   failed at boot, identically.** This specific game-engine quirk turned
+   out to be a red herring for THIS bug (real, but evidently a different
+   phenomenon than what NSACloud was describing).
+2. **Loose-file vs `.pak` delivery**: hypothesized a loose-file-loader
+   timing/race condition (physics resources not finishing async load
+   before the synchronous boot equip-init step reads them). Packed the
+   identical fixed bytes into a real `.pak` (`pak_writer.py`'s existing
+   `write_pak()` + `pak_reader.py`'s `pak_path_hash64()`, following the
+   real `[MHWs]SilverWolf.../silverwolf.pak` mod's own folder/modinfo.ini
+   convention). Confirmed via the boot log (`IntegrityCheckBypass:
+   Redirecting load of re_chunk_000.pak.sub_000.pak.patch_058.pak to
+   custom pak...`) that the pak DID load and override correctly -- so this
+   was a valid test, not a null result from a broken pak. **Also failed at
+   boot, identically.** Rules out the loading-mechanism hypothesis
+   entirely.
+3. **Full-severity log re-scan**: re-read `re2_framework_log.txt` at every
+   log level (not just `[error]`) around the exact black-screen boot
+   timestamp -- zero warnings, zero info messages referencing Chain,
+   ChainSetting, or the mod's own paths; the log simply stops mid-stream
+   with no signal at all. Confirms there's genuinely nothing left in
+   available logs to read.
+4. **Independent real-mod cross-check, this time on a THIRD piece**: built
+   and boot-tested DOTEI's real "EULA" mod (`[8.EULA] LEG PHYS HEAVY`,
+   Nexus, a completely different mod/character/piece than Mask Bikini) --
+   confirmed via `plan_pfb()` that its `HELM1` page ALSO now resolves via
+   `_transplant_reshaped()` (Capcom's TU5 update staled `app.ChainSetting`
+   there too, for the hair-adjust chain, independent of the leg-physics
+   pages this test was originally built around). The user's own "physics
+   disabled entirely, still black-screens" report at first looked like it
+   overturned the whole investigation -- but `HELM1` being enabled the
+   whole time (it wasn't recognized as physics-related, since it's a base
+   page) meant transplanted content was still present. Built and boot-
+   tested a genuine, fully transplant-free control (`preserve_extra_pfb_components=False`
+   for the ENTIRE mod, `stats["pfb_crc_only"] == 0` confirmed no
+   crc_patch/transplant path was used anywhere) with the identical base
+   pages (ARM1/BODY1/HELM1/LEG1/WST1/TEXTHERE FILE) enabled: **boots
+   clean, textures correct, no black screen.**
+
+**This is now confirmed across THREE independent pieces in TWO unrelated
+real mods** (Mask Bikini's Body, DOTEI EULA's Leg, DOTEI EULA's Helm):
+`_transplant_reshaped()`'s output is byte-verified correct by every static
+method available (including an independent third-party parser) and always
+works via live equip, but is NEVER safe through the boot-time default-
+loadout path, while plain wholesale substitution is always safe at boot
+on the exact same pieces. This is no longer "unverified, treat with
+caution" -- **`_transplant_reshaped()` should be treated as confirmed
+broken for real deliveries until whatever boot-time engine mechanism
+causes this is actually understood**, not just gated behind
+`preserve_extra_pfb_components`. A future session with real live-debugging
+access (ObjectExplorer, or a modder who's hit this exact "works live,
+never survives boot, no error anywhere" signature) is the only path left;
+everything reachable through file analysis, independent tooling, delivery
+format, and community-sourced format knowledge has been tried and has
+converged on the same wall.
+
+**Postscript, same night: the boot-time failure is non-deterministic, not
+a fixed pass/fail per file.** After the wall above, the user pushed one
+more round of real testing on DOTEI's EULA (the same `[8.EULA] LEG PHYS
+HEAVY` transplant+blank-settings pak from the paragraphs above), enabled
+alongside `[8.EULA]99.BODY PHYSICS HEAVY` (a page that, per
+`find_pfb_files()`, doesn't even carry its own PFB -- textures/mesh only,
+confirmed by there being no Body pfb anywhere in the deployed loose files
+either). That exact combination booted clean, repeatedly, across multiple
+real cold boots -- the same pak that had reliably black-screened earlier
+in this same session with an unrelated page (`BODY PHYSICS HEAVY`, no
+mechanical connection to the Leg pfb) toggled off instead. Disabling
+`BODY PHYSICS HEAVY` and re-testing the ORIGINAL failing combination
+(exact same base pages + the same pak) produced a THIRD distinct outcome
+on repeat: no black screen this time, game fully playable, but BOTH the
+leg and (previously-perceived-as-working) chest jiggle were simply inert
+-- no crash, no visible physics, no error. The user was explicit that
+the earlier black-screens were real, not a misread slow transition.
+
+Three outcomes (crash / inert-but-stable / -- never once confirmed
+actually working at boot) from byte-identical content across repeated
+cold boots, with no file-level or page-selection change that reliably
+predicts which one occurs, is conclusive: **this is a genuine race
+condition in the game's own boot-time physics-component initialization,
+not a deterministic property of any specific file this project produces.**
+Immediately retested by applying the identical blank-chain-settings-id
+workaround to ALL FIVE of Mask Bikini's own bundled `.chain2` files (not
+just Leg -- Arm/Body/Helm/Leg all resolve via `_transplant_reshaped()` for
+this mod, confirmed via `plan_pfb()`) layered on top of the full
+transplant build (`Mask_Bikini_blanksettings_test.zip`). Failed at boot
+again. Given the DOTEI result already proved this exact technique doesn't
+reliably prevent the race either way, this was expected to be
+inconclusive at best, and was -- consistent with everything else, not new
+evidence of anything.
+
+**Final, no-further-questions conclusion**: no file this project can
+produce -- however byte-perfect, however many independent tools confirm
+it -- can reliably survive MHWilds' own boot-time equipment
+initialization once it carries physics content that didn't exist in the
+last officially-shipped state of that GameObject. The failure isn't
+consistent enough to even reason about from outside the engine (three
+different outcomes observed from unchanged bytes). Ship plain forced
+substitution only, permanently, for any piece needing genuinely new
+physics/chain content added -- treat this as a hard boundary of what this
+tool can do, not a pending investigation.
