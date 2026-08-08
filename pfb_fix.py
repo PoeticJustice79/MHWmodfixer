@@ -55,6 +55,7 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
+import rsz_layout
 from donor import candidate_donor_paths
 from game_archive import GameArchive
 
@@ -73,10 +74,16 @@ def _parse_rsz(data: bytes):
     instance_offset, data_offset, userdata_offset = struct.unpack_from("<QQQ", data, rsz_off + 4 + 20)
     inst_table_pos = rsz_off + instance_offset
     insts = [struct.unpack_from("<II", data, inst_table_pos + i * 8) for i in range(inst_count)]
+    # RSZUserDataInfo entries (16 bytes each: instanceIndex i32, hash u32,
+    # stringOffset u64) -- their instance indices carry no inline field data
+    # in the block below, see rsz_layout.fits_current_layout().
+    ud_pos = rsz_off + userdata_offset
+    external = {struct.unpack_from("<i", data, ud_pos + i * 16)[0] for i in range(userdata_count)}
     return {
         "rsz_off": rsz_off, "version": version, "obj_count": obj_count,
         "inst_count": inst_count, "userdata_count": userdata_count, "insts": insts,
-        "inst_table_pos": inst_table_pos,
+        "inst_table_pos": inst_table_pos, "external": external,
+        "data": data[rsz_off + data_offset:],
     }
 
 
@@ -209,7 +216,7 @@ def _find_substitution(mod_strings: set[str], donor_strings: set[str], force: bo
 
 
 def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
-                   preserve_extra: bool = False) -> tuple[bytes, bool] | None:
+                   preserve_extra: bool = False, require_fits: bool = False) -> tuple[bytes, bool] | None:
     """A CRC is a property of the CLASS (type_id), not of any one instance
     of it -- every instance of the same type_id must carry the same
     current CRC. Build a `type_id -> current crc` map straight from the
@@ -258,6 +265,19 @@ def _crc_only_fix(mod_bytes: bytes, mod_info: dict, donor_info: dict,
     mod_types = {t for t, _ in mod_info["insts"]}
     has_extra = bool(mod_types - donor_types)
     if has_extra and not preserve_extra:
+        return None
+
+    if require_fits and rsz_layout.fits_current_layout(mod_info) is not True:
+        # A crc match doesn't prove the field LAYOUT is unchanged -- only
+        # that some version stamp matches. Confirmed the hard way: a real
+        # mod's pak-embedded pfb crashed the game after a crc-only patch
+        # (2026-08-08), for exactly this reason. require_fits demands
+        # positive proof (every field parses to exactly the instance's
+        # byte length under the CURRENT registry) before trusting a
+        # crc-only patch; "unverifiable" (registry has no field dump for
+        # a type involved) counts as a refusal here too, not a pass --
+        # see rsz_layout.py's module docstring for why that's the safe
+        # default even though it costs some coverage.
         return None
 
     donor_crc_by_type: dict[int, int] = {}

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools')]
+datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools'), ('tools/rsz_fields_mhwilds.json.gz', 'tools')]
 binaries = []
 hiddenimports = ['pak_mod_fix', 'whole_game_index']
 tmp_ret = collect_all('tkinterdnd2')

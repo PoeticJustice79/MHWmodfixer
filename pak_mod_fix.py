@@ -144,7 +144,7 @@ def _plan_pak_rsz_entry(mod_bytes: bytes, donor_bytes: bytes | None, ext: str,
     if mod_info is None or donor_info is None:
         return None
 
-    crc_result = _crc_only_fix(mod_bytes, mod_info, donor_info, preserve_extra=preserve_extra)
+    crc_result = _crc_only_fix(mod_bytes, mod_info, donor_info, preserve_extra=preserve_extra, require_fits=True)
     if crc_result is not None:
         patch, used_extra = crc_result
         return PakRszEntryPlan(hash64=0, ext=ext, result=patch, kind="crc_extra" if used_extra else "crc")
@@ -391,4 +391,21 @@ def write_fixed_pak(pak_plan: PakPlan, out_path: Path, log) -> tuple[int, dict]:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     write_pak(out_entries, str(out_path))
+
+    # Read the just-written pak back and check it describes exactly the same
+    # set of entries as the input -- confirmed useful pattern from
+    # another community fixer's pak_patch.py (fix_pak()'s post-write check).
+    # We write to a fresh output path rather than in place, so this can't
+    # protect the user's original mod the way theirs does; it exists to
+    # catch a packing bug (a dropped or duplicated entry) here, before the
+    # user finds out in-game instead.
+    verify_archive = PakArchive(out_path)
+    if len(verify_archive.entries) != len(archive.entries):
+        raise RuntimeError(
+            f"{pak_plan.pak_path.name}: wrote {len(verify_archive.entries)} entries but "
+            f"input had {len(archive.entries)} -- internal packing bug, not shipping this pak")
+    if set(verify_archive.entries) != set(archive.entries):
+        raise RuntimeError(
+            f"{pak_plan.pak_path.name}: output entry hashes don't match the input's -- "
+            f"internal packing bug, not shipping this pak")
     return total_changed, pfb_stats
