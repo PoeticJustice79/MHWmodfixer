@@ -3053,3 +3053,32 @@ The retarget dialog only ever showed armor names in Korean (straight from the so
 Implementation: `tools/bake_armor_slots.py` gained a `NAME_EN_OVERRIDES` dict (Korean name -> English), baked into each slot entry as `name_en` (null when unresolved). `slot_retarget.py` gained `armor_name(name_ko, name_en, lang)` (mirrors the existing `gender_label()` pattern) -- Korean UI always shows Korean; any other UI language shows the English name when available, Korean otherwise. `ModSlotInfo`/`ModSlotGroup`/`TargetCandidate` all gained a `name_en` field threaded through from the table. `gui.py`'s retarget dialog now calls `armor_name()` at all three display points (detected-slot rows, compatible-target rows, and the assigned-target status text).
 
 Verified via the real GUI dialog with `i18n.set_language("en")`: detected slot and compatibility-list rows now show "Doshaguma", "Lala Barina", "Congalala", "Uth Duna", "Rey Dau", etc. in English; a Korean-UI run still shows Korean (regression check); an entry with no confident translation still falls back to Korean even under English UI (confirmed directly, not just by code inspection).
+
+**Follow-up pass, same day**: the user confirmed one name directly from the
+game (`병사의 갑주(디럭스)` = "Feudal Soldier", a Deluxe Edition bonus set
+the Lua source didn't cover). Also cross-checked the remaining unresolved
+names against `mhwilds.kiranico.com`'s armor-series list, fetched in BOTH
+Korean (`/ko/data/armor-series`) and English (`/data/armor-series`) --
+both pages list every series in identical underlying order, so aligning
+them position-by-position gives a direct, non-guessed pairing (held
+correct across 90+ consecutive positions with zero mismatches before
+diverging into content outside this project's own ch03 scope). This
+**corrected several of the FIRST pass's own over-specified guesses** --
+Kiranico's real armor-menu names are shorter than the full monster name
+for several sets (`고어`/"Gore Magala" -> "Gore", `블랑고`/"Blangonga" ->
+"Blango", `콩가`/"Congalala" -> "Conga", `다하딜라`/"Jin Dahaad" ->
+"Dahaad", `호뢰악룡`/"Guardian Fulgur Anjanath" -> "Guardian Fulgur",
+`호흉조룡`/"Guardian Ebony Odogaron" -> "Guardian Ebony") -- worth
+remembering: a correct-*sounding* guess (the full canonical monster name)
+can still be wrong for the specific in-game armor-menu label; always
+prefer a real second source over a plausible extension of the first.
+Also resolved 9 previously-unmatched names this way (`네라치카`=Comaqchi,
+`브라치카`=Bulaqchi, `스자의 허리띠`=Suja's Belt, `용왕의 척안`=Dragonking's
+Third Eye, `대식가의 귀걸이`=Gourmand's Earring, `헌신의 피어스`=Earrings of
+Dedication, `탈리오스`=Talioth, plus `고우키`=Akuma [MH's Street Fighter
+collab set -- confirmed directly by the user] and `노블레스`=Noblesse [a
+plain loanword, no external check needed]). Coverage: 86/104 Korean names
+now have a confident English pairing; the remaining 18 (mostly unique/DLC
+accessory items -- eyewear styles, wigs, earrings -- Kiranico's
+armor-series page doesn't cover non-series accessories at all) are still
+deliberately left in Korean.
