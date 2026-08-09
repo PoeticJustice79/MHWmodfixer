@@ -40,7 +40,7 @@ import rsz_layout
 from archive_extract import extract_archive
 from auto_fix import DEFAULT_GAME_DIR, process_mod
 from diagnose import diagnose, summarize
-from fluffy_repackage import repackage_for_fluffy
+from fluffy_repackage import needs_repackaging, repackage_for_fluffy
 from game_archive import GameArchive
 from i18n import t
 
@@ -1049,16 +1049,52 @@ class App:
         # with 9/10 materials safely matched and 1 unresolved was shown as
         # "already latest version" even though the tool genuinely couldn't
         # verify it).
-        if not needs_fix and not unresolved_plans:
+        #
+        # A mod whose CONTENT needs nothing fixed can still be worth
+        # producing output for, if its Fluffy page structure does --
+        # confirmed real case: a mod author (Mangie) who tests via MO2
+        # (which has no concept of Fluffy's page-selector at all) ships
+        # content that's already fully current but with extra pieces as
+        # loose top-level files Fluffy can't offer as install options.
+        # Before this check, this whole function would report
+        # "already up to date" here and produce NO output at all, even
+        # for a user whose only actual need was the structural fix.
+        needs_repack = needs_repackaging(mod_root)
+        if not needs_fix and not unresolved_plans and not needs_repack:
             shutil.rmtree(work_dir, ignore_errors=True)
             self.log(f"{mod_archive.name}: already up to date, nothing to fix.")
             return "already_current"
 
-        if not needs_fix and unresolved_plans:
+        if not needs_fix:
+            # Either every remaining issue is a genuinely unresolved (no
+            # safe donor) part diagnose() already found, or -- per the
+            # comment above -- content is already fully current and only
+            # the Fluffy structure needs fixing. Either way there's
+            # nothing for process_mod() itself to do, so skip straight to
+            # a plain copy + repackage rather than running the full
+            # (here, no-op) repair pipeline.
+            output_root = work_dir.parent / (work_dir.name + "_fixed")
+            shutil.copytree(mod_root, output_root)
+            repackaged = repackage_for_fluffy(output_root, log=self.log)
+            if not repackaged:
+                shutil.rmtree(work_dir, ignore_errors=True)
+                shutil.rmtree(output_root, ignore_errors=True)
+                self.log(f"{mod_archive.name}: nothing could be safely auto-repaired "
+                         f"({len(unresolved_plans)} unresolved) -- left untouched.")
+                return "unresolved"
+            if unresolved_plans:
+                self.log(f"{mod_archive.name}: content has {len(unresolved_plans)} part(s) left as "
+                         f"shipped (no safe donor found), but the Fluffy page structure was fixed so "
+                         f"every piece can still be installed/selected normally.")
+            else:
+                self.log(f"{mod_archive.name}: content is already up to date -- only the Fluffy page "
+                         f"structure needed fixing.")
+            out_zip = Path(save_dir) / (mod_archive.stem + "_fixed.zip")
+            self.log(f"Zipping: {out_zip}")
+            zip_folder(output_root, out_zip)
             shutil.rmtree(work_dir, ignore_errors=True)
-            self.log(f"{mod_archive.name}: nothing could be safely auto-repaired "
-                     f"({len(unresolved_plans)} unresolved) -- left untouched.")
-            return "unresolved"
+            shutil.rmtree(output_root, ignore_errors=True)
+            return "fixed"
 
         output_root = work_dir.parent / (work_dir.name + "_fixed")
         shutil.copytree(mod_root, output_root)
