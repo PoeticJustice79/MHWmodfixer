@@ -2977,3 +2977,52 @@ both relocated correctly, zero cross-contamination, zero leftover traces
 of either original slot number. Standard regression suite unaffected
 (this module still never touches `auto_fix.py`/`slot_merge.py`/
 `pfb_fix.py`).
+
+## 36. Mask Bikini's chest physics saga (#17/#18) resolved -- by the author, not by this project (2026-08-09)
+
+The mod's own author (Mangie) shipped a new source file
+(`C:\Users\User\Desktop\mangie\source\[MHWilds] Mask Bikini.zip`) that
+now bundles real `.pfb` files at the correct vanilla paths (it previously
+didn't -- only loose `mh03`-substituted mdf2/chain2/clsp). Checked every
+piece's own bytes directly against the CURRENT registry/donor, independent
+of any of this project's repair logic:
+
+- `rsz_layout.fits_current_layout()` returns **True** for all 5 pieces
+  (Arm/Body/Helm/Leg/Waist) -- each parses to an exact byte count under
+  the live game's own field layout, zero alignment-padding issues.
+- **Zero CRC mismatches** between the mod's own instances and the current
+  donor's, for every shared type across all 5 pieces.
+- Body/Leg carry the exact 3 real chest/leg-physics instances this
+  project spent items #17/#18 trying (and ultimately failing, due to an
+  unfixable boot-time race condition) to preserve: `via.motion.Chain2`,
+  `via.motion.ChainWind`, `via.motion.ChildSecondary` -- now present
+  NATIVELY in a properly-shaped file, not spliced in after the fact.
+
+Running the current pipeline against this file confirms it needs **zero
+pfb repair of any kind** -- `pfb_fixed: 0, pfb_crc_only: 0, pfb_unresolved: 0`
+across all 5 pieces, and a direct byte-for-byte input-vs-output diff
+confirms every `.pfb` passes through this project's tooling completely
+untouched (correctly recognized as already-current, extras and all).
+Only the loose mdf2 materials needed the usual donor-matching (some
+`mask_UseSC`/`skin` materials had multiple same-mmtr candidates, resolved
+via the existing tie-breaking logic in `_pick_best()`).
+
+**The actual lesson, worth stating plainly**: #18's conclusion --
+"no file this project can produce, however byte-perfect, can reliably
+survive MHWilds' own boot-time equipment initialization once it carries
+NEW physics content that didn't exist in the last officially-shipped
+state of that GameObject" -- was specifically about content assembled
+via POST-HOC byte editing (splice/transplant onto an existing pfb this
+project didn't originally author). It was never a claim that chest
+physics on this armor is impossible in general. The Caimogu community
+tutorial referenced in #19's research section ("从零开始的手搓物理-Chain2")
+already said as much: real chain physics needs to be authored through
+the actual Blender + RE-Chain-Editor pipeline (bones named `xx_00...xx_end`,
+weight-painted, then "Create Chain From Bone"), not reconstructed from
+raw bytes after the fact -- and that's evidently what changed between the
+old and new Mask Bikini source. Delivered as
+`[MHWilds] Mask Bikini (fixed, chest physics intact).zip` in
+`C:\Users\User\Desktop\CC download\` -- awaiting in-game confirmation,
+but for the first time on this mod, both the boot-time-race concern (no
+byte surgery involved at all -- the file is untouched) and the physics
+preservation are simultaneously satisfied.
