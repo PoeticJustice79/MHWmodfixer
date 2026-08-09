@@ -56,7 +56,7 @@ class PakMdfEntryPlan:
 
 _RSZ_MAGICS = {b"PFB\x00": "pfb", b"USR\x00": "user", b"SCN\x00": "scn"}
 # All three are RE Engine's RSZ-serialized formats (prefab / userdata / scene)
-# -- confirmed by inspecting a another community MHWilds mod-fixer's source,
+# -- confirmed by inspecting another community MHWilds mod-fixer's source,
 # which treats all three identically for exactly this kind of repair.
 # pfb_fix.py's _parse_rsz() finds the "RSZ" block by string search rather
 # than a fixed per-format offset, so the same repair logic already works

@@ -269,7 +269,7 @@ Deliberately not a general byte-accurate RSZ field walker (which could
 migrate an ACTUALLY-reshaped class's field data too) — building that
 needs a maintained snapshot of the PREVIOUS game version's field
 layouts, which this project doesn't keep (it only ever reads the
-CURRENTLY installed game). (Idea prompted by reviewing a other
+CURRENTLY installed game). (Idea prompted by reviewing another community
 open-source MHWilds mod fixer that does full field-level RSZ migration
 against maintained layout snapshots — worth the general approach, but
 that architecture trades away this project's "never goes stale, always
@@ -2026,7 +2026,7 @@ protection against this whole class of bug for every future mod).
 
 ## 21. RSZ registry type-precision upgrade (2026-08-09)
 
-After comparing this tool against the other another community fixer, the
+After comparing this tool against another community fixer, the
 user asked for two improvements: a more precise RSZ field type system
 (Resource/UserData/Object/String, not just "is this variable-length"), and
 a real field-level migration engine. This entry covers the first half.

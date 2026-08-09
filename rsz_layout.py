@@ -12,7 +12,7 @@ Registry: tools/rsz_fields_mhwilds.json.gz, built from the "current"
 (confirmed matching this project's live installed game build -- cross-
 checked via.render.Mesh's crc against a real donor file, 2026-08-08) version
 of a two-version snapshot (rszlayouts_MHWILDS.json.gz) taken from a
-community RE Engine modding toolkit ("another community fixer" by NSA Cloud/
+community RE Engine modding toolkit (by NSA Cloud/
 community contributors) that itself bakes from the REasy project's dumps.
 Per type key (typeIDHash, hex): {"n": name, "f": [[name, size, align,
 isArray, isVariable], ...]}, or {"fieldless": true} for a class confirmed to
@@ -670,8 +670,8 @@ def detect_and_convert(path: Path, half: str | None = None,
                         merge_with: dict | None = None) -> tuple[dict, str, dict]:
     """Returns (entries, default_label, stats) for any snapshot shape this
     project knows how to read: this project's own compact format, a raw
-    rszmhwilds.json-style community dump, or another community fixer's
-    two-version rszlayouts_MHWILDS.json.gz (pass half= for that one).
+    rszmhwilds.json-style community dump, or a community fixer's two-version
+    rszlayouts_MHWILDS.json.gz (pass half= for that one).
     Raises SnapshotError if the file matches none of them.
 
     `merge_with` (see `_bake_raw_dump()`'s own docstring for the full

@@ -812,7 +812,7 @@ def resolve_and_fix_avp_files(mod_root: Path, output_root: Path, log) -> dict:
 
 def _read_resource_strings(data: bytes) -> list[str]:
     """The PFB-level `ResourceInfo` table (see file_re_pfb.py, a real
-    working reference PFB parser found in another community tool's vendored
+    working reference PFB parser found in a community tool's vendored
     source) -- a flat manifest of every resource path this pfb depends
     on, entirely separate from the resource-path strings scattered inline
     through the RSZ instance data itself (see `_resource_strings()`/

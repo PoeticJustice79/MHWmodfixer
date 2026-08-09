@@ -24,7 +24,7 @@ list    Shows current, then every archived snapshot newest-first: label,
         how many typed classes.
 
 import  Installs a snapshot someone else shares -- this project's own
-        format, a raw community dump, or another community fixer's own
+        format, a raw community dump, or a community fixer's own
         two-version rszlayouts_MHWILDS.json.gz (pick a half with --half).
         --as archive stashes it without touching current at all. This is
         how a real historical registry gets acquired for a version this
