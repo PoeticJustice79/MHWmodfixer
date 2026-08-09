@@ -2796,3 +2796,96 @@ needed infrastructure (pak index, version lookup, path handling, parsers)
 already exists here, and the xlsx table can be baked into a bundled data
 file to power a compatibility-checked target-slot picker. Not yet built
 -- the two manual moves above are the validation groundwork.
+
+## 34. Shipped: "적용 방어구 변경" (Change Target Armor) -- the #33 recipe as a real feature (2026-08-09)
+
+Turned #33's two hand-verified moves into an actual opt-in tool feature.
+Three new pieces:
+
+- **`tools/bake_armor_slots.py`** -- one-time baker, converts the
+  community xlsx into `tools/armor_slots_ch03.json.gz` (180 slot-variants,
+  123 with a usable per-piece physics profile; the sheet's personal
+  mod-pack annotation columns are dropped, only objective data is kept).
+  A slot with no parseable per-piece data (accessory rows the sheet only
+  annotated `chain O`/`chain X`) gets `pieces: null` and is EXCLUDED from
+  automatic matching entirely -- never guessed at.
+- **`slot_retarget.py`** -- the actual logic, a direct code translation of
+  #33's verified recipe: `detect_mod_slot()` (regex over the mod's own
+  paths/filenames for `ch03/<set>/<variant>/`), `find_compatible_targets()`
+  (ranks every table slot by physics-profile match: `exact` / `partial`
+  [some target piece lacks `chain`] / `gpuc` [target piece has uneditable
+  GPU cloth -- always ranked worst, per the sheet's own explicit warning]),
+  `verify_target_vanilla()` (live-game completeness check per candidate --
+  every piece's mdf2/mesh/pfb + the avp), and `retarget_tree()`
+  (PART-level path/filename renaming only, `ch03_<src>_` -> `ch03_<dst>_`
+  and `<src>_<var>_avp` -> `<dst>_<var>_avp`, followed by a hard safety
+  scan that raises if ANY source-slot trace survives in the output tree
+  -- file CONTENT is never touched, matching #33's established recipe
+  exactly).
+- **GUI wiring** -- a `btn_retarget` button next to Settings in the main
+  window's top row (plus a ⓘ hover tooltip explaining the feature, via a
+  new small `_Tooltip` helper class), opening a **separate `Toplevel`
+  dialog** (`_open_retarget_dialog`), not a tab next to the repair flow.
+  User's own explicit call ("탭으로 분리하는거보다 따로 빼는게 일단은
+  안전해") -- the two features have unrelated workflows (batch-repair-many
+  vs pick-one-and-choose-a-target) and a tab risked visual confusion with
+  the main repair flow; a separate window is the safer, smaller-footprint
+  change. The dialog: file picker -> background-thread detection (same
+  `threading.Thread` + `win.after(0, ...)` cross-thread pattern already
+  used by the RSZ Snapshot dialog's GitHub-fetch) -> a `ttk.Treeview`
+  compatibility table (new to this codebase -- `_apply_theme()` gained
+  Treeview/Treeview.Heading style rules, color-tagged rows by grade:
+  green=exact, amber=partial, red=gpuc) -> live-verify the SELECTED target
+  only (not all 85+ candidates up front, for responsiveness) -> save.
+
+**Naming, decided directly with the user.** First considered a tab-bar
+design (see the artifact mockups from this session) with a raw "슬롯"
+label -- the user asked for something non-modders would understand:
+"기능 명칭을 더 직관적으로 바꿔야겠어." Settled on **"적용 방어구
+변경"/"Change Target Armor"** (describes the action in plain terms, no
+"slot" jargon) with a ⓘ tooltip carrying the fuller explanation, so the
+button label itself stays short.
+
+**Gender labeling, a real correctness fix caught before shipping.** The
+sheet's 번호2 (variant) column -- e.g. `000`/`001` -- looked like it might
+mean character gender directly, per the user: "번호2 컬럼에 000은 남성
+001은 여성이거든... 그냥 000 001로 표기해버리면 성별이 헷갈리니까."
+Checked this against the live game first rather than assuming the pattern
+holds: **both a `Armor/Male/<set>/<variant>/` and
+`Armor/Female/<set>/<variant>/` avp exist for every set/variant number**
+(both genders' character models ship separate art for every armor,
+independent of the variant number) -- so 번호2 is NOT the game's own
+male/female axis, and blindly labeling every variant ending in `0` as
+"male" would be wrong for the many single-variant accessory rows (e.g.
+`089/000` "깃 한 가닥 목걸이", a necklace -- not gendered at all). The
+real pattern, confirmed across every example checked (`041 000/001`,
+`030 600/601`, `017 300/301`, etc.): within the SAME armor set, a variant
+ending in `0` paired with a sibling ending in `1` (same leading digits)
+is that armor's male cut / female cut respectively. `bake_armor_slots.py`'s
+`_assign_genders()` implements exactly this -- pairs siblings within a
+set, labels both sides, and leaves any variant with no such sibling
+(every real accessory checked) unlabeled. `slot_retarget.gender_label()`
+renders it as 남성/여성 (ko) or Male/Female (en) wherever a slot is shown
+in the UI -- raw `000`/`001` numbers are never surfaced to the user
+directly, exactly the ask.
+
+**Verified end-to-end, not just at the module level.** Headless GUI
+smoke tests (a real `TkinterDnD.Tk()` root + `root.mainloop()`, since the
+cross-thread `Toplevel.after()` callback this dialog uses needs an
+actual running Tcl mainloop -- manual `update()` pumping alone raises
+`RuntimeError: main thread is not in main loop`) drove the REAL dialog
+code path: clicked "Choose...", waited for the background detection
+thread, confirmed the Treeview populated with 85 correctly-labeled
+candidates for TFD Bunny's `012/001` slot, then selected a target and
+clicked "Generate Relocated File" -- the resulting file was diffed
+byte-for-byte against an equivalent core-only `retarget_archive()` call
+and matched exactly. Also re-ran the standard SilverWolf/DoA regression
+suite (unaffected -- this feature is a wholly separate module, doesn't
+touch `auto_fix.py`/`slot_merge.py`/`pfb_fix.py` at all) plus both #33's
+original hand-verified Bifrost/Bunny relocations through the new
+`retarget_archive()` function and confirmed byte-identical output to
+those in-game-confirmed-working files. Not yet a fresh in-game test of
+the SHIPPED feature specifically (the underlying recipe already has two
+independent in-game confirmations from #33) -- if a future session ships
+a NEW relocation via this GUI, treat the first one as worth a quick
+in-game check same as any other new capability.

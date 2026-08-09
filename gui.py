@@ -113,7 +113,55 @@ def _apply_theme(root: tk.Tk) -> ttk.Style:
     style.map("TScrollbar", background=[("active", th["btn_hover"])])
     style.configure("TProgressbar", background=th["accent"], troughcolor=th["progress_track"],
                      bordercolor=th["border"], lightcolor=th["accent"], darkcolor=th["accent"])
+    style.configure("Treeview", background=th["input_bg"], fieldbackground=th["input_bg"],
+                     foreground=th["ink"], bordercolor=th["border"], rowheight=22)
+    style.map("Treeview", background=[("selected", th["accent"])],
+              foreground=[("selected", th["accent_ink"])])
+    style.configure("Treeview.Heading", background=th["surface_alt"], foreground=th["muted"],
+                     bordercolor=th["border"], relief="flat")
+    style.map("Treeview.Heading", background=[("active", th["surface_alt"])])
     return style
+
+
+class _Tooltip:
+    """A small delayed popup shown while hovering `widget`, its text
+    supplied by `text_fn()` (called fresh on each hover so it can react to
+    the current language). Used for the ⓘ info glyph next to
+    "적용 방어구 변경" -- that button's own label stays short per the
+    user's request, with the full explanation only a hover away."""
+
+    def __init__(self, widget, text_fn, wraplength=340):
+        self.widget = widget
+        self.text_fn = text_fn
+        self.wraplength = wraplength
+        self._tip = None
+        widget.bind("<Enter>", self._schedule)
+        widget.bind("<Leave>", self._hide)
+        self._after_id = None
+
+    def _schedule(self, _event=None):
+        self._after_id = self.widget.after(400, self._show)
+
+    def _show(self):
+        if self._tip is not None:
+            return
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._tip = tk.Toplevel(self.widget)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self._tip, text=self.text_fn(), justify="left", wraplength=self.wraplength,
+                 background=THEME["surface_alt"], foreground=THEME["ink"],
+                 borderwidth=1, relief="solid", padx=8, pady=6,
+                 font=("Segoe UI", 9)).pack()
+
+    def _hide(self, _event=None):
+        if self._after_id is not None:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
 
 
 def _log_tag_for(msg: str) -> str | None:
@@ -203,6 +251,13 @@ class App:
         self.btn_settings = ttk.Menubutton(top_frame, text=t("menu_settings"))
         self.btn_settings.pack(side="left")
         self._build_menubar()
+        # "적용 방어구 변경" entry point (opens a separate dialog -- kept out
+        # of the main repair flow on purpose; see _open_retarget_dialog).
+        self.btn_retarget = ttk.Button(top_frame, text=t("btn_retarget"), command=self._open_retarget_dialog)
+        self.btn_retarget.pack(side="left", padx=(8, 0))
+        self.lbl_retarget_info = ttk.Label(top_frame, text="ⓘ", foreground=THEME["accent"], cursor="question_arrow")
+        self.lbl_retarget_info.pack(side="left", padx=(4, 0))
+        _Tooltip(self.lbl_retarget_info, lambda: t("tip_retarget"))
         self.lbl_lang = ttk.Label(top_frame, text=t("lbl_lang"))
         self.lbl_lang.pack(side="right", padx=(6, 0))
         self.lang_combo = ttk.Combobox(
@@ -484,6 +539,174 @@ class App:
         btn_check = ttk.Button(btn_frame, text=t("btn_check_github"), command=do_check_github)
         btn_check.pack(side="left", padx=(6, 0))
         ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right")
+
+    def _open_retarget_dialog(self):
+        """'적용 방어구 변경' -- relocate a mod built for one ch03 armor
+        slot onto a different, physics-compatible slot (see slot_retarget.py
+        and CLAUDE.md #33 for the verified recipe/rationale). Deliberately a
+        separate Toplevel, not a tab next to the repair flow -- the two
+        features have unrelated workflows (batch-repair-many vs pick-one-
+        and-choose-a-target) and the user asked for them to stay visually
+        distinct rather than compete for the same screen."""
+        import slot_retarget
+
+        win = tk.Toplevel(self.root, bg=THEME["bg"])
+        win.title(t("dlg_retarget_title"))
+        win.geometry("640x560")
+        win.minsize(560, 420)
+        win.transient(self.root)
+
+        file_frame = ttk.Frame(win)
+        file_frame.pack(fill="x", padx=10, pady=10)
+        ttk.Label(file_frame, text=t("lbl_retarget_file")).pack(side="left")
+        file_var = StringVar(value="")
+        ttk.Entry(file_frame, textvariable=file_var, state="readonly").pack(
+            side="left", fill="x", expand=True, padx=6)
+        btn_pick = ttk.Button(file_frame, text=t("btn_choose_file"))
+        btn_pick.pack(side="left")
+
+        info_frame = ttk.LabelFrame(win, text=t("lbl_retarget_detected"))
+        info_frame.pack(fill="x", padx=10, pady=(0, 8))
+        info_label = ttk.Label(info_frame, text=t("msg_retarget_no_file"), justify="left", wraplength=580)
+        info_label.pack(anchor="w", padx=8, pady=6)
+
+        table_frame = ttk.Frame(win)
+        table_frame.pack(fill="both", expand=True, padx=10)
+        columns = ("slot", "name", "gender", "grade", "note")
+        tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=14, selectmode="browse")
+        for col, key, width in [("slot", "col_slot", 80), ("name", "col_armor", 110),
+                                 ("gender", "col_gender", 60), ("grade", "col_compat", 100),
+                                 ("note", "col_note", 240)]:
+            tree.heading(col, text=t(key))
+            tree.column(col, width=width, anchor="w")
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+        tree.tag_configure("exact", foreground=THEME["success"])
+        tree.tag_configure("partial", foreground=THEME["warn"])
+        tree.tag_configure("gpuc", foreground=THEME["danger"])
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        status_var = StringVar(value="")
+        ttk.Label(btn_frame, textvariable=status_var, foreground=THEME["muted"]).pack(side="left")
+        btn_generate = ttk.Button(btn_frame, text=t("btn_generate_retarget"), state="disabled")
+        btn_generate.pack(side="right")
+        ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right", padx=(0, 6))
+
+        state = {"mod_path": None, "info": None, "candidates": []}
+
+        def set_pick_busy(busy: bool):
+            btn_pick.configure(state="disabled" if busy else "normal")
+
+        def do_pick():
+            path = filedialog.askopenfilename(
+                title=t("dlg_choose_mod_archive"),
+                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
+                           (t("filetype_allfiles"), "*.*")],
+            )
+            if not path:
+                return
+            file_var.set(path)
+            tree.delete(*tree.get_children())
+            state["candidates"] = []
+            info_label.configure(text=t("msg_retarget_detecting"))
+            btn_generate.configure(state="disabled")
+            set_pick_busy(True)
+
+            def worker():
+                try:
+                    import tempfile
+                    from archive_extract import extract_archive
+                    work = Path(tempfile.mkdtemp(prefix="retarget_ui_"))
+                    try:
+                        mod_root = extract_archive(Path(path), work)
+                        result = slot_retarget.detect_mod_slot(mod_root)
+                    finally:
+                        shutil.rmtree(work, ignore_errors=True)
+                except Exception as exc:
+                    win.after(0, lambda: (info_label.configure(text=t("err_unhandled", e=exc)), set_pick_busy(False)))
+                    return
+                win.after(0, lambda: _on_detected(result))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _on_detected(result):
+            set_pick_busy(False)
+            if not isinstance(result, slot_retarget.ModSlotInfo):
+                found = ", ".join(result) if result else t("msg_retarget_no_slot_found")
+                info_label.configure(text=t("msg_retarget_ambiguous", found=found))
+                return
+            state["info"] = result
+            lang = i18n.get_language()
+            g = slot_retarget.gender_label(result.gender, lang)
+            info_label.configure(text=t(
+                "msg_retarget_detected", name=result.name, slot=result.key,
+                gender=(f" ({g})" if g else "")))
+            cands = slot_retarget.find_compatible_targets(result)
+            state["candidates"] = cands
+            grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
+            for c in cands:
+                note = ""
+                if c.lost_pieces:
+                    note = t("note_lost_physics", pieces=",".join(map(str, c.lost_pieces)))
+                elif c.gpuc_pieces:
+                    note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
+                gl = slot_retarget.gender_label(c.gender, lang)
+                tree.insert("", "end", iid=c.key, values=(c.key, c.name, gl, grade_text[c.grade], note),
+                            tags=(c.grade,))
+            if cands:
+                btn_generate.configure(state="normal")
+            else:
+                info_label.configure(text=info_label.cget("text") + "\n" + t("msg_retarget_no_targets"))
+
+        def do_generate():
+            sel = tree.selection()
+            info = state["info"]
+            if not sel or not info:
+                messagebox.showinfo(APP_TITLE, t("msg_retarget_select_target"), parent=win)
+                return
+            cand = next((c for c in state["candidates"] if c.key == sel[0]), None)
+            if not cand:
+                return
+            if not Path(self.game_dir.get()).is_dir():
+                messagebox.showerror(APP_TITLE, t("err_no_game_dir"), parent=win)
+                return
+            game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
+            ok, missing = slot_retarget.verify_target_vanilla(game, info, cand)
+            if not ok and not messagebox.askyesno(
+                    APP_TITLE, t("ask_retarget_unverified", missing=", ".join(missing)), parent=win):
+                return
+            src_stem = Path(file_var.get()).stem
+            out_path = filedialog.asksaveasfilename(
+                title=t("dlg_save_retarget"), defaultextension=".zip",
+                initialfile=f"{src_stem} ({cand.name}).zip",
+                filetypes=[(t("filetype_zip"), "*.zip")],
+            )
+            if not out_path:
+                return
+            btn_generate.configure(state="disabled")
+            btn_pick.configure(state="disabled")
+            status_var.set(t("msg_retarget_generating"))
+
+            def worker():
+                try:
+                    slot_retarget.retarget_archive(Path(file_var.get()), Path(out_path),
+                                                    cand.set_no, cand.variant, log=lambda s: None)
+                except Exception as exc:
+                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, t("err_unhandled", e=exc), parent=win),
+                                          status_var.set(""), btn_generate.configure(state="normal"),
+                                          btn_pick.configure(state="normal")))
+                    return
+                win.after(0, lambda: (status_var.set(""), btn_generate.configure(state="normal"),
+                                      btn_pick.configure(state="normal"),
+                                      messagebox.showinfo(APP_TITLE, t("msg_retarget_done", path=out_path), parent=win)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_pick.configure(command=do_pick)
+        btn_generate.configure(command=do_generate)
 
     def _browse_game_dir(self):
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))
