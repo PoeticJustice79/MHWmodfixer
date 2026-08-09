@@ -158,20 +158,26 @@ class App:
         self.btn_clear_all = ttk.Button(btn_frame, text=t("btn_clear_all"), command=self._clear_queue)
         self.btn_clear_all.pack(side="left")
 
-        options_frame = ttk.Frame(self.root)
-        options_frame.pack(fill="x", padx=10, pady=(0, 2))
+        self.options_frame = ttk.LabelFrame(self.root, text=t("lbl_experimental_options"))
+        self.options_frame.pack(fill="x", padx=10, pady=(4, 6))
+        row_frame = ttk.Frame(self.options_frame)
+        row_frame.pack(fill="x", padx=8, pady=(4, 0))
         self.chk_force_unresolved = ttk.Checkbutton(
-            options_frame, text=t("chk_force_unresolved"), variable=self.force_unresolved,
+            row_frame, text=t("chk_force_unresolved"), variable=self.force_unresolved,
         )
         self.chk_force_unresolved.pack(side="left")
         self.chk_preserve_extra = ttk.Checkbutton(
-            options_frame, text=t("chk_preserve_extra"), variable=self.preserve_extra,
+            row_frame, text=t("chk_preserve_extra"), variable=self.preserve_extra,
         )
-        self.chk_preserve_extra.pack(side="left", padx=(12, 0))
+        self.chk_preserve_extra.pack(side="left", padx=(14, 0))
         self.chk_shader_migration = ttk.Checkbutton(
-            options_frame, text=t("chk_shader_migration"), variable=self.shader_migration,
+            row_frame, text=t("chk_shader_migration"), variable=self.shader_migration,
         )
-        self.chk_shader_migration.pack(side="left", padx=(12, 0))
+        self.chk_shader_migration.pack(side="left", padx=(14, 0))
+        self.lbl_experimental_hint = ttk.Label(
+            self.options_frame, text=t("lbl_experimental_hint"), foreground="#a06000", font=("Segoe UI", 8),
+        )
+        self.lbl_experimental_hint.pack(anchor="w", padx=8, pady=(4, 6))
 
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
@@ -220,8 +226,11 @@ class App:
         self.btn_add_mod.configure(text=t("btn_add_mod"))
         self.btn_remove_selected.configure(text=t("btn_remove_selected"))
         self.btn_clear_all.configure(text=t("btn_clear_all"))
+        self.options_frame.configure(text=t("lbl_experimental_options"))
         self.chk_force_unresolved.configure(text=t("chk_force_unresolved"))
         self.chk_preserve_extra.configure(text=t("chk_preserve_extra"))
+        self.chk_shader_migration.configure(text=t("chk_shader_migration"))
+        self.lbl_experimental_hint.configure(text=t("lbl_experimental_hint"))
         self.start_btn.configure(text=t("btn_start"))
         self.btn_open_log.configure(text=t("btn_open_log_folder"))
         if self._busy:

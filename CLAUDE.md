@@ -2353,3 +2353,67 @@ renders correctly in that specific mod's case, only that it produces the
 same class of structurally-sound, field-preserving output the Bifrost
 case proved out. Ship it as available but explicitly label results from
 this option as unverified per-mod until someone confirms in-game.
+
+## 26. Shader migration confirmed to CRASH a real mod, plus overwhelming validation across a whole modding community (2026-08-09)
+
+**The crash.** The experimental TiNE Qipao build from #25 was tested
+in-game and crashed the game immediately on equipping the outfit -- not
+the earlier cosmetic bug, an actual hard crash. Isolated cleanly: the
+prior gpbf-only build (no shader migration) did NOT crash under the exact
+same sub-option combination (Body default etc.) -- shader migration
+itself is the trigger, confirmed by direct A/B with everything else held
+constant.
+
+**Ruled out the obvious suspects.** The donor Qipao's materials migrated
+against (`m_0012_UseSC` from `ch02/001/001/2/ch02_001_0012.mdf2.45`) is
+the EXACT SAME donor 3 of Bifrost's 5 real, in-game-verified-working
+materials used -- so the donor/its texture values aren't inherently
+unsafe. Both Bifrost and Qipao ship zero `.pfb` files of their own (both
+reuse an existing vanilla mesh/pfb unchanged), so "custom mesh vs texture
+reskin" isn't the differentiator either. `mesh_mdf2_mismatches: 0` for
+the migrated build, so mesh/mdf2 material-count-and-name consistency
+holds too.
+
+**User's own catch: TiNE's Qipao is NOT part of the Chinese modding
+community whose 17 mods (item #24/#25's `SHADER_MIGRATION_MAP` source)
+all independently converged on `Base_Equip_Fur.mmtr` -> `Base_Equip.mmtr`.**
+Different author, near-certainly a different build pipeline/toolchain.
+Ran the same field-level validation used for Bifrost against the other 16
+Chinese-community mods' real author-provided fixes (source files obtained
+directly from the modder, `C:\Users\User\Desktop\Chinese\source\`):
+**72 materials across 16 mods, 100% texture-slot-set match and 100%
+prop-name-set match against the real fix, every single one** -- combined
+with Bifrost's own in-game confirmation, that's 17/17 real mods from this
+specific community matching perfectly. Leading (unconfirmed) hypothesis
+for why Qipao specifically differs: it reuses the vanilla "Chain" armor's
+existing mesh unchanged, and the migration's new `Detail_*` texture
+layer may need a secondary UV channel that mesh doesn't have -- but this
+is speculation, not verified; the real lesson is that structural
+correctness (proven exhaustively) does NOT guarantee in-game safety for a
+mod outside the specific pipeline this was validated against, echoing the
+Mask Bikini/`_transplant_reshaped()` lesson from #18 (static analysis has
+a hard ceiling; some failures only show up live).
+
+**Decision, discussed directly with the user**: do NOT make
+`experimental_shader_migration` default-on. It stays exactly what it's
+named -- an opt-in experimental checkbox, same posture as
+`preserve_extra_pfb_components`/`force_unresolved_pfbs`, now with a
+CONFIRMED real crash on its record (not just a theoretical risk like the
+other two currently carry). Safe-to-recommend scope, as of this entry: the
+17 Chinese-community mods with independently-verified-matching real
+fixes. Outside that specific pool (Qipao, or any unvalidated mod), this
+option is a known crash risk, not a safe default assumption.
+
+**UI**: the three experimental checkboxes were an unlabeled row that kept
+growing (this is the 3rd). Regrouped into a `ttk.LabelFrame` ("⚠
+Experimental options") with a shared warning line underneath
+("verify in-game, some options confirmed to crash on certain mods") --
+each checkbox's own label dropped the now-redundant "Experimental:"
+prefix (shorter, and the group heading already says it once). Also added
+a per-material `[warn]` log line specifically for shader migration
+(referencing this real crash) whenever it actually fires, matching this
+project's established pattern of naming the specific risk in the log at
+the moment a risky path is taken (see `_transplant_reshaped()`'s own
+"experimental option, verify in-game" line) -- fixed in both
+`auto_fix.py` (loose files) and `pak_mod_fix.py` (materials inside a
+mod's own `.pak`).

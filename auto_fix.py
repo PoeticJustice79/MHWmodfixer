@@ -440,6 +440,10 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
                     continue
                 log(f"    material {mp.mod_mat['name']!r} -> donor {mp.donor_blob['name']!r} "
                     f"from {mp.donor_src!r} ({mp.match_kind})")
+                if mp.match_kind.startswith("shader migration"):
+                    log(f"    [warn] material {mp.mod_mat['name']!r}: rebuilt under a different shader "
+                        f"entirely -- experimental, confirmed to crash on at least one real mod "
+                        f"(CLAUDE.md #25/#26); verify this exact piece in-game before trusting it")
                 new_mat, changed = apply_texture_overrides(mp.donor_blob, mp.mod_mat, log)
                 rebuilt.append(new_mat)
                 total_changed += changed
