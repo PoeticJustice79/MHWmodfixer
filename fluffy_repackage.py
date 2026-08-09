@@ -150,8 +150,8 @@ def repackage_for_fluffy(mod_root: Path, log=lambda s: None) -> bool:
     base_name = main_info.get("NameAsBundle", main_info.get("name", main_folder.name)).strip()
     bundle_name = main_info.get("NameAsBundle", base_name)
 
-    log(f"[fluffy 재포장] '{mod_root.name}'을(를) 여러 옵션 선택 구조로 재포장합니다 "
-        f"(번들명={bundle_name!r}, 부가 구성요소 {len(extras)}개 발견)")
+    log(f"[fluffy repackage] restructuring '{mod_root.name}' into a multi-page install "
+        f"(bundle={bundle_name!r}, {len(extras)} extra piece(s) found)")
 
     new_main_name = f"0. {base_name} - Main File"
     new_main_path = mod_root / new_main_name
@@ -183,7 +183,7 @@ def repackage_for_fluffy(mod_root: Path, log=lambda s: None) -> bool:
             shutil.copy2(screenshot_src, page_path / screenshot_name)
             page_info["screenshot"] = screenshot_name
         _write_modinfo(page_path / MODINFO_NAME, page_info)
-        log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (신규 modinfo.ini 생성)")
+        log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (new modinfo.ini generated)")
 
     return True
 
@@ -234,9 +234,9 @@ def _wrap_loose_extras_only(mod_root: Path, folders: list[Path], extras: list[Pa
     screenshot_bytes = screenshot_src.read_bytes() if screenshot_src.is_file() else None
 
     if _is_mangie_mod(anchor_info):
-        log(f"[fluffy 재포장] '{mod_root.name}'은(는) Mangie 모드로 인식됩니다 -- 옵션 화면에 뜨지 않는 "
-            f"개별 파일 {len(extras)}개를 포함해 전체 페이지를 0번부터 다시 정리합니다 "
-            f"(번들명={bundle_name!r})")
+        log(f"[fluffy repackage] '{mod_root.name}' recognized as a Mangie mod -- "
+            f"renumbering all pages from 0, including {len(extras)} extra piece(s) that "
+            f"weren't showing up as install options (bundle={bundle_name!r})")
         textures = [e for e in extras if _derive_suffix(e.name, base_name).lower() == "textures"]
         other_extras = [e for e in extras if e not in textures]
         ordered_folders = [(folders[0], _read_modinfo(folders[0] / MODINFO_NAME))] + \
@@ -257,7 +257,7 @@ def _wrap_loose_extras_only(mod_root: Path, folders: list[Path], extras: list[Pa
                 info["name"] = page_name
                 info["NameAsBundle"] = bundle_name
                 _write_modinfo(new_path / MODINFO_NAME, info)
-                log(f"    '{folder.name}' -> '{page_name}' (기존 페이지, 이름만 재정렬)")
+                log(f"    '{folder.name}' -> '{page_name}' (existing page, renumbered only)")
             else:
                 extra = item
                 suffix = _derive_suffix(extra.name, base_name)
@@ -274,14 +274,15 @@ def _wrap_loose_extras_only(mod_root: Path, folders: list[Path], extras: list[Pa
                     (page_path / screenshot_name).write_bytes(screenshot_bytes)
                     page_info["screenshot"] = screenshot_name
                 _write_modinfo(page_path / MODINFO_NAME, page_info)
-                log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (신규 modinfo.ini 생성)")
+                log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (new modinfo.ini generated)")
         return True
 
     existing_names = [_read_modinfo(f / MODINFO_NAME).get("name", f.name) for f in folders]
     start_num, width = _next_page_number(existing_names)
 
-    log(f"[fluffy 재포장] '{mod_root.name}'에 옵션 화면에 뜨지 않는 개별 파일 {len(extras)}개가 있어 "
-        f"새 페이지로 감쌉니다 (기존 페이지 {len(folders)}개는 그대로 유지, 번들명={bundle_name!r})")
+    log(f"[fluffy repackage] '{mod_root.name}' has {len(extras)} extra piece(s) not showing up "
+        f"as install options -- wrapping them into new pages ({len(folders)} existing page(s) "
+        f"left untouched, bundle={bundle_name!r})")
 
     for i, extra in enumerate(extras, start=start_num):
         suffix = _derive_suffix(extra.name, base_name)
@@ -302,6 +303,6 @@ def _wrap_loose_extras_only(mod_root: Path, folders: list[Path], extras: list[Pa
             shutil.copy2(screenshot_src, page_path / screenshot_name)
             page_info["screenshot"] = screenshot_name
         _write_modinfo(page_path / MODINFO_NAME, page_info)
-        log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (신규 modinfo.ini 생성)")
+        log(f"    '{extra.name}' -> '{page_name}/{extra.name}' (new modinfo.ini generated)")
 
     return True
