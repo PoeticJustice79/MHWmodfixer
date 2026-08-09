@@ -233,6 +233,41 @@ def find_donor_for_material(
 
         return exact_name[1], exact_name[0], "own-file exact name"
 
+    # EXACT-mmtr tiers first, across ALL scopes, before any variant-tolerant
+    # tier gets a chance -- the no-exact-name-donor twin of #16's fix,
+    # confirmed real the hard way (DOA "Rachel", 2026-08-09, GAME CRASH):
+    # that mod's materials use `Base_Equip.mmtr` (fully alive game-wide,
+    # 310 users) but have no same-named vanilla counterpart, so the old
+    # tier order went straight to the own-file VARIANT-tolerant match --
+    # the current vanilla file for that slot only carries the narrower
+    # `_NoMultiBlend` sibling, so the rebuild silently DOWNGRADED the
+    # material's own shader (mmtr comes from the donor by design, see
+    # apply_texture_overrides()) and stripped its MultiBlend slots/props.
+    # The author's own working update proves the correct fix: keep
+    # `Base_Equip.mmtr`, just refresh the prop set to current. A wider-
+    # scope donor with the RIGHT shader beats a nearby donor with the
+    # wrong one; variant tolerance below remains only for the case where
+    # the mod's exact mmtr has genuinely no live user anywhere (a
+    # retired/split shader, _mmtr_variants()' original purpose).
+    same_mmtr_exact = [(src, b) for src, b in own_pool if b["mmtr_path"] == own_mmtr]
+    picked = _pick_best(same_mmtr_exact, mod_mat, log)
+    if picked:
+        return picked[1], picked[0], "own-file exact mmtr"
+
+    if allow_cross_piece:
+        global_exact = [(src, b) for src, b in global_pool if b["mmtr_path"] == own_mmtr]
+        picked = _pick_best(global_exact, mod_mat, log, category_hint=category_hint)
+        if picked:
+            return picked[1], picked[0], "cross-piece exact mmtr"
+
+    if whole_game_lookup is not None:
+        hits = whole_game_lookup(own_mmtr)
+        picked = _pick_best(hits, mod_mat, log, category_hint=category_hint)
+        if picked:
+            log(f"    [info] material {mod_mat['name']!r}: no exact-shader donor in this mod or its "
+                f"equipment set -- borrowed from elsewhere in the game ({picked[0]!r})")
+            return picked[1], picked[0], "whole-game exact mmtr"
+
     mmtr_variants = _mmtr_variants(own_mmtr)
 
     same_mmtr = [(src, b) for src, b in own_pool if b["mmtr_path"] in mmtr_variants]

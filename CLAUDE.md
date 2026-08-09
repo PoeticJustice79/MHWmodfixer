@@ -2668,3 +2668,49 @@ the original white-texture/missing-wings report needed the retired-shader
 migration (#24/#25), the helm hair bleed needed BOTH #29's mask fix AND
 this reversal -- and the avp rewrite (#19) turned out to be a bug this
 project itself introduced along the way, not part of any fix.
+
+## 31. DOA "Rachel" CRASH: variant-tolerant donor tier silently downgraded a living shader -- exact-mmtr tiers now run first across all scopes (2026-08-09)
+
+Real report with a perfect three-way test set (user supplied broken
+original + our tool's output + the author's own working update): our
+output crashed the game on equip. Three-way diff isolated it immediately:
+every affected material uses `Base_Equip.mmtr` (fully alive, 310 users
+game-wide), the author's working fix KEEPS that shader and just refreshes
+the prop set (25 tex/187 props -> 25/191), while our output had
+DOWNGRADED the material's shader itself to `Base_Equip_NoMultiBlend.mmtr`
+(23 tex/176 props) -- and inconsistently: in the same 0015 file, 'cage'
+happened to find an exact-mmtr donor (correct 25/191 result) while its
+two sibling materials got the downgrade.
+
+**Root cause -- the no-exact-name blind spot of #16's fix.** #16 only
+covered the case where a SAME-NAMED vanilla donor exists with a different
+mmtr; Rachel's materials have no same-named vanilla counterpart at all,
+so donor resolution went straight to the own-file VARIANT-tolerant mmtr
+tier -- and this slot's current vanilla file only carries the narrower
+`_NoMultiBlend` sibling, which `apply_texture_overrides()` then (by
+design -- mmtr comes from the donor) wrote in as the material's new
+shader, stripping its MultiBlend slots/props.
+
+**Fix**: `find_donor_for_material()` now runs EXACT-mmtr tiers across
+all three scopes (own-file -> cross-piece -> whole-game) BEFORE any
+variant-tolerant tier. A wider-scope donor with the right shader beats a
+nearby donor with the wrong one; variant tolerance remains strictly a
+last resort for a shader with genuinely zero live users anywhere (its
+original retired/split-shader purpose).
+
+Ripple effects, all inspected rather than assumed: SilverWolf and
+DoA_Raise_the_Sail's regression stats shifted slightly (29->24 and
+206->208 textures_restored) -- traced each donor change and they were the
+SAME latent downgrade bug being fixed in those mods too (e.g.
+SilverWolf's 'sw' materials had been silently matching NoMultiBlend
+variants all along); zero errors, zero unresolved. The author's new
+Bifrost now comes back fully `already_current=7, fixed=0` (previously
+one material was still being pointlessly rebuilt). Rachel's rebuild now
+matches the author's own fix shape exactly (every material Base_Equip
+25/191, `DOA - Rachel (fixed v2).zip`) -- awaiting in-game confirmation.
+
+Running tally of the "differs from vanilla convention is not a defect"
+lesson (#24 staleness direction, #30 avp, now #31 shader variants): all
+three of this project's self-inflicted bugs this session came from
+trusting the nearest vanilla structure over the mod's own still-valid
+choices.
