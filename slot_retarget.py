@@ -79,16 +79,19 @@ def gender_label(gender: str | None, lang: str = "ko") -> str:
     return _GENDER_LABEL[gender].get(lang, _GENDER_LABEL[gender]["en"])
 
 
-def armor_name(name_ko: str, name_en: str | None, lang: str = "ko") -> str:
+def armor_name(name_ko: str, names: dict | None, lang: str = "ko") -> str:
     """UI-facing armor/set name -- Korean for a Korean UI, otherwise the
-    English name when this project could confidently resolve one (see
-    bake_armor_slots.py's NAME_EN_OVERRIDES), falling back to the Korean
-    name when it couldn't. Per the user, ja/zh_tw/zh_cn intentionally
-    share the English fallback rather than getting their own translation
-    -- not worth building without a source to verify against."""
-    if lang != "ko" and name_en:
-        return name_en
-    return name_ko
+    game's own localized name for the current UI language when this
+    project could resolve one (see bake_armor_slots.py -- most names are
+    read directly from the game's own ArmorSeries.msg localization data,
+    covering en/ja/zh_tw/zh_cn all with real per-language text; a handful
+    of accessory items outside that file's coverage have an English-only
+    manually-confirmed name instead). Falls back to English, then to the
+    Korean name, when the requested language specifically isn't
+    available for an entry -- never blank."""
+    if lang == "ko" or not names:
+        return name_ko
+    return names.get(lang) or names.get("en") or name_ko
 
 
 @dataclass
@@ -98,7 +101,7 @@ class ModSlotInfo:
     pieces_shipped: set[int]           # piece numbers (1..6) the mod ships model files for
     files: list[Path] = field(default_factory=list)  # every file in the mod root (for relocation)
     name: str = "?"
-    name_en: str | None = None         # see armor_name()
+    names: dict = field(default_factory=dict)   # see armor_name()
     gender: str | None = None          # "male" | "female" | None (see gender_label())
 
     @property
@@ -134,10 +137,10 @@ def detect_mod_slot(mod_root: Path) -> ModSlotInfo | list[str]:
             pieces.add(int(m.group(1)))
     table_entry = slot_table().get(f"{set_no}/{variant}")
     name = table_entry["name"] if table_entry else "?"
-    name_en = table_entry.get("name_en") if table_entry else None
+    names = table_entry.get("names", {}) if table_entry else {}
     gender = table_entry["gender"] if table_entry else None
     return ModSlotInfo(set_no=set_no, variant=variant, pieces_shipped=pieces, files=files,
-                        name=name, name_en=name_en, gender=gender)
+                        name=name, names=names, gender=gender)
 
 
 @dataclass
@@ -147,7 +150,7 @@ class TargetCandidate:
     variant: str
     name: str
     grade: str        # "exact" | "partial" | "gpuc"
-    name_en: str | None = None    # see armor_name()
+    names: dict = field(default_factory=dict)    # see armor_name()
     gender: str | None = None     # "male" | "female" | None -- see gender_label()
     lost_pieces: list[int] = field(default_factory=list)   # pieces whose chain physics would die
     gpuc_pieces: list[int] = field(default_factory=list)   # target pieces carrying uneditable GPU cloth
@@ -184,7 +187,7 @@ def find_compatible_targets(source: ModSlotInfo) -> list[TargetCandidate]:
         grade = "gpuc" if gpuc else ("partial" if lost else "exact")
         out.append(TargetCandidate(
             key=key, set_no=cand["set"], variant=cand["variant"], name=cand["name"],
-            grade=grade, name_en=cand.get("name_en"), gender=cand.get("gender"),
+            grade=grade, names=cand.get("names", {}), gender=cand.get("gender"),
             lost_pieces=lost, gpuc_pieces=gpuc,
             cross_variant=(cand["variant"] != source.variant),
         ))
@@ -312,7 +315,7 @@ class ModSlotGroup:
     pieces_shipped: set[int]
     files: list[Path] = field(default_factory=list)
     name: str = "?"
-    name_en: str | None = None
+    names: dict = field(default_factory=dict)
     gender: str | None = None
 
     @property
@@ -357,7 +360,7 @@ def detect_mod_slots(mod_root: Path) -> tuple[list[ModSlotGroup], list[Path]]:
         entry = table.get(f"{set_no}/{variant}")
         groups.append(ModSlotGroup(
             set_no=set_no, variant=variant, pieces_shipped=pieces, files=files,
-            name=entry["name"] if entry else "?", name_en=entry.get("name_en") if entry else None,
+            name=entry["name"] if entry else "?", names=entry.get("names", {}) if entry else {},
             gender=entry["gender"] if entry else None,
         ))
     groups.sort(key=lambda g: (-len(g.files), g.set_no, g.variant))

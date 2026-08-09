@@ -653,7 +653,7 @@ class App:
                 return t("status_unchanged"), "done"
             dst_key = f"{dst[0]}/{dst[1]}"
             dst_entry = table.get(dst_key, {})
-            dst_name = slot_retarget.armor_name(dst_entry.get("name", "?"), dst_entry.get("name_en"), lang)
+            dst_name = slot_retarget.armor_name(dst_entry.get("name", "?"), dst_entry.get("names", {}), lang)
             return t("status_target", name=dst_name, slot=dst_key), "done"
 
         def _refresh_slot_row(key):
@@ -708,7 +708,7 @@ class App:
             lang = i18n.get_language()
             for g in groups:
                 gl = slot_retarget.gender_label(g.gender, lang)
-                gname = slot_retarget.armor_name(g.name, g.name_en, lang)
+                gname = slot_retarget.armor_name(g.name, g.names, lang)
                 slot_tree.insert("", "end", iid=g.key,
                                   values=(g.key, gname, gl, len(g.files), t("status_pending")),
                                   tags=("pending",))
@@ -733,7 +733,7 @@ class App:
                 elif c.gpuc_pieces:
                     note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
                 gl = slot_retarget.gender_label(c.gender, lang)
-                cname = slot_retarget.armor_name(c.name, c.name_en, lang)
+                cname = slot_retarget.armor_name(c.name, c.names, lang)
                 cand_tree.insert("", "end", iid=c.key, values=(c.key, cname, gl, grade_text[c.grade], note),
                                   tags=(c.grade,))
             btn_apply.configure(state="normal" if cands else "disabled")
