@@ -206,6 +206,7 @@ class App:
         self.shader_migration = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
         self._retarget_refresh_fn = None  # set while the retarget dialog is open, see _open_retarget_dialog()
+        self._snapshot_refresh_fn = None  # set while the RSZ snapshot dialog is open, see _open_snapshot_dialog()
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._main_thread_queue: queue.Queue[tuple] = queue.Queue()
@@ -409,6 +410,8 @@ class App:
             self.status.set(t("status_default"))
         if self._retarget_refresh_fn is not None:
             self._retarget_refresh_fn()
+        if self._snapshot_refresh_fn is not None:
+            self._snapshot_refresh_fn()
 
     def _open_log_folder(self):
         try:
@@ -547,7 +550,30 @@ class App:
         btn_import.pack(side="left")
         btn_check = ttk.Button(btn_frame, text=t("btn_check_github"), command=do_check_github)
         btn_check.pack(side="left", padx=(6, 0))
-        ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right")
+        btn_close = ttk.Button(btn_frame, text=t("btn_close"))
+        btn_close.pack(side="right")
+
+        def on_close():
+            self._snapshot_refresh_fn = None
+            win.destroy()
+
+        btn_close.configure(command=on_close)
+        win.protocol("WM_DELETE_WINDOW", on_close)
+
+        def refresh_texts():
+            """Same pattern as _open_retarget_dialog()'s own refresh hook
+            -- this dialog's widgets are all built once, outside
+            _retranslate()'s reach, so without this a language switch
+            while the dialog is open left it frozen in the old language
+            (confirmed directly by the user, same symptom as the
+            retarget dialog before that fix)."""
+            win.title(t("dlg_snapshot_title"))
+            btn_import.configure(text=t("btn_import_snapshot"))
+            btn_check.configure(text=t("btn_check_github"))
+            btn_close.configure(text=t("btn_close"))
+            refresh()  # already re-renders info_text's body via fresh t() calls
+
+        self._snapshot_refresh_fn = refresh_texts
 
     def _open_retarget_dialog(self):
         """'적용 방어구 변경' -- relocate a mod built for one or more ch03/

@@ -283,45 +283,93 @@ _STRINGS = {
               "このようなパスでは一部のツール（アーカイブ展開など）が正しく動作しないことがあります。"
               "できるだけ英数字のみのパス（例：C:\\MHWmodfixer）に移動してご利用ください。",
     },
-    "menu_settings": {"ko": "설정", "en": "Settings"},
-    "menu_dev_options": {"ko": "개발자 옵션", "en": "Developer Options"},
-    "menu_rsz_snapshot": {"ko": "RSZ 스냅샷...", "en": "RSZ Snapshot..."},
-    "dlg_snapshot_title": {"ko": "RSZ 스냅샷 관리", "en": "RSZ Snapshot Manager"},
-    "snap_role_current": {"ko": "현재판", "en": "Current"},
-    "snap_role_archived": {"ko": "보관됨", "en": "Archived"},
-    "snap_not_present": {"ko": "(없음)", "en": "(not present)"},
-    "snap_label": {"ko": "라벨", "en": "Label"},
-    "snap_game_date": {"ko": "게임 업데이트 날짜", "en": "Game update date"},
-    "snap_baked_at": {"ko": "생성 날짜", "en": "Baked at"},
-    "snap_type_count": {"ko": "타입 개수", "en": "Types"},
+    "menu_settings": {
+        "ko": "설정", "en": "Settings", "zh_tw": "設定", "zh_cn": "设置", "ja": "設定",
+    },
+    "menu_dev_options": {
+        "ko": "개발자 옵션", "en": "Developer Options",
+        "zh_tw": "開發者選項", "zh_cn": "开发者选项", "ja": "開発者オプション",
+    },
+    "menu_rsz_snapshot": {
+        "ko": "RSZ 스냅샷...", "en": "RSZ Snapshot...",
+        "zh_tw": "RSZ 快照...", "zh_cn": "RSZ 快照...", "ja": "RSZスナップショット...",
+    },
+    "dlg_snapshot_title": {
+        "ko": "RSZ 스냅샷 관리", "en": "RSZ Snapshot Manager",
+        "zh_tw": "RSZ 快照管理", "zh_cn": "RSZ 快照管理", "ja": "RSZスナップショット管理",
+    },
+    "snap_role_current": {
+        "ko": "현재판", "en": "Current", "zh_tw": "目前版本", "zh_cn": "当前版本", "ja": "現行版",
+    },
+    "snap_role_archived": {
+        "ko": "보관됨", "en": "Archived", "zh_tw": "已封存", "zh_cn": "已归档", "ja": "アーカイブ済み",
+    },
+    "snap_not_present": {
+        "ko": "(없음)", "en": "(not present)", "zh_tw": "（不存在）", "zh_cn": "（不存在）", "ja": "（なし）",
+    },
+    "snap_label": {"ko": "라벨", "en": "Label", "zh_tw": "標籤", "zh_cn": "标签", "ja": "ラベル"},
+    "snap_game_date": {
+        "ko": "게임 업데이트 날짜", "en": "Game update date",
+        "zh_tw": "遊戲更新日期", "zh_cn": "游戏更新日期", "ja": "ゲームアップデート日",
+    },
+    "snap_baked_at": {
+        "ko": "생성 날짜", "en": "Baked at", "zh_tw": "生成日期", "zh_cn": "生成日期", "ja": "作成日",
+    },
+    "snap_type_count": {
+        "ko": "타입 개수", "en": "Types", "zh_tw": "類型數量", "zh_cn": "类型数量", "ja": "タイプ数",
+    },
     "dlg_choose_snapshot": {
         "ko": "스냅샷 파일 선택 (.json.gz)", "en": "Select a snapshot file (.json.gz)",
+        "zh_tw": "選擇快照檔案（.json.gz）", "zh_cn": "选择快照文件（.json.gz）",
+        "ja": "スナップショットファイルを選択（.json.gz）",
     },
-    "filetype_snapshot": {"ko": "RSZ 스냅샷", "en": "RSZ snapshot"},
-    "btn_import_snapshot": {"ko": "스냅샷 가져오기...", "en": "Import snapshot..."},
+    "filetype_snapshot": {
+        "ko": "RSZ 스냅샷", "en": "RSZ snapshot",
+        "zh_tw": "RSZ 快照", "zh_cn": "RSZ 快照", "ja": "RSZスナップショット",
+    },
+    "btn_import_snapshot": {
+        "ko": "스냅샷 가져오기...", "en": "Import snapshot...",
+        "zh_tw": "匯入快照...", "zh_cn": "导入快照...", "ja": "スナップショットを読み込み...",
+    },
     "btn_close": {"ko": "닫기", "en": "Close", "zh_tw": "關閉", "zh_cn": "关闭", "ja": "閉じる"},
     "ask_snapshot_role": {
         "ko": "이 스냅샷을 \"현재판\"으로 설치할까요?\n\n예: 현재판으로 설치 (실제 검증에 사용됨, 기존 현재판은 자동으로 보관됨)\n아니오: 보관만 함 (참고용, 아직 실제 검증에는 쓰이지 않음)",
         "en": "Install this snapshot as \"current\"?\n\nYes: install as current (actually used for verification; whatever was current is automatically archived)\nNo: just archive it (reference only, not used for verification yet)",
+        "zh_tw": "要將此快照安裝為「目前版本」嗎？\n\n是：安裝為目前版本（實際用於驗證，現有的目前版本會自動封存）\n否：僅封存（僅供參考，尚不用於驗證）",
+        "zh_cn": "要将此快照安装为「当前版本」吗？\n\n是：安装为当前版本（实际用于验证，现有的当前版本会自动归档）\n否：仅归档（仅供参考，尚不用于验证）",
+        "ja": "このスナップショットを「現行版」としてインストールしますか？\n\nはい：現行版としてインストール（実際の検証に使用され、既存の現行版は自動的にアーカイブされます）\nいいえ：アーカイブのみ（参考用、まだ検証には使用されません）",
     },
     "msg_snapshot_installed": {
         "ko": "설치 완료: {count}개 타입, 라벨 \"{label}\"",
         "en": "Installed: {count} types, label \"{label}\"",
+        "zh_tw": "安裝完成：{count} 個類型，標籤「{label}」",
+        "zh_cn": "安装完成：{count} 个类型，标签「{label}」",
+        "ja": "インストール完了：{count}タイプ、ラベル「{label}」",
     },
     "msg_snapshot_merge_stats": {
         "ko": "\n\n기존 레지스트리를 덮어쓰지 않고 보강했습니다: {corrected}개 타입 보정, "
               "{added}개 새 타입 추가, {shape_mismatches}개는 모양이 안 맞아 기존 값 그대로 유지.",
         "en": "\n\nMerged into the existing registry instead of overwriting it: {corrected} type(s) "
               "corrected, {added} new type(s) added, {shape_mismatches} left unchanged (shape mismatch).",
+        "zh_tw": "\n\n已合併至現有登錄檔而非覆寫：修正 {corrected} 個類型，新增 {added} 個新類型，"
+                 "{shape_mismatches} 個因結構不符而保持原值。",
+        "zh_cn": "\n\n已合并至现有注册表而非覆写：修正 {corrected} 个类型，新增 {added} 个新类型，"
+                 "{shape_mismatches} 个因结构不符而保持原值。",
+        "ja": "\n\n既存のレジストリを上書きせずマージしました：{corrected}タイプ補正、"
+              "{added}個の新規タイプ追加、{shape_mismatches}個は形状不一致のため変更なし。",
     },
     "err_snapshot_import": {
         "ko": "스냅샷을 설치하지 못했습니다:\n{e}", "en": "Couldn't install the snapshot:\n{e}",
+        "zh_tw": "無法安裝快照：\n{e}", "zh_cn": "无法安装快照：\n{e}", "ja": "スナップショットをインストールできませんでした：\n{e}",
     },
     "btn_check_github": {
         "ko": "GitHub에서 최신 데이터 확인...", "en": "Check GitHub for latest data...",
+        "zh_tw": "從 GitHub 檢查最新資料...", "zh_cn": "从 GitHub 检查最新数据...",
+        "ja": "GitHubで最新データを確認...",
     },
     "progress_phase_downloading_rsz": {
         "ko": "RSZ 데이터 다운로드 중", "en": "Downloading RSZ data",
+        "zh_tw": "正在下載 RSZ 資料", "zh_cn": "正在下载 RSZ 数据", "ja": "RSZデータをダウンロード中",
     },
     "ask_confirm_download": {
         "ko": "REasy 프로젝트(github.com/seifhassine/REasy)에서 최신 RSZ 타입 데이터(~100MB)를 "
@@ -330,25 +378,49 @@ _STRINGS = {
         "en": "This downloads the latest RSZ type data (~100MB) from the REasy project "
               "(github.com/seifhassine/REasy) and installs it as \"current\". The existing "
               "current snapshot is automatically kept as \"previous\". Continue?",
+        "zh_tw": "這將從 REasy 專案（github.com/seifhassine/REasy）下載最新的 RSZ 類型資料"
+                 "（約 100MB）並安裝為「目前版本」。現有的目前版本會自動保留為「前一版」。要繼續嗎？",
+        "zh_cn": "这将从 REasy 项目（github.com/seifhassine/REasy）下载最新的 RSZ 类型数据"
+                 "（约 100MB）并安装为「当前版本」。现有的当前版本会自动保留为「上一版」。要继续吗？",
+        "ja": "REasyプロジェクト（github.com/seifhassine/REasy）から最新のRSZタイプデータ"
+              "（約100MB）をダウンロードし、「現行版」としてインストールします。既存の現行版は"
+              "自動的に「前版」として保存されます。続行しますか？",
     },
     "msg_snapshot_verify_ok": {
         "ko": "\n\n실제 게임 파일로 검증: 통과 (이 스냅샷이 현재 설치된 게임 버전과 일치함을 확인)",
         "en": "\n\nVerified against a real game file: passed (confirmed this snapshot matches your installed game version)",
+        "zh_tw": "\n\n以實際遊戲檔案驗證：通過（已確認此快照與目前安裝的遊戲版本相符）",
+        "zh_cn": "\n\n以实际游戏文件验证：通过（已确认此快照与当前安装的游戏版本相符）",
+        "ja": "\n\n実際のゲームファイルで検証：合格（このスナップショットが現在インストールされている"
+              "ゲームバージョンと一致することを確認）",
     },
     "msg_snapshot_verify_fail": {
         "ko": "\n\n⚠ 실제 게임 파일로 검증: 불일치 -- 이 스냅샷이 현재 설치된 게임 버전과 안 맞을 "
               "수 있습니다. 이전판으로 되돌리는 것을 고려하세요.",
         "en": "\n\n⚠ Verified against a real game file: MISMATCH -- this snapshot may not match "
               "your installed game version. Consider reverting to the previous snapshot.",
+        "zh_tw": "\n\n⚠ 以實際遊戲檔案驗證：不相符 -- 此快照可能與目前安裝的遊戲版本不符。"
+                 "請考慮還原至前一版。",
+        "zh_cn": "\n\n⚠ 以实际游戏文件验证：不相符 -- 此快照可能与当前安装的游戏版本不符。"
+                 "请考虑还原至上一版。",
+        "ja": "\n\n⚠ 実際のゲームファイルで検証：不一致 -- このスナップショットは現在インストール"
+              "されているゲームバージョンと一致しない可能性があります。前版に戻すことを検討してください。",
     },
     "msg_snapshot_verify_unknown": {
         "ko": "\n\n실제 게임 파일로 검증: 확인 불가 (검증 대상 파일 자체가 커버리지 밖이라 판단할 "
               "수 없음 -- 실패는 아님)",
         "en": "\n\nVerified against a real game file: inconclusive (the check file itself falls "
               "outside this data's coverage -- not a failure, just no confirmation either way)",
+        "zh_tw": "\n\n以實際遊戲檔案驗證：無法確認（驗證用檔案本身超出此資料的涵蓋範圍 -- 並非失敗，"
+                 "只是無法確認）",
+        "zh_cn": "\n\n以实际游戏文件验证：无法确认（验证用文件本身超出此数据的覆盖范围 -- 并非失败，"
+                 "只是无法确认）",
+        "ja": "\n\n実際のゲームファイルで検証：判定不可（検証対象のファイル自体がこのデータの"
+              "カバー範囲外 -- 失敗ではなく、単に確認できないだけ）",
     },
     "err_download_failed": {
         "ko": "다운로드에 실패했습니다:\n{e}", "en": "Download failed:\n{e}",
+        "zh_tw": "下載失敗：\n{e}", "zh_cn": "下载失败：\n{e}", "ja": "ダウンロードに失敗しました：\n{e}",
     },
     "msg_partial_materials_hint": {
         "ko": "참고: {count}개 모드에서 일부 재질은 게임 안에 참고할 수 있는 바닐라 파일이 아예 없어서 "
@@ -358,6 +430,16 @@ _STRINGS = {
               "the game to compare against, so those specific materials were left exactly as shipped -- "
               "everything else in the same file(s) was still fixed normally. The \"force-fix\" option "
               "won't help here (there's nothing to force it against).",
+        "zh_tw": "備註：{count} 個模組中，部分材質在遊戲內完全找不到可參考的原版檔案，因此無法修復，"
+                 "已保持原樣。同一檔案中的其餘材質已正常修復。「強制修復」選項對此無效"
+                 "（因為根本沒有可參考的對象）。",
+        "zh_cn": "备注：{count} 个模组中，部分材质在游戏内完全找不到可参考的原版文件，因此无法修复，"
+                 "已保持原样。同一文件中的其余材质已正常修复。「强制修复」选项对此无效"
+                 "（因为根本没有可参考的对象）。",
+        "ja": "注：{count}個のMODで、一部のマテリアルはゲーム内に比較対象となるバニラファイルが"
+              "全く存在しなかったため修復できず、そのまま残されました。同じファイルの他のマテリアルは"
+              "正常に修復されています。この場合「強制修復」オプションも効果がありません"
+              "（比較対象自体が存在しないため）。",
     },
 
     # ---- 적용 방어구 변경 (armor slot retargeting) -----------------------
@@ -374,6 +456,17 @@ _STRINGS = {
               "matching physics (collision/chain) setup -- e.g. to resolve a slot conflict with "
               "another mod. Pick a mod archive and this detects every armor slot it targets -- if it "
               "spans more than one, you decide per slot whether to move it or leave it as-is.",
+        "zh_tw": "將模組原本套用的防具，移動到物理（碰撞/鏈條）結構相同的其他防具上。例如：與其他"
+                 "模組的欄位衝突時，改套用不衝突的防具。\n選擇模組壓縮檔後，會自動偵測目前套用的"
+                 "所有防具欄位 -- 若模組涵蓋多個欄位，可以逐一決定要移動或保持不變。",
+        "zh_cn": "将模组原本套用的防具，移动到物理（碰撞/链条）结构相同的其他防具上。例如：与其他"
+                 "模组的栏位冲突时，改套用不冲突的防具。\n选择模组压缩包后，会自动检测当前套用的"
+                 "所有防具栏位 -- 若模组涵盖多个栏位，可以逐一决定要移动或保持不变。",
+        "ja": "MODが現在対象としている防具を、物理（衝突/チェーン）構成が一致する別の防具に"
+              "移動して適用できるようにします。例：他のMODとスロットが競合する場合に、"
+              "競合しない防具へ移動。\nMODアーカイブを選択すると、現在対象としているすべての"
+              "防具スロットを自動検出します -- MODが複数のスロットにまたがる場合は、"
+              "それぞれ個別に移動するかそのままにするか決められます。",
     },
     "dlg_retarget_title": {
         "ko": "적용 방어구 변경", "en": "Change Target Armor",
