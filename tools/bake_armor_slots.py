@@ -61,6 +61,10 @@ KO_NAME_ALIASES = {
     "수호룡세크레트": "수호룡 세크레트",  # sheet drops the space
     "실드후드": "실드",                    # sheet appends "후드"(hood); game's own name is bare
     "블로썸": "블로섬",                    # single-syllable spelling variant
+    "검객의 척안(디럭스)": "검객 척안",     # sheet adds "의"(possessive) + "(디럭스)" suffix
+    "도깨비뿔 가발(DLC)": "도깨비뿔 가발",  # sheet adds "(DLC)" suffix
+    "용인족 귀(DLC)": "용인족의 귀",        # sheet drops "의"(possessive), adds "(DLC)" suffix
+    "블루밍서클릿": "블루밍 서클릿",        # sheet drops the space
     "길드 크로스": "길드크로스",            # sheet adds a space the game's name doesn't have
 }
 
