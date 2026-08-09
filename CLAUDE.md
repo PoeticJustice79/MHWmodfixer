@@ -2707,7 +2707,8 @@ variants all along); zero errors, zero unresolved. The author's new
 Bifrost now comes back fully `already_current=7, fixed=0` (previously
 one material was still being pointlessly rebuilt). Rachel's rebuild now
 matches the author's own fix shape exactly (every material Base_Equip
-25/191, `DOA - Rachel (fixed v2).zip`) -- awaiting in-game confirmation.
+25/191, `DOA - Rachel (fixed v2).zip`) -- **CONFIRMED working in-game by
+the user.**
 
 Running tally of the "differs from vanilla convention is not a defect"
 lesson (#24 staleness direction, #30 avp, now #31 shader variants): all
