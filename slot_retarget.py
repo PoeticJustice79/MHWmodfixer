@@ -43,10 +43,14 @@ _slot_table_cache: dict | None = None
 
 # .../ch03/<set>/<variant>/... in art/model paths, and
 # .../Armor/<gender>/<set>/<variant>/... in GameDesign prefab paths.
-_MODEL_SLOT_RE = re.compile(r"ch03[\\/](\d{3})[\\/](\d{3})[\\/]", re.IGNORECASE)
+_MODEL_SLOT_RE = re.compile(r"ch0[23][\\/](\d{3})[\\/](\d{3})[\\/]", re.IGNORECASE)
 _PREFAB_SLOT_RE = re.compile(r"armor[\\/](?:fe)?male[\\/](\d{3})[\\/](\d{3})[\\/]", re.IGNORECASE)
-# piece number comes from filenames like ch03_051_0011.* (variant 001 + piece 1)
-_PIECE_FILE_RE_TMPL = r"ch03_{set}_{var}(\d)\b"
+# piece number comes from filenames like ch03_051_0011.* (variant 001 + piece 1).
+# ch02 = male hunter model, ch03 = female -- the game ships BOTH in parallel
+# for every armor set/variant number (confirmed live), so a mod's ch02 and
+# ch03 copies of the same slot are always the same logical armor and must
+# move together, never treated as two different things.
+_PIECE_FILE_RE_TMPL = r"ch0[23]_{set}_{var}(\d)\b"
 
 
 def slot_table() -> dict:
@@ -190,9 +194,10 @@ def verify_target_vanilla(game, source: ModSlotInfo, target: TargetCandidate) ->
         pfb = f"natives/stm/gamedesign/equip/_prefab/armor/female/{s}/{v}/{piece_dirs[p]}/ch03_{s}_{v}{p}"
         if game.find_versioned_path(pfb, "pfb", range(1, 50)) is None:
             missing.append(f"piece {p} pfb")
-    avp = f"natives/stm/gamedesign/equip/_prefab/armor/female/{s}/{v}/{s}_{v}_avp"
-    if game.find_versioned_path(avp, "user", range(1, 50)) is None:
-        missing.append("avp.user")
+    for gender_dir in ("female", "male"):
+        avp = f"natives/stm/gamedesign/equip/_prefab/armor/{gender_dir}/{s}/{v}/{s}_{v}_avp"
+        if game.find_versioned_path(avp, "user", range(1, 50)) is None:
+            missing.append(f"{gender_dir} avp.user")
     return (not missing), missing
 
 
@@ -202,10 +207,13 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModSlotInfo,
     and filename prefix renamed from the source slot to the target --
     exactly the verified #33 recipe. PART-level directory renaming only
     (never substring-replace on a whole path: that's the bug the first
-    manual attempt hit); file contents are copied byte-identical.
-    Returns the number of relocated files."""
+    manual attempt hit); file contents are copied byte-identical. A
+    ch02/ch03 filename prefix is preserved as whichever one it already was
+    (ch02 = male hunter model, ch03 = female -- both exist in parallel for
+    every slot and must both relocate, but neither should ever be coerced
+    into the other). Returns the number of relocated files."""
     src_set, src_var = source.set_no, source.variant
-    fname_re = re.compile(rf"ch03_{src_set}_{src_var}(?=[\d_])")
+    fname_re = re.compile(rf"(ch0[23])_{src_set}_{src_var}(?=[\d_])")
     avp_re = re.compile(rf"{src_set}_{src_var}_avp")
     moved = 0
     for p in source.files:
@@ -218,7 +226,7 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModSlotInfo,
                 new_parts.extend([dst_set, dst_variant])
                 i += 2
                 continue
-            np = fname_re.sub(f"ch03_{dst_set}_{dst_variant}", part)
+            np = fname_re.sub(lambda m: f"{m.group(1)}_{dst_set}_{dst_variant}", part)
             np = avp_re.sub(f"{dst_set}_{dst_variant}_avp", np)
             new_parts.append(np)
             i += 1
@@ -229,7 +237,7 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModSlotInfo,
             moved += 1
     # hard safety: the output tree must carry ZERO traces of the source slot
     leftover = [str(q.relative_to(out_root)) for q in out_root.rglob("*")
-                if re.search(rf"(^|[\\/_]){src_set}[\\/_]{src_var}([\\/_]|$)|ch03_{src_set}_{src_var}",
+                if re.search(rf"(^|[\\/_]){src_set}[\\/_]{src_var}([\\/_]|$)|ch0[23]_{src_set}_{src_var}",
                               str(q.relative_to(out_root)))]
     if leftover:
         raise RuntimeError(f"retarget left {len(leftover)} source-slot path(s) behind: {leftover[:3]}")
@@ -263,5 +271,155 @@ def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_set: str, dst_vari
                 if f.is_file():
                     zf.write(f, f.relative_to(out_root))
         return info
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ---- multi-slot API -------------------------------------------------------
+# A single mod archive can legitimately touch several DIFFERENT armor slots
+# at once -- confirmed real cases: DOTEI's "EULA" (main armor at 043/600,
+# plus custom textures the author stashed under 4 OTHER slots' texture
+# folders) and TiNE's Qipao (a "Body" FOMOD page bundling BOTH 006/000 and
+# 006/001's full piece files together). The single-slot functions above
+# correctly REFUSE these rather than guessing which slot is "the" target --
+# but refusing isn't good enough on its own: per the user's own call, the
+# right answer is to let a person decide per slot, so EVERYTHING in the mod
+# can still end up relocated, not just whichever slot happened to dominate.
+
+
+@dataclass
+class ModSlotGroup:
+    """One detected (set, variant) slot within a mod that may span several,
+    holding only the files whose own path falls under that specific slot."""
+    set_no: str
+    variant: str
+    pieces_shipped: set[int]
+    files: list[Path] = field(default_factory=list)
+    name: str = "?"
+    gender: str | None = None
+
+    @property
+    def key(self) -> str:
+        return f"{self.set_no}/{self.variant}"
+
+
+def detect_mod_slots(mod_root: Path) -> tuple[list[ModSlotGroup], list[Path]]:
+    """Every distinct ch03 slot a mod touches, each as its own group, plus
+    the list of files that match NO slot pattern at all (FOMOD config,
+    custom-hashed pak textures, readmes/covers, etc.) -- those always pass
+    through untouched regardless of what any group is assigned to. Groups
+    are sorted with the largest (by file count -- almost always the mod's
+    real main target) first, purely for a sane default UI order; nothing
+    downstream treats "first" as special."""
+    piece_files: dict[tuple[str, str], list[Path]] = {}
+    unmatched: list[Path] = []
+    for p in mod_root.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = str(p.relative_to(mod_root))
+        hit = None
+        for rx in (_MODEL_SLOT_RE, _PREFAB_SLOT_RE):
+            m = rx.search(rel)
+            if m:
+                hit = (m.group(1), m.group(2))
+                break
+        if hit is None:
+            unmatched.append(p)
+        else:
+            piece_files.setdefault(hit, []).append(p)
+
+    groups = []
+    table = slot_table()
+    for (set_no, variant), files in piece_files.items():
+        piece_re = re.compile(_PIECE_FILE_RE_TMPL.format(set=set_no, var=variant), re.IGNORECASE)
+        pieces = set()
+        for f in files:
+            m = piece_re.search(f.name)
+            if m:
+                pieces.add(int(m.group(1)))
+        entry = table.get(f"{set_no}/{variant}")
+        groups.append(ModSlotGroup(
+            set_no=set_no, variant=variant, pieces_shipped=pieces, files=files,
+            name=entry["name"] if entry else "?", gender=entry["gender"] if entry else None,
+        ))
+    groups.sort(key=lambda g: (-len(g.files), g.set_no, g.variant))
+    return groups, unmatched
+
+
+def retarget_tree_multi(mod_root: Path, out_root: Path, groups: list[ModSlotGroup],
+                         unmatched: list[Path], assignments: dict, log=lambda s: None) -> dict:
+    """Relocates every group independently per `assignments`
+    ({group.key: (dst_set, dst_variant) | None}); `None` means "leave this
+    slot's files exactly where they are, untouched" -- a real, deliberate
+    choice (e.g. DOTEI's incidental textures, which must NOT move since
+    nothing else in the mod would follow their path). Every unmatched file
+    is always copied through byte-identical. Returns {group.key: files
+    actually relocated} for reporting.
+
+    Each reassigned group is built in an ISOLATED staging directory first,
+    then merged into out_root -- retarget_tree()'s own leftover-trace
+    safety scan covers the whole tree it's given, and running several
+    groups directly into a shared out_root would let one group's own
+    output accidentally satisfy (or fail) another's scan."""
+    import tempfile
+    moved_counts = {}
+    for group in groups:
+        dst = assignments.get(group.key)
+        if dst is None:
+            for p in group.files:
+                out = out_root / p.relative_to(mod_root)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, out)
+            moved_counts[group.key] = 0
+            log(f"    [retarget] {group.key} left unchanged ({len(group.files)} file(s))")
+            continue
+        dst_set, dst_variant = dst
+        info = ModSlotInfo(set_no=group.set_no, variant=group.variant,
+                            pieces_shipped=group.pieces_shipped, files=group.files,
+                            name=group.name, gender=group.gender)
+        stage = Path(tempfile.mkdtemp(prefix="retarget_stage_"))
+        try:
+            moved_counts[group.key] = retarget_tree(mod_root, stage, info, dst_set, dst_variant, log=log)
+            for f in stage.rglob("*"):
+                if f.is_file():
+                    out = out_root / f.relative_to(stage)
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(f, out)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+
+    for p in unmatched:
+        out = out_root / p.relative_to(mod_root)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, out)
+    return moved_counts
+
+
+def retarget_archive_multi(archive_or_dir: Path, out_zip: Path, assignments: dict,
+                            log=lambda s: None) -> tuple[list[ModSlotGroup], dict]:
+    """End-to-end multi-slot version: extract, detect every slot, apply
+    `assignments`, write out_zip. Every detected slot MUST have an entry in
+    `assignments` (even if the value is `None`, meaning "leave it") -- a
+    slot the caller never decided on is refused rather than silently left
+    as a default, so a GUI can't accidentally ship a half-decided mod."""
+    import tempfile
+    from archive_extract import extract_archive
+    work = Path(tempfile.mkdtemp(prefix="retarget_multi_"))
+    try:
+        mod_root = archive_or_dir if archive_or_dir.is_dir() else extract_archive(archive_or_dir, work)
+        groups, unmatched = detect_mod_slots(mod_root)
+        missing = [g.key for g in groups if g.key not in assignments]
+        if missing:
+            raise ValueError(f"no decision provided for detected slot(s): {missing}")
+        out_root = work / "out"
+        moved_counts = retarget_tree_multi(mod_root, out_root, groups, unmatched, assignments, log=log)
+        out_zip.parent.mkdir(parents=True, exist_ok=True)
+        if out_zip.exists():
+            out_zip.unlink()
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in out_root.rglob("*"):
+                if f.is_file():
+                    zf.write(f, f.relative_to(out_root))
+        return groups, moved_counts
     finally:
         shutil.rmtree(work, ignore_errors=True)

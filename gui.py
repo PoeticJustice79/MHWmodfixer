@@ -525,7 +525,12 @@ class App:
                         game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
                         verify_result = rsz_layout.verify_against_live_game(game)
                 except Exception as exc:
-                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, t("err_download_failed", e=exc), parent=win),
+                    # t()/format the message NOW -- `exc` is unbound the
+                    # instant this except block exits, so a lambda that
+                    # only captures the name (not its value) would raise
+                    # NameError when win.after() finally invokes it later.
+                    err_text = t("err_download_failed", e=exc)
+                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
                                           _set_busy(False)))
                     return
                 win.after(0, lambda: _report_install(meta, verify_result))
@@ -541,19 +546,28 @@ class App:
         ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right")
 
     def _open_retarget_dialog(self):
-        """'적용 방어구 변경' -- relocate a mod built for one ch03 armor
-        slot onto a different, physics-compatible slot (see slot_retarget.py
-        and CLAUDE.md #33 for the verified recipe/rationale). Deliberately a
-        separate Toplevel, not a tab next to the repair flow -- the two
-        features have unrelated workflows (batch-repair-many vs pick-one-
-        and-choose-a-target) and the user asked for them to stay visually
-        distinct rather than compete for the same screen."""
+        """'적용 방어구 변경' -- relocate a mod built for one or more ch03/
+        ch02 armor slots onto different, physics-compatible slots (see
+        slot_retarget.py and CLAUDE.md #33/#34 for the verified recipe).
+        Deliberately a separate Toplevel, not a tab next to the repair flow
+        -- the two features have unrelated workflows (batch-repair-many vs
+        pick-one-and-choose-a-target) and the user asked for them to stay
+        visually distinct.
+
+        A mod can legitimately touch SEVERAL different slots at once
+        (confirmed real cases: DOTEI's EULA stashes custom textures under
+        4 unrelated slots' folders; TiNE's Qipao ships two full slots'
+        worth of piece files in one FOMOD page) -- rather than refusing or
+        silently leaving the extras behind, every detected slot gets its
+        own row and its own explicit decision (move it somewhere, or leave
+        it exactly where it is), and generation is blocked until every
+        single one has been decided."""
         import slot_retarget
 
         win = tk.Toplevel(self.root, bg=THEME["bg"])
         win.title(t("dlg_retarget_title"))
-        win.geometry("640x560")
-        win.minsize(560, 420)
+        win.geometry("680x640")
+        win.minsize(600, 480)
         win.transient(self.root)
 
         file_frame = ttk.Frame(win)
@@ -565,27 +579,50 @@ class App:
         btn_pick = ttk.Button(file_frame, text=t("btn_choose_file"))
         btn_pick.pack(side="left")
 
-        info_frame = ttk.LabelFrame(win, text=t("lbl_retarget_detected"))
-        info_frame.pack(fill="x", padx=10, pady=(0, 8))
-        info_label = ttk.Label(info_frame, text=t("msg_retarget_no_file"), justify="left", wraplength=580)
-        info_label.pack(anchor="w", padx=8, pady=6)
+        info_label = ttk.Label(win, text=t("msg_retarget_no_file"), justify="left", wraplength=640)
+        info_label.pack(anchor="w", padx=10, pady=(0, 8))
 
-        table_frame = ttk.Frame(win)
-        table_frame.pack(fill="both", expand=True, padx=10)
-        columns = ("slot", "name", "gender", "grade", "note")
-        tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=14, selectmode="browse")
-        for col, key, width in [("slot", "col_slot", 80), ("name", "col_armor", 110),
-                                 ("gender", "col_gender", 60), ("grade", "col_compat", 100),
-                                 ("note", "col_note", 240)]:
-            tree.heading(col, text=t(key))
-            tree.column(col, width=width, anchor="w")
-        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb.set)
-        tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-        tree.tag_configure("exact", foreground=THEME["success"])
-        tree.tag_configure("partial", foreground=THEME["warn"])
-        tree.tag_configure("gpuc", foreground=THEME["danger"])
+        slots_frame = ttk.LabelFrame(win, text=t("lbl_retarget_slots"))
+        slots_frame.pack(fill="both", expand=False, padx=10, pady=(0, 8))
+        slot_columns = ("slot", "name", "gender", "files", "status")
+        slot_tree = ttk.Treeview(slots_frame, columns=slot_columns, show="headings",
+                                  height=5, selectmode="browse")
+        for col, key, width in [("slot", "col_slot", 80), ("name", "col_armor", 100),
+                                 ("gender", "col_gender", 55), ("files", "col_files", 55),
+                                 ("status", "col_status", 220)]:
+            slot_tree.heading(col, text=t(key))
+            slot_tree.column(col, width=width, anchor="w")
+        slot_vsb = ttk.Scrollbar(slots_frame, orient="vertical", command=slot_tree.yview)
+        slot_tree.configure(yscrollcommand=slot_vsb.set)
+        slot_tree.pack(side="left", fill="both", expand=True)
+        slot_vsb.pack(side="right", fill="y")
+        slot_tree.tag_configure("done", foreground=THEME["success"])
+        slot_tree.tag_configure("pending", foreground=THEME["warn"])
+
+        cand_frame = ttk.LabelFrame(win, text=t("lbl_retarget_targets"))
+        cand_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        cand_columns = ("slot", "name", "gender", "grade", "note")
+        cand_tree = ttk.Treeview(cand_frame, columns=cand_columns, show="headings",
+                                  height=8, selectmode="browse")
+        for col, key, width in [("slot", "col_slot", 80), ("name", "col_armor", 100),
+                                 ("gender", "col_gender", 55), ("grade", "col_compat", 100),
+                                 ("note", "col_note", 220)]:
+            cand_tree.heading(col, text=t(key))
+            cand_tree.column(col, width=width, anchor="w")
+        cand_vsb = ttk.Scrollbar(cand_frame, orient="vertical", command=cand_tree.yview)
+        cand_tree.configure(yscrollcommand=cand_vsb.set)
+        cand_tree.pack(side="left", fill="both", expand=True)
+        cand_vsb.pack(side="right", fill="y")
+        cand_tree.tag_configure("exact", foreground=THEME["success"])
+        cand_tree.tag_configure("partial", foreground=THEME["warn"])
+        cand_tree.tag_configure("gpuc", foreground=THEME["danger"])
+
+        cand_btn_frame = ttk.Frame(win)
+        cand_btn_frame.pack(fill="x", padx=10, pady=(0, 8))
+        btn_apply = ttk.Button(cand_btn_frame, text=t("btn_apply_to_slot"), state="disabled")
+        btn_apply.pack(side="left")
+        btn_leave = ttk.Button(cand_btn_frame, text=t("btn_leave_unchanged"), state="disabled")
+        btn_leave.pack(side="left", padx=(6, 0))
 
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill="x", padx=10, pady=10)
@@ -595,10 +632,34 @@ class App:
         btn_generate.pack(side="right")
         ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right", padx=(0, 6))
 
-        state = {"mod_path": None, "info": None, "candidates": []}
+        state = {"groups": [], "unmatched": [], "assignments": {}, "active_key": None,
+                 "candidates_by_key": {}}
+        table = slot_retarget.slot_table()
 
         def set_pick_busy(busy: bool):
             btn_pick.configure(state="disabled" if busy else "normal")
+
+        def _refresh_generate_enabled():
+            groups = state["groups"]
+            ready = bool(groups) and all(g.key in state["assignments"] for g in groups)
+            btn_generate.configure(state="normal" if ready else "disabled")
+
+        def _status_text_for(key):
+            lang = i18n.get_language()
+            if key not in state["assignments"]:
+                return t("status_pending"), "pending"
+            dst = state["assignments"][key]
+            if dst is None:
+                return t("status_unchanged"), "done"
+            dst_key = f"{dst[0]}/{dst[1]}"
+            dst_name = table.get(dst_key, {}).get("name", "?")
+            return t("status_target", name=dst_name, slot=dst_key), "done"
+
+        def _refresh_slot_row(key):
+            text, tag = _status_text_for(key)
+            vals = list(slot_tree.item(key, "values"))
+            vals[4] = text
+            slot_tree.item(key, values=vals, tags=(tag,))
 
         def do_pick():
             path = filedialog.askopenfilename(
@@ -609,9 +670,12 @@ class App:
             if not path:
                 return
             file_var.set(path)
-            tree.delete(*tree.get_children())
-            state["candidates"] = []
+            slot_tree.delete(*slot_tree.get_children())
+            cand_tree.delete(*cand_tree.get_children())
+            state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
             info_label.configure(text=t("msg_retarget_detecting"))
+            btn_apply.configure(state="disabled")
+            btn_leave.configure(state="disabled")
             btn_generate.configure(state="disabled")
             set_pick_busy(True)
 
@@ -622,30 +686,43 @@ class App:
                     work = Path(tempfile.mkdtemp(prefix="retarget_ui_"))
                     try:
                         mod_root = extract_archive(Path(path), work)
-                        result = slot_retarget.detect_mod_slot(mod_root)
+                        groups, unmatched = slot_retarget.detect_mod_slots(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
                 except Exception as exc:
-                    win.after(0, lambda: (info_label.configure(text=t("err_unhandled", e=exc)), set_pick_busy(False)))
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
                     return
-                win.after(0, lambda: _on_detected(result))
+                win.after(0, lambda: _on_detected(groups, unmatched))
 
             threading.Thread(target=worker, daemon=True).start()
 
-        def _on_detected(result):
+        def _on_detected(groups, unmatched):
             set_pick_busy(False)
-            if not isinstance(result, slot_retarget.ModSlotInfo):
-                found = ", ".join(result) if result else t("msg_retarget_no_slot_found")
-                info_label.configure(text=t("msg_retarget_ambiguous", found=found))
+            state["groups"], state["unmatched"] = groups, unmatched
+            if not groups:
+                info_label.configure(text=t("msg_retarget_no_slot_found"))
                 return
-            state["info"] = result
+            info_label.configure(text=t("msg_retarget_multi_summary", count=len(groups), unmatched=len(unmatched)))
             lang = i18n.get_language()
-            g = slot_retarget.gender_label(result.gender, lang)
-            info_label.configure(text=t(
-                "msg_retarget_detected", name=result.name, slot=result.key,
-                gender=(f" ({g})" if g else "")))
-            cands = slot_retarget.find_compatible_targets(result)
-            state["candidates"] = cands
+            for g in groups:
+                gl = slot_retarget.gender_label(g.gender, lang)
+                slot_tree.insert("", "end", iid=g.key,
+                                  values=(g.key, g.name, gl, len(g.files), t("status_pending")),
+                                  tags=("pending",))
+            slot_tree.selection_set(groups[0].key)
+            _select_slot(groups[0].key)
+
+        def _select_slot(key):
+            state["active_key"] = key
+            group = next(g for g in state["groups"] if g.key == key)
+            cand_tree.delete(*cand_tree.get_children())
+            if key in state["candidates_by_key"]:
+                cands = state["candidates_by_key"][key]
+            else:
+                cands = slot_retarget.find_compatible_targets(group)
+                state["candidates_by_key"][key] = cands
+            lang = i18n.get_language()
             grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
             for c in cands:
                 note = ""
@@ -654,34 +731,70 @@ class App:
                 elif c.gpuc_pieces:
                     note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
                 gl = slot_retarget.gender_label(c.gender, lang)
-                tree.insert("", "end", iid=c.key, values=(c.key, c.name, gl, grade_text[c.grade], note),
-                            tags=(c.grade,))
-            if cands:
-                btn_generate.configure(state="normal")
-            else:
-                info_label.configure(text=info_label.cget("text") + "\n" + t("msg_retarget_no_targets"))
+                cand_tree.insert("", "end", iid=c.key, values=(c.key, c.name, gl, grade_text[c.grade], note),
+                                  tags=(c.grade,))
+            btn_apply.configure(state="normal" if cands else "disabled")
+            btn_leave.configure(state="normal")
+            existing = state["assignments"].get(key)
+            if existing is not None and f"{existing[0]}/{existing[1]}" in cand_tree.get_children():
+                cand_tree.selection_set(f"{existing[0]}/{existing[1]}")
 
-        def do_generate():
-            sel = tree.selection()
-            info = state["info"]
-            if not sel or not info:
+        def on_slot_selected(_event=None):
+            sel = slot_tree.selection()
+            if sel:
+                _select_slot(sel[0])
+
+        def do_apply_to_slot():
+            key = state["active_key"]
+            sel = cand_tree.selection()
+            if key is None or not sel:
                 messagebox.showinfo(APP_TITLE, t("msg_retarget_select_target"), parent=win)
                 return
-            cand = next((c for c in state["candidates"] if c.key == sel[0]), None)
-            if not cand:
+            cand = next(c for c in state["candidates_by_key"][key] if c.key == sel[0])
+            state["assignments"][key] = (cand.set_no, cand.variant)
+            _refresh_slot_row(key)
+            _refresh_generate_enabled()
+
+        def do_leave_unchanged():
+            key = state["active_key"]
+            if key is None:
+                messagebox.showinfo(APP_TITLE, t("msg_retarget_pick_slot_first"), parent=win)
+                return
+            state["assignments"][key] = None
+            _refresh_slot_row(key)
+            _refresh_generate_enabled()
+
+        def do_generate():
+            groups = state["groups"]
+            assignments = state["assignments"]
+            if not groups or not all(g.key in assignments for g in groups):
+                messagebox.showinfo(APP_TITLE, t("msg_retarget_incomplete"), parent=win)
                 return
             if not Path(self.game_dir.get()).is_dir():
                 messagebox.showerror(APP_TITLE, t("err_no_game_dir"), parent=win)
                 return
             game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
-            ok, missing = slot_retarget.verify_target_vanilla(game, info, cand)
-            if not ok and not messagebox.askyesno(
-                    APP_TITLE, t("ask_retarget_unverified", missing=", ".join(missing)), parent=win):
+            unverified = []
+            for g in groups:
+                dst = assignments[g.key]
+                if dst is None:
+                    continue
+                dst_key = f"{dst[0]}/{dst[1]}"
+                cand = next((c for c in state["candidates_by_key"].get(g.key, []) if c.key == dst_key), None)
+                if cand is None:
+                    cand = slot_retarget.TargetCandidate(key=dst_key, set_no=dst[0], variant=dst[1],
+                                                          name=table.get(dst_key, {}).get("name", "?"),
+                                                          grade="exact")
+                ok, missing = slot_retarget.verify_target_vanilla(game, g, cand)
+                if not ok:
+                    unverified.append(f"{g.key} -> {dst_key}: {', '.join(missing)}")
+            if unverified and not messagebox.askyesno(
+                    APP_TITLE, t("ask_retarget_unverified", missing="\n".join(unverified)), parent=win):
                 return
             src_stem = Path(file_var.get()).stem
             out_path = filedialog.asksaveasfilename(
                 title=t("dlg_save_retarget"), defaultextension=".zip",
-                initialfile=f"{src_stem} ({cand.name}).zip",
+                initialfile=f"{src_stem} (retargeted).zip",
                 filetypes=[(t("filetype_zip"), "*.zip")],
             )
             if not out_path:
@@ -692,21 +805,29 @@ class App:
 
             def worker():
                 try:
-                    slot_retarget.retarget_archive(Path(file_var.get()), Path(out_path),
-                                                    cand.set_no, cand.variant, log=lambda s: None)
+                    _, moved_counts = slot_retarget.retarget_archive_multi(
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
                 except Exception as exc:
-                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, t("err_unhandled", e=exc), parent=win),
-                                          status_var.set(""), btn_generate.configure(state="normal"),
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
+                                          status_var.set(""), _refresh_generate_enabled(),
                                           btn_pick.configure(state="normal")))
                     return
-                win.after(0, lambda: (status_var.set(""), btn_generate.configure(state="normal"),
+                moved_total = sum(1 for v in moved_counts.values() if v)
+                win.after(0, lambda: (status_var.set(""), _refresh_generate_enabled(),
                                       btn_pick.configure(state="normal"),
-                                      messagebox.showinfo(APP_TITLE, t("msg_retarget_done", path=out_path), parent=win)))
+                                      messagebox.showinfo(APP_TITLE, t(
+                                          "msg_retarget_done", path=out_path,
+                                          moved=moved_total, kept=len(moved_counts) - moved_total),
+                                          parent=win)))
 
             threading.Thread(target=worker, daemon=True).start()
 
         btn_pick.configure(command=do_pick)
+        btn_apply.configure(command=do_apply_to_slot)
+        btn_leave.configure(command=do_leave_unchanged)
         btn_generate.configure(command=do_generate)
+        slot_tree.bind("<<TreeviewSelect>>", on_slot_selected)
 
     def _browse_game_dir(self):
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))

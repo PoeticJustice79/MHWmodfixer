@@ -2889,3 +2889,91 @@ the SHIPPED feature specifically (the underlying recipe already has two
 independent in-game confirmations from #33) -- if a future session ships
 a NEW relocation via this GUI, treat the first one as worth a quick
 in-game check same as any other new capability.
+
+## 35. Retargeting extended to multi-slot mods (per-slot decisions), plus a real ch02/male gap and a real async-exception bug (2026-08-09)
+
+Right after #34 shipped, the user asked directly whether mods with lots of
+FOMOD suboptions (DOTEI's EULA was the concrete example) work with this
+feature. Tested DOTEI's real mod (`C:\Users\User\Desktop\dotei\`) and
+TiNE's Qipao against `detect_mod_slot()` -- both come back as the
+"ambiguous, refuse" case #34 shipped: DOTEI genuinely spans 5 different
+armor slots (a dominant one, `043/600`, plus 4 slots' worth of custom
+textures the author stashed in unrelated slots' folders via a "TEXTHERE
+FILE" FOMOD page), and Qipao ships two FULL slots' worth of piece files
+(`006/000` and `006/001`) in the same "Body" page. Refusing outright was
+too blunt -- the user's call: **"부수적인 옵션들도 다시 선택하거나 하는
+옵션으로 완전히 전부다 이동할 수 있게 하는게 맞아"** (let the incidental
+ones be reassigned too, via their own choice, so EVERYTHING can move) --
+not "leave incidental files where they are" (which the user explicitly
+rejected first: "그러면 안되거든", correctly noting that a piece file
+left in place is really a piece STAYING active at its old slot, not
+neutral, unlike a texture that's just referenced by absolute path).
+
+**New multi-slot API in `slot_retarget.py`**: `detect_mod_slots()` (plural,
+never refuses) returns one `ModSlotGroup` per distinct slot found PLUS the
+list of files matching no slot pattern at all (always pass-through,
+untouched, regardless of any group's assignment). `retarget_tree_multi()`/
+`retarget_archive_multi()` take `{group.key: (dst_set, dst_variant) | None}`
+-- `None` is an explicit, deliberate "leave this slot's own files exactly
+where they are," not a default. Every detected group MUST have an entry
+or `retarget_archive_multi()` refuses -- a GUI can never silently ship a
+half-decided mod. Each reassigned group is built in its own isolated
+staging directory before merging into the final output, so one group's
+freshly-relocated files can't spuriously trip (or hide from) another
+group's own leftover-trace safety scan.
+
+**Real bug found via this exact multi-slot testing, not theoretical**:
+the first version only matched `ch03` (female) paths -- DOTEI's real
+files revealed the game ships PARALLEL `ch02` (male hunter) content at
+the *identical* slot numbers for every armor (confirmed live: every
+tested set/variant has both a `ch02` and `ch03` folder, and both a
+`Armor/Male/.../avp` and `Armor/Female/.../avp`). Moving only the `ch03`
+half of an armor while leaving `ch02` at the old slot number would have
+been a real, silent half-move -- a male-hunter player's outfit stays
+behind. Fixed: `_MODEL_SLOT_RE`/`_PIECE_FILE_RE_TMPL` now match `ch0[23]`
+so both genders' files land in the SAME group and move together;
+`retarget_tree()`'s filename-prefix substitution now captures and
+preserves which of `ch02`/`ch03` a file already was (never coerces one
+into the other), and `verify_target_vanilla()` checks BOTH the male and
+female avp at the target. Note this "ch02 vs ch03" axis (which
+PLAYABLE-CHARACTER gender an armor copy is for) is completely orthogonal
+to #34's "번호2 variant" gender labeling (which CUT/style of the SAME
+armor, within one gender) -- confirmed both axes are real and
+independent, not two names for the same thing.
+
+**Real async-exception bug found and fixed, pre-existing since #28 and
+shipped in commit `126edcc`, not new to this session's rewrite**: every
+`except Exception as exc: win.after(0, lambda: ...t(..., e=exc)...)`
+pattern in this file raises `NameError: cannot access free variable
+'exc'` the moment the deferred lambda actually runs -- Python unbinds an
+`except ... as name:` variable the instant that except BLOCK exits, but
+the lambda only captures the NAME by closure, and `win.after(0, ...)`
+runs it on a later mainloop tick, after the block (and the binding) is
+long gone. Caught by a real headless GUI test hitting a real error path
+(feeding a bad archive), not by inspection. Fixed at all 3 async call
+sites (RSZ Snapshot's GitHub-fetch worker, and both of this feature's
+workers) by formatting the message string with `t(...)` INSIDE the except
+block (while `exc` is still bound) and closing over that plain string
+instead. The synchronous call site (snapshot import, not deferred through
+`win.after`) never had this bug and was left alone.
+
+**GUI redesigned around a two-tier Treeview**: a "감지된 방어구 슬롯"
+list (one row per group, with a live status column: "결정 필요" /
+"그대로 유지" / "→ move to X") plus a "변경 가능한 방어구" compatibility
+list scoped to whichever slot is currently selected, with "이 슬롯에
+적용"/"이 슬롯은 그대로 두기" buttons recording a decision per slot.
+Generate stays disabled until every row's status is resolved.
+
+**Verified end-to-end against DOTEI's actual mod, through the real GUI
+code path** (zipped the real folder, drove the dialog via a Tcl
+mainloop-based test exactly like #34's, picking the dominant slot's top
+candidate and explicitly leaving all 6 incidental slots unchanged):
+output file's main slot fully relocated (zero leftover trace, now
+absorbing `ch02` files too -- 27 -> 32 files vs the pre-ch02-fix run),
+all 6 incidental slots' files verified byte-identical at their ORIGINAL
+path. Also core-tested reassigning Qipao's BOTH detected slots to two
+DIFFERENT real targets simultaneously (not just "one moved, rest left") --
+both relocated correctly, zero cross-contamination, zero leftover traces
+of either original slot number. Standard regression suite unaffected
+(this module still never touches `auto_fix.py`/`slot_merge.py`/
+`pfb_fix.py`).

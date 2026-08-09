@@ -368,32 +368,33 @@ _STRINGS = {
     "tip_retarget": {
         "ko": "모드가 원래 목표로 하는 방어구를, 물리(충돌/체인) 구성이 같은 다른 방어구로 옮겨서 "
               "적용할 수 있게 해줍니다. 예: 다른 모드와 슬롯이 겹칠 때 충돌 없는 방어구로 옮기기.\n"
-              "모드 압축파일을 선택하면 현재 어떤 방어구를 목표로 하는지 자동으로 인식하고, "
-              "물리 구성이 호환되는 다른 방어구 목록을 보여줍니다.",
+              "모드 압축파일을 선택하면 현재 어떤 방어구(들)를 목표로 하는지 자동으로 인식합니다 -- "
+              "모드가 방어구 여러 개에 걸쳐 있으면 각각 따로 옮기거나 그대로 둘지 정할 수 있습니다.",
         "en": "Relocates a mod from the armor it currently targets onto a different armor with a "
               "matching physics (collision/chain) setup -- e.g. to resolve a slot conflict with "
-              "another mod. Pick a mod archive and this detects which armor it targets, then lists "
-              "other physics-compatible armor pieces you can move it to.",
+              "another mod. Pick a mod archive and this detects every armor slot it targets -- if it "
+              "spans more than one, you decide per slot whether to move it or leave it as-is.",
     },
     "dlg_retarget_title": {"ko": "적용 방어구 변경", "en": "Change Target Armor"},
     "lbl_retarget_file": {"ko": "모드 파일:", "en": "Mod file:"},
     "btn_choose_file": {"ko": "선택...", "en": "Choose..."},
-    "lbl_retarget_detected": {"ko": "감지된 정보", "en": "Detected"},
+    "lbl_retarget_slots": {"ko": "감지된 방어구 슬롯", "en": "Detected armor slots"},
+    "lbl_retarget_targets": {"ko": "변경 가능한 방어구", "en": "Compatible target armor"},
     "msg_retarget_no_file": {
         "ko": "이동할 모드 압축파일을 선택하세요.", "en": "Choose a mod archive to relocate.",
     },
     "msg_retarget_detecting": {"ko": "분석 중...", "en": "Analyzing..."},
-    "msg_retarget_detected": {
-        "ko": "현재 적용 방어구: {name} ({slot}){gender}",
-        "en": "Currently targets: {name} ({slot}){gender}",
+    "msg_retarget_multi_summary": {
+        "ko": "이 모드는 방어구 슬롯 {count}개를 사용합니다 (그 외 슬롯과 무관한 파일 {unmatched}개는 "
+              "손대지 않고 그대로 포함됩니다). 아래 목록에서 슬롯을 하나씩 선택해 옮길 곳을 정하거나 "
+              "그대로 둘지 결정하세요 -- 전부 결정해야 파일을 생성할 수 있습니다.",
+        "en": "This mod uses {count} armor slot(s) (plus {unmatched} slot-unrelated file(s), which are "
+              "always kept exactly as they are). Select each slot below and either choose where to move "
+              "it or leave it unchanged -- every slot needs a decision before you can generate the file.",
     },
-    "msg_retarget_ambiguous": {
-        "ko": "이 모드는 단일 방어구를 대상으로 하지 않아서 자동으로 옮길 수 없습니다 "
-              "(감지된 대상: {found}). FOMOD처럼 여러 방어구 옵션이 섞인 모드는 아직 지원하지 않습니다.",
-        "en": "This mod doesn't target exactly one armor slot, so it can't be relocated automatically "
-              "(detected: {found}). Mods with multiple armor options (e.g. FOMOD) aren't supported yet.",
+    "msg_retarget_no_slot_found": {
+        "ko": "이 모드에서 방어구 슬롯을 찾지 못했습니다.", "en": "No armor slot was detected in this mod.",
     },
-    "msg_retarget_no_slot_found": {"ko": "감지된 방어구 없음", "en": "no armor slot detected"},
     "msg_retarget_no_targets": {
         "ko": "물리 구성이 호환되는 다른 방어구를 찾지 못했습니다.",
         "en": "No physics-compatible target armor was found.",
@@ -401,8 +402,13 @@ _STRINGS = {
     "col_slot": {"ko": "슬롯", "en": "Slot"},
     "col_armor": {"ko": "방어구", "en": "Armor"},
     "col_gender": {"ko": "성별", "en": "Gender"},
+    "col_files": {"ko": "파일 수", "en": "Files"},
+    "col_status": {"ko": "결정", "en": "Decision"},
     "col_compat": {"ko": "호환성", "en": "Compatibility"},
     "col_note": {"ko": "비고", "en": "Note"},
+    "status_pending": {"ko": "결정 필요", "en": "Needs a decision"},
+    "status_unchanged": {"ko": "그대로 유지", "en": "Left unchanged"},
+    "status_target": {"ko": "→ {name} ({slot})로 이동", "en": "→ move to {name} ({slot})"},
     "grade_exact": {"ko": "물리 완벽 호환", "en": "Full physics match"},
     "grade_partial": {"ko": "일부 물리 소실", "en": "Some physics lost"},
     "grade_gpuc": {"ko": "물리 원단 주의", "en": "GPU cloth caution"},
@@ -412,26 +418,38 @@ _STRINGS = {
     "note_gpuc_pieces": {
         "ko": "{pieces}번 부위 물리 원단(편집 불가)", "en": "piece(s) {pieces} has uneditable GPU cloth",
     },
+    "btn_apply_to_slot": {"ko": "이 슬롯에 적용", "en": "Apply to this slot"},
+    "btn_leave_unchanged": {"ko": "이 슬롯은 그대로 두기", "en": "Leave this slot unchanged"},
     "btn_generate_retarget": {"ko": "이동 파일 생성", "en": "Generate Relocated File"},
     "dlg_choose_mod_archive": {"ko": "모드 압축파일 선택", "en": "Choose mod archive"},
     "filetype_mod_archive": {"ko": "모드 압축파일", "en": "Mod archive"},
     "msg_retarget_select_target": {
         "ko": "목록에서 옮길 대상 방어구를 선택하세요.", "en": "Select a target armor from the list.",
     },
+    "msg_retarget_pick_slot_first": {
+        "ko": "먼저 위 목록에서 슬롯을 선택하세요.", "en": "Select a slot from the list above first.",
+    },
+    "msg_retarget_incomplete": {
+        "ko": "아직 결정하지 않은 슬롯이 있습니다. 모든 슬롯에 대해 이동할 곳을 정하거나 "
+              "그대로 두기를 선택해야 합니다.",
+        "en": "Some detected slots still need a decision. Every slot must be either assigned a target "
+              "or explicitly left unchanged before generating.",
+    },
     "err_no_game_dir": {
         "ko": "먼저 유효한 게임 폴더를 지정해야 합니다.", "en": "A valid game folder must be set first.",
     },
     "ask_retarget_unverified": {
-        "ko": "선택한 방어구의 일부 파일을 현재 게임에서 확인하지 못했습니다 ({missing}). "
+        "ko": "다음 이동에서 일부 파일을 현재 게임에서 확인하지 못했습니다:\n{missing}\n"
               "그래도 계속 진행할까요?",
-        "en": "Some files for the selected armor could not be verified against the current game "
-              "({missing}). Continue anyway?",
+        "en": "Some files for the following move(s) could not be verified against the current game:\n"
+              "{missing}\nContinue anyway?",
     },
     "dlg_save_retarget": {"ko": "이동된 모드 파일 저장", "en": "Save relocated mod file"},
     "filetype_zip": {"ko": "ZIP 파일", "en": "ZIP file"},
     "msg_retarget_generating": {"ko": "생성 중...", "en": "Generating..."},
     "msg_retarget_done": {
-        "ko": "저장했습니다:\n{path}", "en": "Saved:\n{path}",
+        "ko": "저장했습니다 ({moved}개 슬롯 이동, {kept}개 슬롯 그대로 유지):\n{path}",
+        "en": "Saved ({moved} slot(s) moved, {kept} slot(s) left unchanged):\n{path}",
     },
 }
 
