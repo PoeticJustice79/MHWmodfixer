@@ -51,6 +51,85 @@ APP_TITLE = f"MHWmodfixer {APP_VERSION} by Littlefish (PoeticJustice79)"
 ARCHIVE_EXTS = {".zip", ".7z", ".rar"}
 LOG_DIR = Path.home() / "AppData" / "Local" / "MHWmodfixer" / "logs"
 
+# "Night Ops" palette -- user-picked direction (of three mockups shown as an
+# artifact, 2026-08-09) out of a warm-light/dark-ember/cool-slate set. Only
+# covers what this app can actually restyle: the main window's own widgets
+# and the one Toplevel dialog (RSZ Snapshot). tkinter.messagebox dialogs
+# (confirmations, errors) stay native OS chrome regardless -- there's no
+# supported way to theme those, and reimplementing them as custom Toplevels
+# just to recolor them isn't worth the added surface area.
+THEME = {
+    "bg": "#17160f", "surface": "#1e1c14", "surface_alt": "#241f14",
+    "ink": "#ede6d3", "muted": "#93876e", "border": "#322e1f",
+    "input_bg": "#1b1911",
+    "btn_bg": "#211e14", "btn_hover": "#2c291b", "btn_active": "#332f1e",
+    "accent": "#dd8339", "accent_hover": "#c9722c", "accent_ink": "#17160f",
+    "warn": "#e0a83f", "success": "#86b98f", "danger": "#e2685a",
+    "progress_track": "#2a271a", "log_bg": "#100f0a",
+}
+
+
+def _apply_theme(root: tk.Tk) -> ttk.Style:
+    """Switches to the 'clam' base ttk theme (the only built-in theme that
+    honors arbitrary color configuration on Windows -- 'vista' looks native
+    but silently ignores most style.configure() color overrides, since it
+    delegates rendering to the OS theme engine) and recolors every ttk
+    widget class this app actually uses to the Night Ops palette. Returns
+    the Style object in case a caller needs it (currently unused)."""
+    th = THEME
+    root.configure(bg=th["bg"])
+    style = ttk.Style(root)
+    style.theme_use("clam")
+
+    style.configure(".", background=th["bg"], foreground=th["ink"],
+                     fieldbackground=th["input_bg"], bordercolor=th["border"],
+                     darkcolor=th["bg"], lightcolor=th["bg"], troughcolor=th["progress_track"])
+    style.configure("TFrame", background=th["bg"])
+    style.configure("TLabel", background=th["bg"], foreground=th["ink"])
+    style.configure("TButton", background=th["btn_bg"], foreground=th["ink"],
+                     bordercolor=th["border"], focuscolor=th["accent"], padding=(10, 5))
+    style.map("TButton",
+              background=[("active", th["btn_hover"]), ("pressed", th["btn_active"]), ("disabled", th["bg"])],
+              foreground=[("disabled", th["muted"])])
+    style.configure("TCheckbutton", background=th["bg"], foreground=th["ink"])
+    style.map("TCheckbutton", background=[("active", th["bg"])], foreground=[("disabled", th["muted"])])
+    style.configure("TEntry", fieldbackground=th["input_bg"], foreground=th["ink"],
+                     insertcolor=th["ink"], bordercolor=th["border"])
+    style.configure("TCombobox", fieldbackground=th["input_bg"], background=th["btn_bg"],
+                     foreground=th["ink"], arrowcolor=th["ink"], bordercolor=th["border"])
+    style.map("TCombobox", fieldbackground=[("readonly", th["input_bg"])],
+              foreground=[("readonly", th["ink"])])
+    root.option_add("*TCombobox*Listbox.background", th["surface"])
+    root.option_add("*TCombobox*Listbox.foreground", th["ink"])
+    root.option_add("*TCombobox*Listbox.selectBackground", th["accent"])
+    root.option_add("*TCombobox*Listbox.selectForeground", th["accent_ink"])
+    style.configure("TLabelframe", background=th["bg"], bordercolor=th["border"])
+    style.configure("TLabelframe.Label", background=th["bg"], foreground=th["warn"])
+    style.configure("TScrollbar", background=th["btn_bg"], troughcolor=th["bg"],
+                     bordercolor=th["border"], arrowcolor=th["ink"])
+    style.map("TScrollbar", background=[("active", th["btn_hover"])])
+    style.configure("TProgressbar", background=th["accent"], troughcolor=th["progress_track"],
+                     bordercolor=th["border"], lightcolor=th["accent"], darkcolor=th["accent"])
+    return style
+
+
+def _log_tag_for(msg: str) -> str | None:
+    """Which Text tag (see log_text.tag_configure() calls in _build_ui())
+    a log line should render with, based on the [fixed]/[warn]/[error]/etc.
+    markers this project's own log() callers already use consistently
+    throughout pfb_fix.py/auto_fix.py/pak_mod_fix.py/mesh_check.py -- purely
+    a display concern, never re-interprets or filters what gets logged."""
+    low = msg.lower()
+    if "[error]" in low or "traceback" in low:
+        return "logerror"
+    if "[warn]" in low:
+        return "logwarn"
+    if "[fixed]" in low or "[ok]" in low:
+        return "logok"
+    if "[info]" in low or "[skip]" in low or "[kept as shipped]" in low:
+        return "logdim"
+    return None
+
 
 def zip_folder(src_folder: Path, dest_zip: Path):
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as z:
@@ -97,10 +176,17 @@ class App:
         # observed refusing "-label" on entryconfigure for a cascade menu
         # here even though the same call works for plain ttk widgets;
         # rebuilding sidesteps whatever index/native-menu quirk that was.
-        menubar = tk.Menu(self.root)
-        dev_menu = tk.Menu(menubar, tearoff=0)
+        # bg/fg here are honored for the dropdown/cascade popups on Windows;
+        # the top-level menu BAR itself is native OS chrome and ignores them
+        # regardless (same limitation as messagebox dialogs, see THEME's
+        # docstring) -- set anyway since it costs nothing and helps the
+        # popups match.
+        menu_kwargs = {"bg": THEME["surface"], "fg": THEME["ink"],
+                        "activebackground": THEME["accent"], "activeforeground": THEME["accent_ink"]}
+        menubar = tk.Menu(self.root, **menu_kwargs)
+        dev_menu = tk.Menu(menubar, tearoff=0, **menu_kwargs)
         dev_menu.add_command(label=t("menu_rsz_snapshot"), command=self._open_snapshot_dialog)
-        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu = tk.Menu(menubar, tearoff=0, **menu_kwargs)
         settings_menu.add_cascade(label=t("menu_dev_options"), menu=dev_menu)
         menubar.add_cascade(label=t("menu_settings"), menu=settings_menu)
         self.root.config(menu=menubar)
@@ -137,7 +223,13 @@ class App:
 
         list_frame = ttk.Frame(self.root)
         list_frame.pack(fill="both", padx=10, pady=4)
-        self.mod_listbox = tk.Listbox(list_frame, height=6, selectmode="extended")
+        self.mod_listbox = tk.Listbox(
+            list_frame, height=6, selectmode="extended",
+            bg=THEME["surface"], fg=THEME["ink"],
+            selectbackground=THEME["accent"], selectforeground=THEME["accent_ink"],
+            highlightthickness=1, highlightbackground=THEME["border"], highlightcolor=THEME["border"],
+            relief="flat", borderwidth=0,
+        )
         self.mod_listbox.pack(side="left", fill="both", expand=True)
         scrollbar = ttk.Scrollbar(list_frame, command=self.mod_listbox.yview)
         scrollbar.pack(side="left", fill="y")
@@ -175,20 +267,22 @@ class App:
         )
         self.chk_shader_migration.pack(side="left", padx=(14, 0))
         self.lbl_experimental_hint = ttk.Label(
-            self.options_frame, text=t("lbl_experimental_hint"), foreground="#a06000", font=("Segoe UI", 8),
+            self.options_frame, text=t("lbl_experimental_hint"), foreground=THEME["warn"], font=("Segoe UI", 8),
         )
         self.lbl_experimental_hint.pack(anchor="w", padx=8, pady=(4, 6))
 
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
-        # Plain tk.Button, not ttk -- ttk buttons mostly ignore bg/fg under
-        # Windows' native "vista" theme (set below in main()), so this is
-        # the only reliable way to make the primary action visually stand
-        # out from the other buttons on this screen.
+        # Plain tk.Button, not ttk -- ttk buttons ignore bg/fg color overrides
+        # under most themes (including 'clam', set in _apply_theme()), so
+        # this is the only reliable way to make the primary action stand out
+        # with the accent color rather than the same neutral button color as
+        # everything else on this screen.
         self.start_btn = tk.Button(
             action_frame, text=t("btn_start"), command=self._start,
-            bg="#2e7d32", fg="white", activebackground="#256428", activeforeground="white",
-            disabledforeground="#a5c9a8", relief="flat", font=("Segoe UI", 10, "bold"),
+            bg=THEME["accent"], fg=THEME["accent_ink"],
+            activebackground=THEME["accent_hover"], activeforeground=THEME["accent_ink"],
+            disabledforeground=THEME["muted"], relief="flat", font=("Segoe UI", 10, "bold"),
             padx=16, pady=6, cursor="hand2",
         )
         self.start_btn.pack(side="left")
@@ -198,7 +292,7 @@ class App:
         ttk.Label(self.root, textvariable=self.status).pack(fill="x", padx=10)
 
         self.notice_verifying = StringVar(value="")
-        self.lbl_notice = ttk.Label(self.root, textvariable=self.notice_verifying, foreground="#a15c00")
+        self.lbl_notice = ttk.Label(self.root, textvariable=self.notice_verifying, foreground=THEME["warn"])
         self.lbl_notice.pack(fill="x", padx=10)
 
         progress_frame = ttk.Frame(self.root)
@@ -208,8 +302,22 @@ class App:
         self.progress_pct_label = ttk.Label(progress_frame, text="", width=6, anchor="e")
         self.progress_pct_label.pack(side="left", padx=(6, 0))
 
-        self.log_text = ScrolledText(self.root, height=16, state="disabled")
+        self.log_text = ScrolledText(
+            self.root, height=16, state="disabled",
+            bg=THEME["log_bg"], fg=THEME["ink"], insertbackground=THEME["ink"],
+            relief="flat", borderwidth=1, highlightthickness=1,
+            highlightbackground=THEME["border"], highlightcolor=THEME["border"],
+            font=("Consolas", 9),
+        )
         self.log_text.pack(fill="both", expand=True, padx=10, pady=10)
+        # Color-coded by the same [fixed]/[warn]/[error]/[info] markers this
+        # project's own log() callers already use everywhere (pfb_fix.py,
+        # auto_fix.py, etc.) -- see _log_tag_for(). Purely cosmetic: never
+        # changes what gets logged, only how it's colored once inserted.
+        self.log_text.tag_configure("logok", foreground=THEME["success"])
+        self.log_text.tag_configure("logwarn", foreground=THEME["warn"])
+        self.log_text.tag_configure("logerror", foreground=THEME["danger"])
+        self.log_text.tag_configure("logdim", foreground=THEME["muted"])
 
     def _on_lang_change(self, event=None):
         code = next((c for c, name in i18n.LANGUAGES.items() if name == self.lang_display.get()), "en")
@@ -250,12 +358,18 @@ class App:
         user install a snapshot someone shared, without waiting for a new
         MHWmodfixer release. See rsz_layout.py's module docstring for what
         this snapshot actually protects."""
-        win = tk.Toplevel(self.root)
+        win = tk.Toplevel(self.root, bg=THEME["bg"])
         win.title(t("dlg_snapshot_title"))
         win.geometry("560x380")
         win.transient(self.root)
 
-        info_text = ScrolledText(win, height=14, state="disabled")
+        info_text = ScrolledText(
+            win, height=14, state="disabled",
+            bg=THEME["log_bg"], fg=THEME["ink"], insertbackground=THEME["ink"],
+            relief="flat", borderwidth=1, highlightthickness=1,
+            highlightbackground=THEME["border"], highlightcolor=THEME["border"],
+            font=("Consolas", 9),
+        )
         info_text.pack(fill="both", expand=True, padx=10, pady=10)
 
         def refresh():
@@ -437,7 +551,8 @@ class App:
         while not self._log_queue.empty():
             msg = self._log_queue.get()
             self.log_text.configure(state="normal")
-            self.log_text.insert("end", msg + "\n")
+            tag = _log_tag_for(msg)
+            self.log_text.insert("end", msg + "\n", *((tag,) if tag else ()))
             self.log_text.see("end")
             self.log_text.configure(state="disabled")
 
@@ -697,9 +812,7 @@ def main():
 
     root = TkinterDnD.Tk() if _HAS_DND else tk.Tk()
     try:
-        style = ttk.Style()
-        if "vista" in style.theme_names():
-            style.theme_use("vista")
+        _apply_theme(root)
     except Exception:
         pass
 

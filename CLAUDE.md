@@ -2417,3 +2417,47 @@ the moment a risky path is taken (see `_transplant_reshaped()`'s own
 "experimental option, verify in-game" line) -- fixed in both
 `auto_fix.py` (loose files) and `pak_mod_fix.py` (materials inside a
 mod's own `.pak`).
+
+## 27. GUI visual redesign: "Night Ops" theme (2026-08-09)
+
+Real Nexus comment ("slopcoded apps that are actually useful is one thing
+but slop art is another") prompted a UI pass. Built three full mockup
+directions as an HTML artifact (warm-light "Field Log", dark-ember "Night
+Ops", cool-slate "Slate Console" -- same layout/copy in all three, only
+palette/type differed) and let the user pick before touching real code --
+**Night Ops** (near-black warm background, ember/amber accent) won.
+
+Implementation notes:
+- `main()` switched from `style.theme_use("vista")` to a new
+  `_apply_theme()` that forces the cross-platform `"clam"` base theme.
+  `"vista"` looks native but silently ignores most `style.configure()`
+  color overrides (it delegates rendering to the OS theme engine) -- there
+  is no way to get a genuinely dark ttk app on Windows while staying on
+  `"vista"`. `"clam"` fully honors color configuration.
+- `THEME` (module-level dict) is the single source of truth for the
+  palette; every widget pulls from it rather than hardcoding hex values a
+  second time.
+- tkinter has two widget families that need separate handling: `ttk.*`
+  widgets go through `ttk.Style` (`_apply_theme()`), but plain `tk.*`
+  widgets (`Listbox`, `ScrolledText`/`Text`, `Menu`, the primary `Button`)
+  take color kwargs directly and don't listen to `ttk.Style` at all --
+  each one is themed individually at construction.
+- New: log lines now color-code by the `[fixed]`/`[warn]`/`[error]`/
+  `[info]` markers this project's `log()` callers already use consistently
+  everywhere (`pfb_fix.py`, `auto_fix.py`, etc.) -- `_log_tag_for()` maps a
+  raw line to a `Text` tag, applied in `_poll_queues()`. Purely a display
+  concern; never changes what gets logged or filters anything.
+- **Known, accepted limitation**: `tkinter.messagebox` dialogs
+  (confirmations, errors -- used throughout for the diagnosis/save-location
+  flow) are native OS dialogs and cannot be recolored by any supported
+  means; reimplementing all of them as custom `Toplevel`s just to theme
+  them was judged out of scope for a cosmetic pass. Same story for the
+  native Windows title bar itself (would need `ctypes` DWM calls, extra
+  fragility for a nice-to-have). Everything else -- main window, all its
+  widgets, the RSZ Snapshot dev dialog -- is themed.
+- Verified via a headless smoke instantiation (`_apply_theme()` + `App()`
+  + `root.update()`, then simulated log lines through the real
+  `_poll_queues()` drain path) rather than a live manual launch --
+  confirmed no exceptions, correct colors on `start_btn`/`log_text`
+  tags/`root`/`mod_listbox`, and that language-switching
+  (`_retranslate()`) still works with the new `options_frame` widget.
