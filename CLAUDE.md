@@ -2715,3 +2715,30 @@ lesson (#24 staleness direction, #30 avp, now #31 shader variants): all
 three of this project's self-inflicted bugs this session came from
 trusting the nearest vanilla structure over the mod's own still-valid
 choices.
+
+## 32. TiNE Qipao crash RESOLVED -- it was #29's mask bleed all along (2026-08-09)
+
+Bisection converged fast: a Body-only-migrated build (everything else on
+the known-good gpbf-only base) still crashed -- but that build predated
+the #29 mask fix. Rebuilding the SAME Body-only bisect through the
+CURRENT pipeline (DetailMaskMap neutralized on all 4 Fur materials)
+**eliminated the crash entirely, confirmed in-game by the user** -- the
+outfit now renders correctly, matching the mod's reference screenshots.
+
+So the #26 crash and the #29 Bifrost hair-bleed were the SAME underlying
+bug -- a migrated material inheriting the donor's own non-null
+`DetailMaskMap` -- with wildly different symptoms per mod: a cosmetic
+texture bleed on Bifrost, an immediate hard crash on equip for Qipao.
+(Why the same bad data crashes one mod and only discolors another is an
+engine-internals question this project can't answer from files alone;
+what matters is that the single fix provably resolves both.) #26's
+"different pipeline/community" hypothesis for the crash is thereby
+retired -- the pipeline difference was real but irrelevant; the crash
+trigger was ours. The shader migration feature's risk posture can be
+softened accordingly: its one known crash is now explained AND fixed,
+though it stays opt-in (the #26-era warning text still overstates the
+danger slightly -- acceptable; overwarning is the safe direction).
+
+Full-mod final build (`TiNE's Qipao Ver.R Remastered (fixed final).zip`,
+79 materials migrated across all sub-options, 79 masks neutralized, zero
+errors) delivered for complete in-game verification.
