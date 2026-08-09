@@ -2461,3 +2461,20 @@ Implementation notes:
   confirmed no exceptions, correct colors on `start_btn`/`log_text`
   tags/`root`/`mod_listbox`, and that language-switching
   (`_retranslate()`) still works with the new `options_frame` widget.
+
+**Follow-up, caught by the user's own first real launch (headless
+instantiation can't render pixels, so this was never going to surface
+until someone actually looked at it)**: the native root-level menu bar
+(`root.config(menu=menubar)`, holding the one "Settings > Developer
+Options > RSZ Snapshot..." entry) rendered as a stark white strip across
+the top of the otherwise-dark window -- confirming the "native OS chrome
+ignores color kwargs" limitation applies to the top-level menu bar
+specifically (not just `messagebox`/title bar as originally scoped).
+Fixed by dropping `root.config(menu=...)` entirely and rebuilding the
+same two-level structure as a `ttk.Menubutton` + attached `tk.Menu`
+dropdown instead: a `Menubutton`'s popup is a genuinely separate floating
+window, not part of the root window's OS-drawn frame, so it DOES honor
+`tk.Menu` color kwargs on Windows (already set, just never got a chance
+to render right since the old attachment point couldn't use them). Same
+menu content/behavior, fully themed now, verified via the same headless
+smoke-instantiation approach.

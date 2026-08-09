@@ -91,6 +91,9 @@ def _apply_theme(root: tk.Tk) -> ttk.Style:
     style.map("TButton",
               background=[("active", th["btn_hover"]), ("pressed", th["btn_active"]), ("disabled", th["bg"])],
               foreground=[("disabled", th["muted"])])
+    style.configure("TMenubutton", background=th["btn_bg"], foreground=th["ink"],
+                     bordercolor=th["border"], arrowcolor=th["ink"], padding=(10, 5))
+    style.map("TMenubutton", background=[("active", th["btn_hover"])])
     style.configure("TCheckbutton", background=th["bg"], foreground=th["ink"])
     style.map("TCheckbutton", background=[("active", th["bg"])], foreground=[("disabled", th["muted"])])
     style.configure("TEntry", fieldbackground=th["input_bg"], foreground=th["ink"],
@@ -171,34 +174,35 @@ class App:
     # ---- UI layout ---------------------------------------------------
 
     def _build_menubar(self):
-        # Rebuilt from scratch on every language change rather than
-        # entryconfigure()'d in place -- Windows' native menu widget was
-        # observed refusing "-label" on entryconfigure for a cascade menu
-        # here even though the same call works for plain ttk widgets;
-        # rebuilding sidesteps whatever index/native-menu quirk that was.
-        # bg/fg here are honored for the dropdown/cascade popups on Windows;
-        # the top-level menu BAR itself is native OS chrome and ignores them
-        # regardless (same limitation as messagebox dialogs, see THEME's
-        # docstring) -- set anyway since it costs nothing and helps the
-        # popups match.
+        # NOT a native root-level menu bar (tried that first: `root.config(
+        # menu=...)` draws as opaque OS chrome on Windows regardless of any
+        # tk.Menu color kwargs -- a stark white strip across the top of an
+        # otherwise dark window, confirmed visually once actually launched).
+        # A ttk.Menubutton's dropdown is a genuinely separate floating
+        # popup, not part of the window frame, so IT does honor tk.Menu
+        # color kwargs on Windows -- this gets the identical two-level
+        # Settings > Developer Options > RSZ Snapshot structure fully
+        # themed instead. Rebuilt from scratch on every language change
+        # (not entryconfigure()'d in place) since that's what already
+        # worked reliably for the old native menu and there's no reason to
+        # risk the same "-label" quirk resurfacing here.
         menu_kwargs = {"bg": THEME["surface"], "fg": THEME["ink"],
                         "activebackground": THEME["accent"], "activeforeground": THEME["accent_ink"]}
-        menubar = tk.Menu(self.root, **menu_kwargs)
-        dev_menu = tk.Menu(menubar, tearoff=0, **menu_kwargs)
+        dev_menu = tk.Menu(self.root, tearoff=0, **menu_kwargs)
         dev_menu.add_command(label=t("menu_rsz_snapshot"), command=self._open_snapshot_dialog)
-        settings_menu = tk.Menu(menubar, tearoff=0, **menu_kwargs)
+        settings_menu = tk.Menu(self.root, tearoff=0, **menu_kwargs)
         settings_menu.add_cascade(label=t("menu_dev_options"), menu=dev_menu)
-        menubar.add_cascade(label=t("menu_settings"), menu=settings_menu)
-        self.root.config(menu=menubar)
-        self._menubar, self._settings_menu, self._dev_menu = menubar, settings_menu, dev_menu
+        self.btn_settings.configure(menu=settings_menu)
+        self._settings_menu, self._dev_menu = settings_menu, dev_menu
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
 
-        self._build_menubar()
-
         top_frame = ttk.Frame(self.root)
         top_frame.pack(fill="x", **pad)
+        self.btn_settings = ttk.Menubutton(top_frame, text=t("menu_settings"))
+        self.btn_settings.pack(side="left")
+        self._build_menubar()
         self.lbl_lang = ttk.Label(top_frame, text=t("lbl_lang"))
         self.lbl_lang.pack(side="right", padx=(6, 0))
         self.lang_combo = ttk.Combobox(
@@ -326,6 +330,7 @@ class App:
         self._retranslate()
 
     def _retranslate(self):
+        self.btn_settings.configure(text=t("menu_settings"))
         self._build_menubar()
         self.lbl_lang.configure(text=t("lbl_lang"))
         self.lbl_game_dir.configure(text=t("lbl_game_dir"))
