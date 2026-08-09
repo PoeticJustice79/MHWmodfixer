@@ -30,6 +30,61 @@ DATA_START_ROW = 5
 
 KNOWN_TOKENS = {"clsp", "chain", "gpuc"}
 
+# Korean armor-set name -> official/community English name, for the
+# non-Korean UI languages (en/ja/zh_tw/zh_cn all fall back to this one
+# English string -- per the user, a real ja/zh translation isn't worth
+# building if it's not readily available; English-only is an acceptable
+# fallback for those). ONLY the entries this project could actually
+# verify are included -- deliberately incomplete rather than guessed.
+#
+# Source: cross-referenced two independent sources, not translated by
+# guesswork --
+#   1. The user's own installed REFramework Lua mod ("FemaleBodySliders",
+#      tools/autorun/FemaleBodySliders/ExtraLayeredArmorDictionary.lua)
+#      maintains a real (set,variant)-keyed English armor-piece-name
+#      table for its own UI. Parsed programmatically, matched against
+#      this project's own (set,variant) keys, and only names with a
+#      consistent majority across a set's variant/piece entries were
+#      trusted.
+#   2. A few of that table's names were stale/garbled (internal dev
+#      names, not the shipped monster name -- e.g. "Rey Sand..." /
+#      "Udra Mire..." / "Dahaad Shard...") -- corrected against
+#      game8.co's full Monster Hunter Wilds armor-set list (the
+#      confirmed shipped monster roster) before trusting them.
+#
+# Entries this project could NOT confidently resolve (mostly unique/DLC
+# accessory items with no monster-name convention to cross-check against)
+# are deliberately left OUT -- those keep showing their Korean name in
+# every UI language rather than risk shipping a wrong guess.
+NAME_EN_OVERRIDES = {
+    "가쟈우": "Gajau", "게리오스": "Gypceros", "고어": "Gore Magala",
+    "그라비드": "Gravios", "길드 크로스": "Guild Cross", "길드나이트(사전예약)": "Guild Knight",
+    "길드에이스": "Guild Ace", "깃 한 가닥 목걸이": "Pinion Necklace", "다마스크": "Damascus",
+    "다이버": "Diver", "다하딜라": "Jin Dahaad", "데스기어": "Death Stench",
+    "도베르": "Dober", "도샤구마": "Doshaguma", "라기아": "Lagiacrus",
+    "라바라": "Lala Barina", "랑고스타": "Vespoid", "레기오스": "Seregios",
+    "레다젤트": "Rey Dau", "레더": "Leather", "레우스": "Rathalos",
+    "레이아": "Rathian", "멜호아": "Melahoa", "모험의 호크하트": "Hawkheart",
+    "무구한 용": "Numinous", "미츠네": "Mizutsune", "발라": "Balahara",
+    "배틀": "Battle", "본": "Bone", "봉인의 안대": "Sealed Eyepatch",
+    "봉인의 용해포": "Sealed Dragon Cloth", "블랑고": "Blangonga", "블로썸": "Blossom",
+    "수호룡세크레트": "Guardian Seikret", "슈바르카": "Arkveld", "스퀘어글라스": "Square Glasses",
+    "스큐라": "Nerscylla", "시이우": "Xu Wu", "실드후드": "Sild",
+    "아자라": "Ajarakan", "아즈즈": "Azuz", "아티어": "Artian",
+    "아피": "Afi", "앵파": "Sakuratide", "언더림글라스": "Half Rim Glasses",
+    "얼로이": "Alloy", "옷1": "Innerwear", "옷2": "Innerwear",
+    "옷3": "Innerwear", "옷4": "Innerwear", "이그졸스": "Nu Udra",
+    "잉곳": "Ingot", "조사단": "Commission", "지략의 안경": "Strategist Spectacles",
+    "차타": "Chatacabra", "체인": "Chainmail", "콩가": "Congalala",
+    "쿠나파": "Kunafa", "쿡크": "Kut-Ku", "크라노다스": "Kranodath",
+    "클러크": "Clerk", "킹비트": "King Beetle", "투나물": "Uth Duna",
+    "트리스": "Quematrice", "파피메르": "Butterfly", "푸포루": "Rompopolo",
+    "필라길": "Piragill", "하이메탈": "High Metal", "하트글라스": "Lovely Shades",
+    "호뢰악룡": "Guardian Fulgur Anjanath", "호벽수": "Guardian Doshaguma",
+    "호쇄인룡": "Guardian Arkveld", "호프": "Hope", "호화룡": "Guardian Rathalos",
+    "호흉조룡": "Guardian Ebony Odogaron", "히라바미": "Hirabami",
+}
+
 
 def _parse_piece_cell(value) -> list[str] | None:
     """Returns the list of physics tokens for one piece, or None when the
@@ -109,10 +164,12 @@ def bake(xlsx_path: Path) -> dict:
             s = str(slinger_raw).strip()
             slinger = True if "√" in s else False if s in ("×", "x", "X") else None
 
+        ko_name = current_name or "?"
         slots[f"{current_set}/{variant}"] = {
             "set": current_set,
             "variant": variant,
-            "name": current_name or "?",
+            "name": ko_name,
+            "name_en": NAME_EN_OVERRIDES.get(ko_name),  # None => no confident translation, UI falls back to Korean
             "pieces": pieces if any_data else None,  # None => profile unknown
             "slinger": slinger,
         }
