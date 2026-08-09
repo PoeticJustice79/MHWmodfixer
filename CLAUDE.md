@@ -2660,5 +2660,11 @@ Verified: rebuilt Bifrost through the full current pipeline
 (`OVR Rogue - Bifrost (fixed v3, avp-untouched).zip`) -- avp keeps the
 author's 036/000 reference byte-identical, shader migration + #29 mask
 fix still apply to all 5 materials, full regression suite byte-identical
-(none of those mods have avp files at all). Awaiting the user's in-game
-confirmation of the hair fix.
+(none of those mods have avp files at all). **CONFIRMED in-game by the
+user ("아주 잘 작동해"): hair renders correctly under the helm, the full
+fix chain (shader migration + mask neutralization + avp left untouched)
+is now end-to-end verified on this mod.** This closes the Bifrost saga:
+the original white-texture/missing-wings report needed the retired-shader
+migration (#24/#25), the helm hair bleed needed BOTH #29's mask fix AND
+this reversal -- and the avp rewrite (#19) turned out to be a bug this
+project itself introduced along the way, not part of any fix.
