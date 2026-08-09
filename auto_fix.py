@@ -165,12 +165,36 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
     being correct. Matching by name (not position) is required because
     the same-mmtr donor and the mod's own material can still have a
     different prop count/order when Capcom adds new shader parameters
-    over time."""
+    over time.
+
+    GPBF (GPU byte-address-buffer) slots get the SAME name-matched
+    override treatment, for the same reason -- confirmed real via a Nexus
+    report + user in-game screenshot (TiNE's Qipao Ver.R Remastered,
+    2026-08-09): the mod's own material has its `MultiBlend_BAB` gpbf slot
+    pointed at `systems/rendering/Empty.gpbf` (author's own, deliberate
+    "no multi-blend buffer" placeholder -- consistent with its
+    MultiBlend_ALBDMap/NRMMap texture slots also being NullGray/NullNormal
+    placeholders), but this function was leaving `gpbf_entries` as an
+    untouched copy of the DONOR's, so the final material silently pointed
+    at the DONOR's real per-character blend buffer instead -- data sized
+    and laid out for a completely different mesh/UV layout. The engine
+    still renders (no crash, no missing-texture warning: the buffer PATH
+    is valid, just semantically wrong), producing exactly the reported
+    symptom: correct silhouette/design, wrong color/blending. `gpbf_entries`
+    is a flat list of `gpbf_split[0]` (name, h1, h2) slot entries followed
+    by `gpbf_split[1]` (path, 0, 1) value entries, paired by matching
+    index (i-th slot name <-> i-th path) -- confirmed by direct inspection
+    of this material's real data, both counts equal (4, 4)."""
     mod_tex_by_type = {t["type"]: t["path"] for t in mod_mat["textures"]}
     mod_props_by_name = {p["name"]: p["values"] for p in mod_mat["props"]}
     if len(mod_props_by_name) != len(mod_mat["props"]):
         log(f"    [warn] material {mod_mat['name']!r}: mod has duplicate prop name(s) -- "
             f"only the last one of each duplicate will be used as an override source")
+    mod_gpbf_names, mod_gpbf_paths = mod_mat["gpbf_entries"][:mod_mat["gpbf_split"][0]], \
+        mod_mat["gpbf_entries"][mod_mat["gpbf_split"][0]:]
+    mod_gpbf_path_by_slot = {}
+    if len(mod_gpbf_names) == len(mod_gpbf_paths):
+        mod_gpbf_path_by_slot = {n[0]: p[0] for n, p in zip(mod_gpbf_names, mod_gpbf_paths)}
     new_mat = copy.deepcopy(donor_mat)
     new_mat["name"] = mod_mat["name"]
     new_mat["shading_type"] = mod_mat["shading_type"]
@@ -199,6 +223,15 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
     if extra_props:
         log(f"    [warn] material {mod_mat['name']!r}: mod prop(s) {sorted(extra_props)} "
             f"don't exist on the matched donor material -- dropped")
+
+    donor_gpbf_names, donor_gpbf_paths = new_mat["gpbf_entries"][:new_mat["gpbf_split"][0]], \
+        new_mat["gpbf_entries"][new_mat["gpbf_split"][0]:]
+    if mod_gpbf_path_by_slot and len(donor_gpbf_names) == len(donor_gpbf_paths):
+        for i, (slot_name, _h1, _h2) in enumerate(donor_gpbf_names):
+            mod_path = mod_gpbf_path_by_slot.get(slot_name)
+            if mod_path is not None and mod_path != donor_gpbf_paths[i][0]:
+                donor_gpbf_paths[i] = (mod_path, donor_gpbf_paths[i][1], donor_gpbf_paths[i][2])
+        new_mat["gpbf_entries"] = donor_gpbf_names + donor_gpbf_paths
 
     return new_mat, changed
 

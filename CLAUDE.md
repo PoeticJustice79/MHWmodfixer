@@ -2171,3 +2171,65 @@ customization would need a different, more targeted approach (e.g. a
 hand-verified field whitelist for that one class) -- not attempted here,
 flagged as a possible future step if a user ever reports losing
 customization there.
+
+## 23. gpbf (GPU byte-address-buffer) slots weren't preserved from the mod (2026-08-09)
+
+Real bug report (Nexus, "TiNE's Qipao Ver.R Remastered", independently
+confirmed by two people: a comment from `tsuji2` -- "the design has
+changed, but it's just the color that's messed up" -- and the user's own
+in-game screenshot showing the equipped piece rendering as bare skin with
+almost no dress visible, both against the SAME mod). Root-caused by
+directly parsing the mod's own material (via `mdf2_slice.extract_material()`)
+and diffing every field of `auto_fix.apply_texture_overrides()`'s output
+against it: `shading_type`, `alpha_flags_raw`, `mmtr_path`, textures, and
+props all matched -- but `gpbf_entries` did not. That function only ever
+explicitly overrode `name`/`shading_type`/`alpha_flags_raw`/`textures`/
+`props` back to the mod's own values on top of `copy.deepcopy(donor_mat)`;
+`gpbf_entries` was never in that list, so it silently stayed as the
+DONOR's.
+
+For this material (`Qipao_UseSC`, shader `Base_Equip_Fur.mmtr`, matched
+whole-game to donor `ch02_053_0014_fur_UseSC` since the shader had zero
+same-file/same-set candidates), the mod's own `MultiBlend_BAB` gpbf slot
+deliberately points at `systems/rendering/Empty.gpbf` (consistent with
+its `MultiBlend_ALBDMap`/`MultiBlend_NRMMap` texture slots also being
+NullGray/NullNormal placeholders -- the author has multi-blend off). The
+donor's `MultiBlend_BAB` instead points at
+`Art/Model/Character/ch03/053/001/4/textures/ch03_053_0014_Mblend.gpbf` --
+a real per-vertex/per-pixel blend-weight buffer sized and laid out for a
+COMPLETELY unrelated character's mesh/UV topology. The engine doesn't
+crash or warn (the buffer path is valid, just semantically wrong) -- it
+renders using garbage blend weights for this mesh, producing exactly the
+reported symptom: correct silhouette/design, wrong-looking color/blending.
+Verified directly: extracting the mod's own material and the tool's
+pre-fix output and diffing every field found this as the ONLY difference;
+textures, props, and everything else were already correctly preserved
+(confirmed no length-mismatch silent-discard in `apply_texture_overrides()`'s
+existing prop-override logic either -- that hypothesis was checked and
+ruled out first).
+
+**Fix**: `gpbf_entries` now gets the same name-matched override treatment
+already used for textures/props. Format: a flat list of `gpbf_split[0]`
+`(slot_name, h1, h2)` entries followed by `gpbf_split[1]` `(path, 0, 1)`
+entries, paired by matching INDEX (i-th slot name <-> i-th path) --
+confirmed directly against this material's real data (both counts equal,
+4 and 4). For each donor slot name that also exists in the mod's own gpbf
+slots, the donor's corresponding path entry is replaced with the mod's
+own path; skipped entirely (falls back to old donor-wholesale behavior)
+if the mod's own name/path counts don't match 1:1, matching this
+project's established "don't guess when ambiguous" posture.
+
+**Scope**: this is NOT specific to this one mod or shader -- `has_gpbf`
+applies whenever `19 <= numVersion < 100000`, true for most current mdf2
+files, and the bug fires any time `apply_texture_overrides()` runs a
+cross-file donor match (whole-game or cross-piece) on a gpbf-bearing
+material with a non-empty gpbf slot the mod customized. Same-file/
+same-set matches were never affected structurally (donor and mod usually
+share gpbf content in that case) but could still have silently differed
+if a mod author changed a gpbf reference intentionally.
+
+Verified: full regression suite (SilverWolf/Endfield/DoA) byte-identical
+to before this fix (zero regressions), and a direct re-parse of the fixed
+`Qipao_UseSC` material's `gpbf_entries` now matches the mod's own
+original data exactly. Not yet re-verified in-game by the reporting users
+(both were told to re-run the tool and re-check).
