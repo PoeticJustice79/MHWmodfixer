@@ -637,10 +637,53 @@ any of this project's own logic. Also smoke-tested the rebuilt
 `MHWmodfixer.exe` directly (launched, confirmed the main window renders
 with the correct title, closed cleanly) since a from-scratch-compiled
 bootloader is new, unverified-in-practice territory for this project.
-Not yet confirmed whether this alone resolves real-world AV/Nexus
-scanner false positives -- that can only be observed from actual
-user/Nexus reports on a future release, the same as every other
-mitigation in this section.
+
+**REVERSED the next day (2026-08-10): real evidence shows this made false
+positives WORSE, not better -- do not redo this for local/CI builds.**
+The "not yet confirmed" caveat above got its answer fast: comparing real
+VirusTotal results across releases (the SAME zip-vs-zip comparison that
+should have been done immediately after shipping, not after the fact) --
+v0.3 and v0.4 (`--onedir --noupx`, STOCK PyPI bootloader): **0/66 and
+0/65 vendors flagged, respectively** -- completely clean. v0.5 (identical
+`--onedir --noupx`, but with this self-compiled bootloader added): **5/66
+flagged, including WithSecure naming it outright `Trojan.TR/W64.Malware`**
+-- a specific malware-family label, not a vague heuristic. The theory
+("a locally-compiled bootloader isn't in anyone's signature database")
+had a real, unconsidered flip side: a bootloader that ISN'T the extremely
+common, widely-whitelisted-by-reputation official PyInstaller build is
+also *unusual* -- and "unusual, non-standard compiled executable stub"
+is itself exactly the kind of signal some heuristic engines (and
+WithSecure's outright Trojan verdict suggests more than a heuristic)
+treat as suspicious. Can't rule out that v0.4->v0.5's large feature
+growth also contributed (this wasn't a clean single-variable A/B test),
+but there's no evidence the bootloader swap helped anything, and real
+evidence it may have actively hurt -- not worth the ongoing cost (a
+whole VS Build Tools install + a per-machine, easily-silently-lost setup
+step, see below) for a net-negative or at best net-zero result.
+
+**Action taken**: reverted to the stock PyPI bootloader via `pip install
+--upgrade --force-reinstall pyinstaller==<version>` (confirmed via the
+bootloader file's size changing back). Do not recompile the bootloader
+locally or in CI going forward -- if a future session is tempted to
+redo this (the "how to redo it" steps were left below for historical
+reference, not as a recommendation), re-read this reversal first. The
+actual, real fix for AV false positives is code signing (see the
+GitHub Actions / SignPath Foundation work started 2026-08-10, tracked
+separately) -- `--onedir --noupx` alone (matching v0.3/v0.4, confirmed
+clean) is the right baseline until signing is live.
+
+**Historical steps (do not use, kept for reference only):**
+1. Install a C++ compiler -- Visual Studio Build Tools, C++ workload only
+   (not the full IDE): `winget install --id Microsoft.VisualStudio.2022.BuildTools
+   -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools
+   --includeRecommended"`. One-time, ~3.5GB.
+2. `git clone --branch v<matching version> --depth 1
+   https://github.com/pyinstaller/pyinstaller.git` (match whatever
+   version is currently installed -- `pip show pyinstaller`).
+3. `cd pyinstaller/bootloader && python ./waf all` -- per the docs, no
+   need to run `vcvarsall.bat` first, waf finds MSVC on its own.
+4. `cd .. && pip install .` -- reinstalls the SAME PyInstaller version,
+   now bundling the just-built bootloader instead of the PyPI one.
 
 ### 9. A crash from an unverified crc-only patch, and the RSZ snapshot pipeline built to stop it recurring (2026-08-08)
 
