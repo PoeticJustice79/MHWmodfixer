@@ -79,18 +79,66 @@ def to_pak_style_path(rel: Path) -> str:
     return "natives/" + "/".join(parts)
 
 
-def _structure_key(mat: dict) -> tuple:
-    """What actually determines byte-layout compatibility with the current
-    game build. Texture PATHS are deliberately excluded -- a working mod's
-    textures always differ from vanilla's by design, so that's not a sign
-    of staleness. Prop/texture/gpbf *counts* (and which texture slot NAMES
-    exist) changing is what signals the shader template moved on."""
-    return (
-        len(mat["props"]),
-        tuple(sorted(t["type"] for t in mat["textures"])),
-        mat["gpbf_split"],
-        mat["mmtr_path"],
-    )
+def _material_needs_fix(mod_mat: dict, donor_mat: dict) -> bool:
+    """Whether rebuilding `mod_mat` against `donor_mat` (see
+    `apply_texture_overrides()`) would actually gain something, as opposed
+    to just being a structural difference. Texture PATHS are deliberately
+    excluded from this check -- a working mod's textures always differ
+    from vanilla's by design, so that's not a sign of staleness. Fires
+    only when the donor has a texture slot, prop name, or gpbf slot the
+    mod's own material DOESN'T already have -- i.e. only when there's
+    something genuinely new to gain, regardless of whether the donor's
+    mmtr string happens to match the mod's own (see below for why an
+    mmtr mismatch is NOT itself treated as reason enough).
+
+    This used to be a blunt `structure_key(mod) != structure_key(donor)`
+    (any difference in prop count/texture-type-set/gpbf-split triggered a
+    rebuild) -- confirmed real bug via a fresh author-provided fix for
+    "OVR Rogue - Bifrost" (2026-08-09): its rebuilt materials (`Base_Equip.mmtr`,
+    genuinely current, 25 tex slots/191 props -- the mod author's own
+    real update) still got rebuilt by this project against a whole-game
+    donor sharing the exact same mmtr but representing a DIFFERENT,
+    simpler vanilla instance (23 tex slots, no `MultiBlend_ALBDMap`/
+    `MultiBlend_NRMMap`) -- only 2 materials in the entire game share this
+    specific mmtr, and neither happens to be a superset of the other. The
+    blunt inequality treated "donor differs" as "donor is newer", silently
+    downgrading an already-current, author-fixed file by dropping its
+    legitimate MultiBlend content -- the same class of bug as #16's
+    `_NoMultiBlend`-donor-selection fix, but triggered even after the
+    RIGHT donor (by mmtr) was found, because having the right shader
+    doesn't guarantee that SPECIFIC donor instance is a superset of the
+    mod's own fields.
+
+    A first version of this fix still unconditionally returned True on
+    an mmtr mismatch, reasoning "shader identity must match to trust the
+    donor's structure at all" -- but that broke the SAME real case one
+    layer up: `find_donor_for_material()`'s own-file tier is
+    mmtr-VARIANT-tolerant (accepts a `_NoMultiBlend` sibling as a stand-in,
+    per #16), so the actual donor chosen for this exact material had mmtr
+    `Base_Equip_NoMultiBlend.mmtr` -- genuinely different from the mod's
+    `Base_Equip.mmtr` -- while still being a pure field-subset (nothing to
+    gain). The mmtr-mismatch shortcut treated that as "needs fixing" and
+    dropped MultiBlend content anyway, identically to the bug this
+    function exists to fix. A genuine shader-FAMILY change (e.g. the
+    Bifrost mod's own real-world fix, swapping `Base_Equip_Fur.mmtr` for
+    `Base_Equip.mmtr` entirely) already has almost no field-name overlap
+    between the two schemas, so the subset check below catches it without
+    needing an mmtr special case at all -- removed rather than special-cased
+    further."""
+    mod_tex_types = {t["type"] for t in mod_mat["textures"]}
+    donor_tex_types = {t["type"] for t in donor_mat["textures"]}
+    if not donor_tex_types <= mod_tex_types:
+        return True
+    mod_prop_names = {p["name"] for p in mod_mat["props"]}
+    donor_prop_names = {p["name"] for p in donor_mat["props"]}
+    if not donor_prop_names <= mod_prop_names:
+        return True
+    if donor_mat["gpbf_split"] != mod_mat["gpbf_split"]:
+        donor_gpbf_names = {n[0] for n in donor_mat["gpbf_entries"][:donor_mat["gpbf_split"][0]]}
+        mod_gpbf_names = {n[0] for n in mod_mat["gpbf_entries"][:mod_mat["gpbf_split"][0]]}
+        if not donor_gpbf_names <= mod_gpbf_names:
+            return True
+    return False
 
 
 @dataclass
@@ -285,7 +333,7 @@ def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, a
                 mat_plans.append(MaterialPlan(mm, None, None, None, stale=True))
                 continue
             donor_blob, donor_src, match_kind = donor_hit
-            stale = _structure_key(mm) != _structure_key(donor_blob)
+            stale = _material_needs_fix(mm, donor_blob)
             mat_plans.append(MaterialPlan(mm, donor_blob, donor_src, match_kind, stale))
         plans.append(FilePlan(info["rel"], mod_path, info["mod_nv"], info["donor_nv"], mat_plans))
     return plans

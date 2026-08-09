@@ -2233,3 +2233,70 @@ to before this fix (zero regressions), and a direct re-parse of the fixed
 `Qipao_UseSC` material's `gpbf_entries` now matches the mod's own
 original data exactly. Not yet re-verified in-game by the reporting users
 (both were told to re-run the tool and re-check).
+
+## 24. Real-world confirmation of the `Base_Equip_Fur.mmtr` hypothesis, and a directional staleness-check fix it exposed (2026-08-09)
+
+The user obtained a fresh, author-updated copy of "OVR Rogue - Bifrost"
+(the mod behind item #19's white-material investigation) directly from
+its own creator. Comparing every material's `mmtr_path` between the old
+(broken, as originally reported) and new (author-fixed) files:
+**every single one of the 5 affected materials (Arm/Body/Helm/Leg/Waist)
+was switched from `Base_Equip_Fur.mmtr` to plain `Base_Equip.mmtr`** --
+the author didn't patch data under the old shader, they rebuilt the
+material under a different one (25 tex slots/191 props vs the Fur
+variant's 18/120 -- a genuinely different schema, real re-authoring work,
+not a metadata edit). This is real-world, independent confirmation of
+#19's leading (until now unconfirmed) hypothesis: `Base_Equip_Fur.mmtr`
+is fragile/near-retired in the current game build (only 2 real materials
+game-wide still use it) and donor-substituting content built for it
+produces a broken-but-non-crashing result. Same shader, same failure
+class as the TiNE Qipao gpbf case above -- two independent real mods now
+point at this exact shader family being the common thread. Not something
+this project's donor-matching architecture can fix automatically (it
+requires re-authoring under a different schema, a judgment call about
+which old texture maps to which new slot), but useful, actionable
+information for anyone maintaining an affected mod.
+
+**Running this new, already-current file through the tool exposed a
+real, separate bug**: it still rebuilt all 5 materials, dropping their
+(genuine, author-authored, current) `MultiBlend_ALBDMap`/`MultiBlend_NRMMap`
+texture slots and 14 `Blend_*` props -- the exact same SYMPTOM as #16's
+bug, but a different root cause. #16 fixed WHICH donor gets selected
+(prefer an exact-mmtr donor over a same-named-but-different-mmtr one).
+This is downstream of that: `_structure_key(mod) != _structure_key(donor)`
+(prop count / texture-type set / gpbf split / mmtr, blunt inequality)
+governed whether a material was "stale" (worth rebuilding) at all --
+treating ANY difference as "the donor is more current", including the
+direction where the donor has FEWER fields than the mod already has.
+For this file, only 2 materials in the whole game share `Base_Equip.mmtr`
+exactly, and neither is a superset of the other, so whichever gets
+picked as a donor always looks "different" under a blunt comparison --
+silently downgrading an already-correct, freshly-authored file.
+
+**Fix**: replaced `_structure_key()`/`!=` with `_material_needs_fix()`,
+which only returns True when the donor has a texture slot, prop name, or
+gpbf slot the mod's own material doesn't already have -- i.e. only when
+there's something to actually gain. A first version of this fix kept an
+unconditional "different mmtr always means stale" shortcut (reasoning
+that shader identity must match to trust the donor at all) -- but that
+broke the SAME real case one layer up: `find_donor_for_material()`'s
+own-file tier is itself mmtr-VARIANT-tolerant (accepts a `_NoMultiBlend`
+sibling per #16), so the actual donor chosen here had mmtr
+`Base_Equip_NoMultiBlend.mmtr`, genuinely different from the mod's
+`Base_Equip.mmtr`, while still being a pure field subset -- the mmtr
+shortcut treated that mismatch as "needs fixing" and reproduced the
+identical bug. Removed the mmtr special case entirely: a genuine
+shader-FAMILY change (like this same mod's own real Fur->non-Fur
+switch) has almost no field-name overlap between schemas, so the subset
+check catches it without help.
+
+Verified: the new Bifrost file's materials now correctly report
+`already matches the current game version's structure -- left untouched`
+(0 texture restorations, 0 MultiBlend drops) instead of being rebuilt.
+The OLD (genuinely broken, `Base_Equip_Fur.mmtr`) Bifrost file still
+correctly gets rebuilt (real staleness still detected). Full regression
+suite (SilverWolf/Endfield/DoA) plus TiNE Qipao and Arsinia Bunnysuit
+(both from this session's earlier analysis) all byte-identical to their
+prior baselines -- zero regressions. Fixed in both `auto_fix.py`
+(loose-file materials) and `pak_mod_fix.py` (materials inside a mod's own
+`.pak`) -- same bug, same fix, both call sites.

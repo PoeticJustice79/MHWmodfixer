@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from auto_fix import MaterialPlan, _structure_key, apply_texture_overrides
+from auto_fix import MaterialPlan, _material_needs_fix, apply_texture_overrides
 from game_archive import GameArchive
 from mdf2 import Mdf2File, detect_numVersion
 from mdf2_slice import assemble_mdf2, extract_material
@@ -255,7 +255,7 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
                     mat_plans.append(MaterialPlan(mm, None, None, None, stale=True))
                     continue
                 donor_blob, donor_src, match_kind = donor_hit
-                stale = _structure_key(mm) != _structure_key(donor_blob)
+                stale = _material_needs_fix(mm, donor_blob)
                 mat_plans.append(MaterialPlan(mm, donor_blob, donor_src, match_kind, stale))
             entry_plans.append(PakMdfEntryPlan(
                 hash64=u["hash64"], mod_numVersion=u["mod_mdf"].numVersion, donor_numVersion=u["donor_nv"],
