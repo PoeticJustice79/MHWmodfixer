@@ -591,6 +591,57 @@ requires a Microsoft account sign-in, was in progress as of this writing
 but blocked on getting an exact Defender detection name from a reporting
 user).
 
+**PyInstaller's bootloader is now self-compiled locally, not the
+precompiled one from PyPI (2026-08-09).** This is a real, officially-
+documented mitigation -- PyInstaller's own docs
+(`doc/bootloader-building.rst` in its source repo, also published at
+https://pyinstaller.org/en/stable/bootloader-building.html) list "you
+want to avoid anti-virus false positives that result from the
+wide-spread use of pre-compiled bootloaders" as an explicit, named
+reason to build it yourself. The mechanism: every user who `pip install`s
+a given PyInstaller version gets the byte-identical, PyInstaller-team-
+built bootloader stub -- AV vendors have signature-matched on that exact
+shared binary (both because real malware has used it and because it's
+so common), and every legitimate app built with it collaterally gets
+flagged too. A locally-compiled bootloader has different bytes (different
+compiler/environment) and isn't in anyone's signature database.
+
+**How it was done, and how to redo it if this ever gets lost:**
+1. Install a C++ compiler -- Visual Studio Build Tools, C++ workload only
+   (not the full IDE): `winget install --id Microsoft.VisualStudio.2022.BuildTools
+   -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools
+   --includeRecommended"`. One-time, ~3.5GB.
+2. `git clone --branch v<matching version> --depth 1
+   https://github.com/pyinstaller/pyinstaller.git` (match whatever
+   version is currently installed -- `pip show pyinstaller`).
+3. `cd pyinstaller/bootloader && python ./waf all` -- per the docs, no
+   need to run `vcvarsall.bat` first, waf finds MSVC on its own.
+4. `cd .. && pip install .` -- reinstalls the SAME PyInstaller version,
+   now bundling the just-built bootloader instead of the PyPI one.
+5. Rebuild `MHWmodfixer.exe` as normal (`python -m PyInstaller
+   MHWmodfixer.spec --noconfirm`) -- the build log's "Bootloader ..."
+   line should point at the freshly-built one and say "Building because
+   ...bootloader...runw.exe changed" the first time.
+
+**This is a per-machine, per-Python-environment state, not something
+tracked in git** -- there's no bootloader binary or build artifact
+committed to this repo, only this note. **A plain `pip install
+--upgrade pyinstaller` (or any fresh venv/machine) silently reverts to
+the precompiled PyPI bootloader** with no warning -- if a future build
+starts getting flagged again after such a command, redo the steps above
+before assuming something else regressed.
+
+Verified before shipping: full regression suite (SilverWolf fixed=1/24,
+DoA fixed=4/208) unchanged: this only replaces the bootloader stub, not
+any of this project's own logic. Also smoke-tested the rebuilt
+`MHWmodfixer.exe` directly (launched, confirmed the main window renders
+with the correct title, closed cleanly) since a from-scratch-compiled
+bootloader is new, unverified-in-practice territory for this project.
+Not yet confirmed whether this alone resolves real-world AV/Nexus
+scanner false positives -- that can only be observed from actual
+user/Nexus reports on a future release, the same as every other
+mitigation in this section.
+
 ### 9. A crash from an unverified crc-only patch, and the RSZ snapshot pipeline built to stop it recurring (2026-08-08)
 
 Right after item 8 shipped (pak-bundled pfb/user/scn repair, default-on),
