@@ -319,14 +319,17 @@ class App:
             row_frame, text=t("chk_force_unresolved"), variable=self.force_unresolved,
         )
         self.chk_force_unresolved.pack(side="left")
+        _Tooltip(self.chk_force_unresolved, lambda: t("tip_force_unresolved"))
         self.chk_preserve_extra = ttk.Checkbutton(
             row_frame, text=t("chk_preserve_extra"), variable=self.preserve_extra,
         )
         self.chk_preserve_extra.pack(side="left", padx=(14, 0))
+        _Tooltip(self.chk_preserve_extra, lambda: t("tip_preserve_extra"))
         self.chk_shader_migration = ttk.Checkbutton(
             row_frame, text=t("chk_shader_migration"), variable=self.shader_migration,
         )
         self.chk_shader_migration.pack(side="left", padx=(14, 0))
+        _Tooltip(self.chk_shader_migration, lambda: t("tip_shader_migration"))
         self.lbl_experimental_hint = ttk.Label(
             self.options_frame, text=t("lbl_experimental_hint"), foreground=THEME["warn"], font=("Segoe UI", 8),
         )

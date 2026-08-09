@@ -224,6 +224,88 @@ _STRINGS = {
         "zh_cn": "着色器迁移",
         "ja": "シェーダー移行",
     },
+    "tip_force_unresolved": {
+        "ko": "로그에 '고치지 못함(unresolved)'으로 남은 부위가 있을 때 사용하세요. 안전하게 확실히 "
+              "일치하는 대체품을 못 찾아 건너뛴 부위도 강제로 대체를 시도합니다.\n"
+              "실험적 기능이라 색상이 어긋나거나 특정 모드에서 크래시가 날 수 있으니, 켜고 다시 돌린 "
+              "뒤 반드시 게임에서 직접 확인하세요.",
+        "en": "Use this when the log shows parts left unresolved -- ones where a confirmed safe "
+              "match couldn't be found, so they were skipped. This forces a substitution attempt "
+              "on those parts anyway.\n"
+              "Experimental: can cause color mismatches or crashes on certain mods, so always "
+              "verify in-game after re-running with it on.",
+        "zh_tw": "當日誌顯示有部位「未修復（unresolved）」時使用。這類部位原本因為找不到確定安全的替代"
+                 "品而被略過，開啟後會強制嘗試替換。\n"
+                 "屬於實驗性功能，可能導致顏色錯位或在特定模組上崩潰，開啟後重新執行，請務必在遊戲中"
+                 "親自確認結果。",
+        "zh_cn": "当日志显示有部位「未修复（unresolved）」时使用。这类部位原本因为找不到确定安全的替代"
+                 "品而被跳过，开启后会强制尝试替换。\n"
+                 "属于实验性功能，可能导致颜色错位或在特定模组上崩溃，开启后重新运行，请务必在游戏中"
+                 "亲自确认结果。",
+        "ja": "ログに「未修復(unresolved)」のまま残った部位がある場合に使用してください。安全に一致"
+              "する代替品が見つからず、スキップされた部位にも強制的に置き換えを試みます。\n"
+              "実験的な機能のため、色がずれたり特定のMODでクラッシュすることがあります。オンにして"
+              "再実行した後は、必ずゲーム内で結果を確認してください。",
+    },
+    "tip_preserve_extra": {
+        "ko": "모드가 게임 기본값에 없는 자기만의 물리 효과(예: 커스텀 헤어/체인 물리)를 추가로 갖고 "
+              "있을 때, 수정 과정에서 그 부분을 지우지 않고 최대한 살려보려 시도합니다.\n"
+              "다만 그게 실제 커스텀 효과가 아니라 예전 게임 버전의 낡은 잔재 데이터일 수도 있어서, "
+              "오히려 이 옵션 때문에 이상해지거나 크래시가 난 사례도 확인됐습니다 (예: Banshee 모드는 "
+              "이 옵션을 끄는 쪽이 정답이었음). 켜고 끄고 둘 다 게임에서 비교해보는 걸 추천합니다.",
+        "en": "Use this when a mod includes its own extra physics (e.g. custom hair/chain physics) "
+              "beyond the game's defaults -- it tries to keep that extra data instead of "
+              "discarding it during the repair.\n"
+              "But that \"extra\" data can also just be stale leftovers from an older game "
+              "version, not real customization -- confirmed to cause crashes/glitches on some "
+              "mods when left on (e.g. the Banshee mod actually needed it OFF). Try comparing "
+              "both on and off in-game.",
+        "zh_tw": "當模組帶有遊戲預設沒有的自訂物理效果（例如自訂頭髮/鏈條物理）時使用，修復時會嘗試"
+                 "保留這部分，而不是直接捨棄。\n"
+                 "但這些「額外」資料也可能只是舊版遊戲留下的過時殘留，並非真正的自訂效果 -- 已確認"
+                 "開啟此選項會讓部分模組崩潰或跑版（例如 Banshee 模組其實需要關閉此選項才正常）。建議"
+                 "開關都在遊戲中比較看看。",
+        "zh_cn": "当模组带有游戏默认没有的自定义物理效果（例如自定义头发/链条物理）时使用，修复时会"
+                 "尝试保留这部分，而不是直接丢弃。\n"
+                 "但这些「额外」数据也可能只是旧版游戏留下的过时残留，并非真正的自定义效果 -- 已确认"
+                 "开启此选项会导致部分模组崩溃或错位（例如 Banshee 模组其实需要关闭此选项才正常）。建议"
+                 "开关都在游戏中比较看看。",
+        "ja": "MODがゲーム標準にはない独自の物理効果(カスタムヘア/チェーン物理など)を持っている場合に"
+              "使用してください。修復時にその部分を削除せず、できる限り保持しようとします。\n"
+              "ただし、その「追加」データが実は古いゲームバージョンの残骸データに過ぎない場合もあり、"
+              "このオプションが原因で見た目がおかしくなったりクラッシュした事例も確認されています(例: "
+              "Bansheeというmodはこのオプションを切る方が正解でした)。オン/オフ両方をゲーム内で比較"
+              "することをおすすめします。",
+    },
+    "tip_shader_migration": {
+        "ko": "일부 모드가 쓰는 셰이더(모피용 Base_Equip_Fur 등)가 최신 게임에서는 사실상 퇴역해서, "
+              "그냥 비슷한 다른 셰이더를 대체품으로 쓰면 질감이 안 맞을 수 있습니다. 이 옵션은 그런 "
+              "재질을 게임에서 실제로 검증된 진짜 후속 셰이더로 다시 빌드합니다.\n"
+              "해당 셰이더를 쓰지 않는 모드에는 아무 효과가 없으니, 모피 관련 모드가 이상해 보일 때만 "
+              "켜서 시도해보세요.",
+        "en": "Some mods use a shader (like the Base_Equip_Fur fur shader) that's effectively "
+              "retired in the current game -- substituting a plain similar-shader donor can look "
+              "wrong. This rebuilds that material under its real, in-game-verified successor "
+              "shader instead.\n"
+              "Has no effect on mods that don't use that shader -- only try it if a fur-related "
+              "mod looks off after a normal repair.",
+        "zh_tw": "部分模組使用的著色器（如毛皮著色器 Base_Equip_Fur）在目前遊戲版本中實際上已被淘汰，"
+                 "直接用外觀相近的著色器替代可能導致質感不對。此選項會將該材質改用遊戲中實際驗證過的"
+                 "真正後繼著色器重新建構。\n"
+                 "若模組沒有用到該著色器則完全不受影響 -- 只有在毛皮相關模組修復後看起來不對勁時才"
+                 "需要開啟嘗試。",
+        "zh_cn": "部分模组使用的着色器（如毛皮着色器 Base_Equip_Fur）在当前游戏版本中实际上已被淘汰，"
+                 "直接用外观相近的着色器替代可能导致质感不对。此选项会将该材质改用游戏中实际验证过的"
+                 "真正后继着色器重新构建。\n"
+                 "若模组没有用到该着色器则完全不受影响 -- 只有在毛皮相关模组修复后看起来不对劲时才"
+                 "需要开启尝试。",
+        "ja": "一部のMODが使用しているシェーダー(毛皮用シェーダーBase_Equip_Furなど)は、現在のゲームで"
+              "は事実上廃止されており、単純に似た別シェーダーで代用すると質感が合わないことがあります。"
+              "このオプションは、そのマテリアルをゲーム内で実際に確認された本当の後継シェーダーで"
+              "再構築します。\n"
+              "該当シェーダーを使っていないMODには影響しません -- 毛皮関連のMODを修復した見た目が"
+              "おかしいと感じたときだけ試してみてください。",
+    },
     "warn_single_instance": {
         "ko": "이미 실행 중입니다.", "en": "already running.",
         "zh_tw": "已經在執行中。", "zh_cn": "已经在运行中。", "ja": "はすでに実行中です。",
