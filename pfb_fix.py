@@ -753,80 +753,61 @@ _AVP_OWN_SLOT_RE = re.compile(r"[\\/](\d{3})[\\/](\d{3})[\\/]\1_\2_avp\.user", r
 _AVP_REF_RE = re.compile(r"Armor/(?:Male|Female)/(\d+)/(\d+)/(\d+)_(\d+)_avp\.user$", re.IGNORECASE)
 
 
-def _fix_avp_self_reference(data: bytes, own_set: str, own_variant: str, rel: Path, log) -> bytes | None:
-    """A `..._avp.user` file ("Additional Visual Parts" -- governs optional
-    decorative sub-meshes like wings/capes, `app.user_data.PlayerArmorVisualParam`
-    and friends) carries an inline resource-path string that references
-    ANOTHER avp.user file by its own armor-set/variant numbers. Confirmed
-    against a real donor (armor set 041/variant 001): the CURRENT vanilla
-    file always self-references its own slot
-    (`.../Armor/Male/041/001/041_001_avp.user`) -- always under "Male" even
-    for a Female-only piece, apparently a shared/gender-normalized template
-    path, not a copy-paste of the actual file location.
+def _report_avp_cross_slot_reference(data: bytes, own_set: str, own_variant: str, rel: Path, log):
+    """DIAGNOSTIC ONLY -- this used to REWRITE the reference and that was a
+    real, in-game-confirmed mistake (2026-08-09, full reversal of the
+    original same-day "fix").
 
-    Confirmed real (OVR Rogue "Bifrost", 2026-08-09, reported as wings
-    missing + some textures rendering white/blank): the mod's own
-    avp.user for slot 041/001 instead references slot 036/000's avp.user --
-    a real, different, unrelated armor set, structurally valid on its own
-    but wrong for this piece. Structurally the file is otherwise completely
-    current (`fits_current_layout()` true, every instance crc matches the
-    live donor's) -- this ISN'T a staleness/CRC problem `_crc_only_fix()`
-    style logic could ever catch, since nothing about the RSZ instance data
-    itself is wrong. Almost certainly a residual left over from however the
-    mod was originally built (started from set 036's own avp.user as a
-    template and never updated this one self-referencing string to point
-    at the mod's own actual slot).
+    A `..._avp.user` file (`app.user_data.PlayerArmorVisualParam` --
+    governs per-piece visual params including hair-hide flags and optional
+    decorative sub-meshes) carries an inline resource-path string that
+    references an avp.user by armor-set/variant numbers. Every CURRENT
+    vanilla file self-references its own slot, so a mod avp referencing a
+    DIFFERENT slot looked like an obvious templating leftover, and the
+    original version of this code "corrected" it to the mod's own slot.
 
-    This project never scanned loose `.user` files for anything before now
-    -- `find_pfb_files()` only ever matched `*.pfb.*` (another community tool
-    reviewed for this project's #8 pak-repair work already treats `.user`
-    identically to `.pfb`/`.scn`, so this is a real, pre-existing gap, not
-    a new phenomenon). Fixed narrowly (this specific string pattern only,
-    not a general `.user` repair pass) rather than widening pfb-style
-    donor-diff/substitution machinery to `.user` files broadly, since this
-    exact bug has a precise, mechanically-verifiable correct answer (self-
-    reference) that doesn't need a donor lookup or any structural
-    comparison at all.
+    Confirmed wrong on the exact mod that motivated it (OVR Rogue
+    "Bifrost"): its helm borrows armor set 036's MESH (the material is
+    literally named `ch03_036_0003_helm_UseSC`), and its avp referencing
+    036's avp is how the borrowed helm gets 036's correct hair-hide
+    parameters. Rewriting that reference to the mod's own slot (041) made
+    the character's BASE HAIR poke through the helm in-game -- while the
+    original mod, the author's own updated release, and a build that
+    skipped this rewrite (all keeping the "wrong"-looking 036 reference)
+    all render correctly. The author's own update keeping it is the
+    decisive part: this is a deliberate cross-slot borrow, not a mistake,
+    and there is no way to distinguish the two cases from file structure
+    alone. The rewrite also never fixed anything real -- the white-texture
+    symptom it was built chasing turned out to be the retired-shader issue
+    (#24/#25), entirely unrelated.
 
-    Only patches same-byte-length replacements (the existing in-place
-    substitution safety margin used everywhere else in this file) -- a
-    3-digit/3-digit set-variant swap is always same-length, but refuses
-    rather than risk an offset-shifting rewrite if that's ever not true.
-    Returns the patched bytes, or None if nothing needed fixing."""
+    What remains is a log line so the information isn't lost (a cross-slot
+    reference IS still worth knowing about when debugging a visual issue)
+    -- but the file is never modified."""
     expected = (f"GameDesign/Equip/_Prefab/Armor/Male/{own_set}/{own_variant}/"
                 f"{own_set}_{own_variant}_avp.user")
-    result = None
     for off, s in _scan_utf16_strings(data):
         if not _AVP_REF_RE.search(s) or s == expected:
             continue
-        if len(s) != len(expected):
-            log(f"    [warn] {rel}: avp self-reference {s!r} looks wrong (expected "
-                f"{expected!r}) but the lengths differ -- can't safely patch in place, left as-is")
-            continue
-        if result is None:
-            result = bytearray(data)
-        new_bytes = expected.encode("utf-16-le")
-        result[off:off + len(new_bytes)] = new_bytes
-        log(f"    [fixed] {rel}: avp self-reference {s!r} -> {expected!r} "
-            f"(was pointing at a different, unrelated armor slot)")
-    return bytes(result) if result is not None else None
+        log(f"    [info] {rel}: avp references another slot's avp ({s!r} rather than its own "
+            f"{expected!r}) -- deliberate cross-slot borrows like this are real (borrowed-mesh "
+            f"hair-hide params, confirmed on OVR Rogue Bifrost), left untouched")
 
 
 def resolve_and_fix_avp_files(mod_root: Path, output_root: Path, log) -> dict:
-    stats = {"fixed": 0}
+    """Diagnostic-only since 2026-08-09 (name kept so callers don't churn):
+    scans avp.user files and LOGS cross-slot self-references without ever
+    modifying anything -- see _report_avp_cross_slot_reference() for the
+    in-game-confirmed reversal story. `output_root` is unused now but kept
+    in the signature for call-site stability."""
     for avp_path in sorted(find_avp_files(mod_root)):
         rel = avp_path.relative_to(mod_root)
         m = _AVP_OWN_SLOT_RE.search(str(rel))
         if not m:
             continue
         own_set, own_variant = m.group(1), m.group(2)
-        fixed = _fix_avp_self_reference(avp_path.read_bytes(), own_set, own_variant, rel, log)
-        if fixed is not None:
-            out_path = output_root / rel
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(fixed)
-            stats["fixed"] += 1
-    return stats
+        _report_avp_cross_slot_reference(avp_path.read_bytes(), own_set, own_variant, rel, log)
+    return {"fixed": 0}
 
 
 def _read_resource_strings(data: bytes) -> list[str]:

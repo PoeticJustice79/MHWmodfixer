@@ -2603,3 +2603,62 @@ inert placeholder -- none of the standard regression mods' materials hit
 this path at all). Not yet re-confirmed in-game by the user -- a new
 build (`OVR Rogue - Bifrost (fixed, shader-migration, mask-safe).zip`)
 was sent for that.
+
+**Postscript: the mask fix was correct but was NOT the hair bug's cause
+-- see #30, which found the real one.** (The mask fix stays: donor-value
+bleed through a UV-specific mask on a brand-new slot is real regardless,
+it just wasn't what this particular symptom was.)
+
+## 30. avp self-reference "fix" (#19) REVERSED -- cross-slot avp references are deliberate, and rewriting them broke hair-hide (2026-08-09)
+
+The #29 mask fix did not resolve the reported hair-poking-through-helm
+symptom. The user then supplied the decisive observation: the very FIRST
+hand-built Bifrost file (this session's original shader-migration
+experiment) never had the bug, while every tool-built version did --
+and the author's own updated release doesn't have it either.
+
+Diffed all four variants' `041_001_avp.user.3`:
+- OLD original mod: references `.../Armor/Male/036/000/036_000_avp.user`
+- AUTHOR's own updated release (works): SAME 036/000 reference, kept
+- Hand-built first experiment (works): SAME 036/000 reference (that build
+  only swapped 5 mdf2 files, never ran `process_mod()`, so the avp fix
+  never touched it)
+- Every tool-built version (hair pokes through): reference rewritten to
+  `041/001` by #19's `_fix_avp_self_reference()`
+
+**The #19 hypothesis ("templating leftover pointing at the wrong slot")
+was wrong.** The mod's helm BORROWS armor set 036's mesh -- its material
+is literally named `ch03_036_0003_helm_UseSC` -- and the avp referencing
+036's avp is how the borrowed helm receives 036's correct hair-hide
+parameters (`PlayerArmorVisualParam` governs per-piece hair-hide flags).
+The author's own update RETAINING the "wrong"-looking reference is the
+decisive evidence it's deliberate. Rewriting it to the mod's own slot
+(041) pulled vanilla 041's visual params instead, whose hair-hide flags
+don't match the borrowed 036 helm shape -- base hair pokes through. And
+the #19 fix never actually fixed anything real anywhere: the white-
+texture symptom it was chasing turned out to be the retired-shader issue
+(#24/#25), entirely unrelated.
+
+**Fix: reversal.** `_fix_avp_self_reference()` is now
+`_report_avp_cross_slot_reference()` -- logs an `[info]` line when a
+cross-slot reference exists (still useful debugging information) but
+NEVER modifies the file. `resolve_and_fix_avp_files()` kept its name
+(call-site stability) but is diagnostic-only and always returns
+`{"fixed": 0}`. There is no way to distinguish "deliberate cross-slot
+borrow" from "genuine templating mistake" from file structure alone, and
+the only real-world case ever observed is the deliberate kind -- so
+never rewrite.
+
+Broader lesson, same shape as #26's: a mechanically-verifiable
+"inconsistency" (mod file differs from the vanilla-donor convention) is
+not the same thing as a defect. Both #19 (avp) and the original blunt
+staleness check (#24) failed by treating "differs from vanilla donor" as
+"wrong". Vanilla conventions describe vanilla content; mods break them
+on purpose.
+
+Verified: rebuilt Bifrost through the full current pipeline
+(`OVR Rogue - Bifrost (fixed v3, avp-untouched).zip`) -- avp keeps the
+author's 036/000 reference byte-identical, shader migration + #29 mask
+fix still apply to all 5 materials, full regression suite byte-identical
+(none of those mods have avp files at all). Awaiting the user's in-game
+confirmation of the hair fix.

@@ -576,11 +576,17 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
     else:
         pfb_stats = {"fixed": 0, "unresolved": 0, "forced": 0, "crc_only": 0, "crc_only_extra": 0}
 
-    avp_stats = resolve_and_fix_avp_files(mod_root, output_root, log)
-    if avp_stats["fixed"]:
-        log(f"\n({avp_stats['fixed']} avp.user file(s) had a self-reference pointing at "
-            f"the wrong armor slot, fixed)")
-    stats["fixed"] += avp_stats["fixed"]
+    # avp.user cross-slot self-references are DELIBERATE, never auto-"fix"
+    # them (2026-08-09, reversal of #19): a mod whose helm borrows another
+    # armor's mesh references THAT armor's avp on purpose, to pull the
+    # borrowed helm's correct hair-hide flags -- confirmed in-game on
+    # Bifrost, where "fixing" the reference to the mod's own slot made the
+    # character's base hair poke through the helm, and every working
+    # version (the original mod, the author's own update, a build that
+    # skipped this fix) keeps the "wrong"-looking cross-slot reference.
+    # resolve_and_fix_avp_files() is now diagnostic-only (logs, never
+    # writes) -- see its docstring in pfb_fix.py.
+    resolve_and_fix_avp_files(mod_root, output_root, log)
 
     stats["pfb_fixed"] = pak_pfb_totals["fixed"] + pfb_stats["fixed"]
     stats["pfb_unresolved"] = pak_pfb_totals["unresolved"] + pfb_stats["unresolved"]
