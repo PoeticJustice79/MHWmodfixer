@@ -685,6 +685,61 @@ clean) is the right baseline until signing is live.
 4. `cd .. && pip install .` -- reinstalls the SAME PyInstaller version,
    now bundling the just-built bootloader instead of the PyPI one.
 
+## In progress: code signing via SignPath Foundation + a real CI build pipeline (started 2026-08-10)
+
+Given the AV-false-positive saga above (onedir+noupx: real fix; UPX/onefile:
+real fix; self-compiled bootloader: reverted, made things worse -- see
+above), the conclusion reached with the user is that further packaging
+tricks are a dead end and **code signing is the only remaining real
+fix**. Researched paid options (Sectigo/Comodo OV certs, ~$215-226/yr,
+individuals-without-a-company eligible; Azure Trusted Signing, ~$10/mo
+but **individual-developer tier is US/Canada-residents-only, not usable
+by this project's Korea-based maintainer**) before finding a free one:
+
+**SignPath Foundation** (signpath.org) provides free code signing for
+qualifying open-source projects. Eligibility, confirmed via their docs:
+OSI-approved license (this repo is MIT -- already satisfies this),
+already has release history (v0.3-v0.5 -- satisfies this), actively
+maintained (satisfies this), and **the build must run through a
+supported CI system (GitHub Actions/GitLab CI/Jenkins/Azure DevOps/
+TeamCity) that submits artifacts to SignPath's pipeline** -- a plain
+locally-built exe can't be submitted directly. One open question, not
+yet resolved: their "no proprietary/non-OSS component" rule and whether
+bundling `tools/UnRAR.exe` (RARLab freeware, not open-source itself)
+inside the signed package is a problem -- needs asking SignPath
+directly during application, not assumed either way.
+
+**Status as of 2026-08-10, end of session:**
+- `.github/workflows/build.yml` created: builds `MHWmodfixer.spec` on a
+  pinned `windows-2022` runner (not `windows-latest`, so a future GitHub
+  image bump can't silently change the "reproducible" build SignPath
+  verifies against), triggered on `v*` tag push or manual
+  `workflow_dispatch`. Packages `dist/MHWmodfixer` into a zip, uploads it
+  as a build artifact, and attaches it to the GitHub Release when
+  triggered by a tag push (`softprops/action-gh-release`) -- this
+  automates the exact manual "move the v0.5 tag, rebuild the zip,
+  `gh release upload --clobber`" sequence this session did by hand every
+  single time. **Deliberately does NOT compile the bootloader from
+  source** (see the reversal above) -- stock PyInstaller bootloader,
+  matching the confirmed-clean v0.3/v0.4 baseline.
+- **Not yet done**: this workflow has never actually been run/tested
+  (no tag pushed since it was added, no manual dispatch triggered yet)
+  -- verify it actually produces a working exe before trusting it for a
+  real release. The SignPath Foundation application has NOT been
+  submitted yet either (requires the user's own account/identity, was
+  intentionally left for the user to do rather than submitted on their
+  behalf) -- no signing is live yet, `MHWmodfixer.exe` is still unsigned.
+- **Next steps for a future session**: (1) trigger the workflow manually
+  and confirm the produced exe launches correctly (same smoke-test
+  pattern used throughout this project -- launch, check window title,
+  close cleanly), (2) help draft the actual SignPath application content
+  if the user wants to submit it, (3) once/if approved, wire SignPath's
+  actual signing step into `build.yml` (their docs cover the GitHub
+  Actions integration specifically), (4) after a real signed build
+  exists, re-run the VirusTotal comparison (same method used to catch
+  the bootloader regression above) to confirm signing actually helped
+  before declaring victory.
+
 ### 9. A crash from an unverified crc-only patch, and the RSZ snapshot pipeline built to stop it recurring (2026-08-08)
 
 Right after item 8 shipped (pak-bundled pfb/user/scn repair, default-on),
