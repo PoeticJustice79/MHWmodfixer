@@ -2744,3 +2744,55 @@ Full-mod final build (`TiNE's Qipao Ver.R Remastered (fixed final).zip`,
 errors) -- **CONFIRMED fully working in-game by the user ("완벽하게
 작동해")**. Both mods that ever exercised the shader-migration path
 (Bifrost, Qipao) are now end-to-end verified on the current pipeline.
+
+## 33. Armor slot RETARGETING: two manual moves fully verified in-game (2026-08-09)
+
+New capability territory, prompted by a community reference document the
+user supplied (`MHWs 방어구ID 한글ver (개인모드팩용).xlsx`, original by
+Quaysar/RayVVV, Korean translation by 몬붕이): a per-slot × per-variant ×
+per-piece matrix of which physics components exist on every ch03 armor
+slot -- `clsp` (via.character.CollisionShapePreset), `chain` (chain
+physics), `gpuc` (GPU cloth, noted as UNEDITABLE by any current tool --
+avoid replacing gpuc-bearing pieces), plus slinger presence. This is
+effectively a mod-slot COMPATIBILITY table: a mod built for slot A can
+move to slot B when B's variant has a matching per-piece physics profile.
+
+**Two real moves performed and both CONFIRMED working in-game:**
+1. OVR Rogue Bifrost: 041/001 (블랑고) -> 051/001 (아티어)
+2. TFD Bunny (Ultimate): 051/001 (아티어) -> 012/001 (라바라) -- resolving
+   the slot collision the first move created.
+
+**The verified recipe** (both mods were the loose-file Chinese-community
+pipeline: mesh+mdf2+chain2/clsp/jcns/sfur+HairAdjustList+avp, no pfb):
+1. Pick a target slot whose variant physics profile matches the source's
+   (both cases: all five pieces `clsp chain`, slinger present).
+2. Verify the target's vanilla files all exist in the live game (every
+   piece's mdf2/mesh, the avp, all six pfbs, HairAdjustList) -- via
+   `find_versioned_path()`.
+3. Relocate by PATH-PART renaming only: directory part `<src_set>` ->
+   `<dst_set>` (exact-part match, never substring), filename prefixes
+   `ch03_<src>_` -> `ch03_<dst>_`, and `<src>_<var>_avp` ->
+   `<dst>_<var>_avp`. (First attempt used string-level substring replace
+   on the whole relative path and silently failed to rename the DIRECTORY
+   components -- part-level replacement is the correct primitive.)
+4. Touch NOTHING inside any file. Internal cross-slot references are
+   deliberate and slot-independent: Bifrost's avp references 036's avp
+   (borrowed-helm hair-hide, #30), Bunny's references 023's -- both stay
+   valid wherever the files live. mdf2 texture paths referencing the OLD
+   slot's vanilla textures also stay valid (vanilla files exist
+   regardless of which slot the mod occupies).
+5. Version-suffix mismatches that MIRROR the source slot's own
+   relationship are fine: both mods ship `chain2.14` while vanilla (both
+   source and target slots) is `.13` -- that exact mismatch was already
+   the shipped, in-game-working state at the source slot. sfur files with
+   no vanilla counterpart at the target also mirror the source (041 had
+   none either).
+6. The mod's own texture `.pak` sub-folders are slot-independent (hashed
+   custom paths) -- copy through untouched.
+
+**Feature decision (user + assistant aligned)**: this should become a
+built-in MHWmodfixer feature rather than a separate tool -- ~90% of the
+needed infrastructure (pak index, version lookup, path handling, parsers)
+already exists here, and the xlsx table can be baked into a bundled data
+file to power a compatibility-checked target-slot picker. Not yet built
+-- the two manual moves above are the validation groundwork.
