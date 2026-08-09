@@ -21,7 +21,11 @@ that's it. With multiple mods queued, they're processed one at a time in
 list order, each going through its own diagnosis confirmation and its own
 save-location prompt.
 
-**"Experimental: force-fix parts that don't safely reconcile" checkbox**:
+The three riskier options below live together in the GUI under an
+"⚠ Experimental options" group, with a shared reminder to verify results
+in-game — all three are off by default.
+
+**"Force-fix unrepaired parts" checkbox**:
 off by default. Some `.pfb` (prefab) files differ too much in structure
 from the donor (the current game version) to be safely auto-repaired, and
 the default is to leave those files untouched — safer than guessing wrong
@@ -35,8 +39,8 @@ one other mod's Arm piece and make things worse. That's why it's an
 opt-in option rather than the default — always verify the result in-game
 before trusting it.
 
-**"Experimental: try to preserve custom parts the donor doesn't have"
-checkbox**: off by default. If a mod adds its own RSZ component (e.g. a
+**"Keep mod's custom effects" checkbox**: off by default. If a mod adds
+its own RSZ component (e.g. a
 `via.motion.Chain2` physics chain bundled directly onto a leg piece, plus
 its own resource file), the default behavior (full donor-replace) deletes
 that component entirely — a real, reported, confirmed issue from the
@@ -50,6 +54,27 @@ existing behavior of discarding it — not preserving it — was the
 in-game-verified correct outcome). There's no way to tell the two cases
 apart from structure alone, which is why this is opt-in rather than
 default — always verify the result in-game before trusting it.
+
+**"Shader migration" checkbox**: off by default. A small number of
+shaders have effectively been retired game-wide (currently just
+`Base_Equip_Fur.mmtr`, confirmed via a whole-game scan to have only ~2
+real materials left using it) — a mod built against one of these can't be
+safely donor-matched at all, since the only available donors are
+semantically unrelated (confirmed real report: "OVR Rogue - Bifrost"'s
+white-material/missing-wings bug). Turning this on lets an affected
+material rebuild under its shader's real, confirmed successor instead
+(`Base_Equip_Fur.mmtr` → `Base_Equip.mmtr`). Validated two ways: field-
+for-field against 17 real mods' own author-provided fixes from one
+modding community (100% match across all 72 checked materials), and a
+full in-game test on one of them ("OVR Rogue - Bifrost") that confirmed
+the fix actually resolves the reported bug. **But it has also been
+confirmed to crash a different mod ("TiNE's Qipao Ver.R Remastered", from
+an unrelated pipeline) immediately on equip**, with every one of the same
+static checks passing cleanly beforehand — passing structural validation
+does not guarantee in-game safety outside a mod pool this has actually
+been proven on. Treat results from this option as unverified for any mod
+outside the specific community it's been validated against, and always
+check in-game before trusting it.
 
 **Development / command line**:
 ```
