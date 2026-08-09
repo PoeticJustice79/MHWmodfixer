@@ -55,10 +55,13 @@ KNOWN_TOKENS = {"clsp", "chain", "gpuc"}
 # Entries this project could NOT confidently resolve (mostly unique/DLC
 # accessory items with no monster-name convention to cross-check against)
 # are deliberately left OUT -- those keep showing their Korean name in
-# every UI language rather than risk shipping a wrong guess.
+# every UI language rather than risk shipping a wrong guess. A few of
+# these were later confirmed directly by the user (playing the actual
+# game) rather than any written source -- noted individually below.
 NAME_EN_OVERRIDES = {
     "가쟈우": "Gajau", "게리오스": "Gypceros", "고어": "Gore Magala",
     "그라비드": "Gravios", "길드 크로스": "Guild Cross", "길드나이트(사전예약)": "Guild Knight",
+    "병사의 갑주(디럭스)": "Feudal Soldier",  # confirmed by the user directly (Deluxe Edition bonus set)
     "길드에이스": "Guild Ace", "깃 한 가닥 목걸이": "Pinion Necklace", "다마스크": "Damascus",
     "다이버": "Diver", "다하딜라": "Jin Dahaad", "데스기어": "Death Stench",
     "도베르": "Dober", "도샤구마": "Doshaguma", "라기아": "Lagiacrus",
