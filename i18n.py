@@ -299,7 +299,7 @@ _STRINGS = {
     },
     "filetype_snapshot": {"ko": "RSZ 스냅샷", "en": "RSZ snapshot"},
     "btn_import_snapshot": {"ko": "스냅샷 가져오기...", "en": "Import snapshot..."},
-    "btn_close": {"ko": "닫기", "en": "Close"},
+    "btn_close": {"ko": "닫기", "en": "Close", "zh_tw": "關閉", "zh_cn": "关闭", "ja": "閉じる"},
     "ask_snapshot_role": {
         "ko": "이 스냅샷을 \"현재판\"으로 설치할까요?\n\n예: 현재판으로 설치 (실제 검증에 사용됨, 기존 현재판은 자동으로 보관됨)\n아니오: 보관만 함 (참고용, 아직 실제 검증에는 쓰이지 않음)",
         "en": "Install this snapshot as \"current\"?\n\nYes: install as current (actually used for verification; whatever was current is automatically archived)\nNo: just archive it (reference only, not used for verification yet)",
@@ -375,15 +375,32 @@ _STRINGS = {
               "another mod. Pick a mod archive and this detects every armor slot it targets -- if it "
               "spans more than one, you decide per slot whether to move it or leave it as-is.",
     },
-    "dlg_retarget_title": {"ko": "적용 방어구 변경", "en": "Change Target Armor"},
-    "lbl_retarget_file": {"ko": "모드 파일:", "en": "Mod file:"},
-    "btn_choose_file": {"ko": "선택...", "en": "Choose..."},
-    "lbl_retarget_slots": {"ko": "감지된 방어구 슬롯", "en": "Detected armor slots"},
-    "lbl_retarget_targets": {"ko": "변경 가능한 방어구", "en": "Compatible target armor"},
+    "dlg_retarget_title": {
+        "ko": "적용 방어구 변경", "en": "Change Target Armor",
+        "zh_tw": "更換適用防具", "zh_cn": "更换适用防具", "ja": "適用防具の変更",
+    },
+    "lbl_retarget_file": {
+        "ko": "모드 파일:", "en": "Mod file:", "zh_tw": "模組檔案:", "zh_cn": "模组文件:", "ja": "MODファイル:",
+    },
+    "btn_choose_file": {
+        "ko": "선택...", "en": "Choose...", "zh_tw": "選擇...", "zh_cn": "选择...", "ja": "選択...",
+    },
+    "lbl_retarget_slots": {
+        "ko": "감지된 방어구 슬롯", "en": "Detected armor slots",
+        "zh_tw": "偵測到的防具欄位", "zh_cn": "检测到的防具栏位", "ja": "検出された防具スロット",
+    },
+    "lbl_retarget_targets": {
+        "ko": "변경 가능한 방어구", "en": "Compatible target armor",
+        "zh_tw": "可變更的防具", "zh_cn": "可变更的防具", "ja": "変更可能な防具",
+    },
     "msg_retarget_no_file": {
         "ko": "이동할 모드 압축파일을 선택하세요.", "en": "Choose a mod archive to relocate.",
+        "zh_tw": "請選擇要移動的模組壓縮檔。", "zh_cn": "请选择要移动的模组压缩包。",
+        "ja": "移動するMODアーカイブを選択してください。",
     },
-    "msg_retarget_detecting": {"ko": "분석 중...", "en": "Analyzing..."},
+    "msg_retarget_detecting": {
+        "ko": "분석 중...", "en": "Analyzing...", "zh_tw": "分析中...", "zh_cn": "分析中...", "ja": "解析中...",
+    },
     "msg_retarget_multi_summary": {
         "ko": "이 모드는 방어구 슬롯 {count}개를 사용합니다 (그 외 슬롯과 무관한 파일 {unmatched}개는 "
               "손대지 않고 그대로 포함됩니다). 아래 목록에서 슬롯을 하나씩 선택해 옮길 곳을 정하거나 "
@@ -391,65 +408,136 @@ _STRINGS = {
         "en": "This mod uses {count} armor slot(s) (plus {unmatched} slot-unrelated file(s), which are "
               "always kept exactly as they are). Select each slot below and either choose where to move "
               "it or leave it unchanged -- every slot needs a decision before you can generate the file.",
+        "zh_tw": "此模組使用了 {count} 個防具欄位（另外 {unmatched} 個與欄位無關的檔案將原封不動保留）。"
+                 "請在下方清單中逐一選擇欄位，決定要移動到哪裡或保持不變 -- 所有欄位都需要決定後才能生成檔案。",
+        "zh_cn": "此模组使用了 {count} 个防具栏位（另外 {unmatched} 个与栏位无关的文件将原封不动保留）。"
+                 "请在下方列表中逐一选择栏位，决定要移动到哪里或保持不变 -- 所有栏位都需要决定后才能生成文件。",
+        "ja": "このMODは防具スロットを{count}個使用しています（スロットと無関係なファイル{unmatched}個は"
+              "手を加えずそのまま含まれます）。下のリストからスロットを一つずつ選び、移動先を決めるか"
+              "そのままにするか選んでください -- すべてのスロットを決定するまでファイルは生成できません。",
     },
     "msg_retarget_no_slot_found": {
         "ko": "이 모드에서 방어구 슬롯을 찾지 못했습니다.", "en": "No armor slot was detected in this mod.",
+        "zh_tw": "在此模組中找不到防具欄位。", "zh_cn": "在此模组中找不到防具栏位。",
+        "ja": "このMODには防具スロットが見つかりませんでした。",
     },
     "msg_retarget_no_targets": {
         "ko": "물리 구성이 호환되는 다른 방어구를 찾지 못했습니다.",
         "en": "No physics-compatible target armor was found.",
+        "zh_tw": "找不到物理結構相容的其他防具。", "zh_cn": "找不到物理结构兼容的其他防具。",
+        "ja": "物理構成が互換性のある他の防具が見つかりませんでした。",
     },
-    "col_slot": {"ko": "슬롯", "en": "Slot"},
-    "col_armor": {"ko": "방어구", "en": "Armor"},
-    "col_gender": {"ko": "성별", "en": "Gender"},
-    "col_files": {"ko": "파일 수", "en": "Files"},
-    "col_status": {"ko": "결정", "en": "Decision"},
-    "col_compat": {"ko": "호환성", "en": "Compatibility"},
-    "col_note": {"ko": "비고", "en": "Note"},
-    "status_pending": {"ko": "결정 필요", "en": "Needs a decision"},
-    "status_unchanged": {"ko": "그대로 유지", "en": "Left unchanged"},
-    "status_target": {"ko": "→ {name} ({slot})로 이동", "en": "→ move to {name} ({slot})"},
-    "grade_exact": {"ko": "물리 완벽 호환", "en": "Full physics match"},
-    "grade_partial": {"ko": "일부 물리 소실", "en": "Some physics lost"},
-    "grade_gpuc": {"ko": "물리 원단 주의", "en": "GPU cloth caution"},
+    "col_slot": {"ko": "슬롯", "en": "Slot", "zh_tw": "欄位", "zh_cn": "栏位", "ja": "スロット"},
+    "col_armor": {"ko": "방어구", "en": "Armor", "zh_tw": "防具", "zh_cn": "防具", "ja": "防具"},
+    "col_gender": {"ko": "성별", "en": "Gender", "zh_tw": "性別", "zh_cn": "性别", "ja": "性別"},
+    "col_files": {"ko": "파일 수", "en": "Files", "zh_tw": "檔案數", "zh_cn": "文件数", "ja": "ファイル数"},
+    "col_status": {"ko": "결정", "en": "Decision", "zh_tw": "決定", "zh_cn": "决定", "ja": "決定"},
+    "col_compat": {"ko": "호환성", "en": "Compatibility", "zh_tw": "相容性", "zh_cn": "兼容性", "ja": "互換性"},
+    "col_note": {"ko": "비고", "en": "Note", "zh_tw": "備註", "zh_cn": "备注", "ja": "備考"},
+    "status_pending": {
+        "ko": "결정 필요", "en": "Needs a decision",
+        "zh_tw": "尚待決定", "zh_cn": "尚待决定", "ja": "決定が必要",
+    },
+    "status_unchanged": {
+        "ko": "그대로 유지", "en": "Left unchanged",
+        "zh_tw": "保持不變", "zh_cn": "保持不变", "ja": "変更なし",
+    },
+    "status_target": {
+        "ko": "→ {name} ({slot})로 이동", "en": "→ move to {name} ({slot})",
+        "zh_tw": "→ 移動至 {name}（{slot}）", "zh_cn": "→ 移动至 {name}（{slot}）",
+        "ja": "→ {name}（{slot}）に移動",
+    },
+    "grade_exact": {
+        "ko": "물리 완벽 호환", "en": "Full physics match",
+        "zh_tw": "物理完全相容", "zh_cn": "物理完全兼容", "ja": "物理完全互換",
+    },
+    "grade_partial": {
+        "ko": "일부 물리 소실", "en": "Some physics lost",
+        "zh_tw": "部分物理消失", "zh_cn": "部分物理消失", "ja": "一部物理消失",
+    },
+    "grade_gpuc": {
+        "ko": "물리 원단 주의", "en": "GPU cloth caution",
+        "zh_tw": "物理布料注意", "zh_cn": "物理布料注意", "ja": "物理布注意",
+    },
     "note_lost_physics": {
         "ko": "{pieces}번 부위 체인 물리 없음", "en": "no chain physics on piece(s) {pieces}",
+        "zh_tw": "{pieces}號部位無鏈條物理", "zh_cn": "{pieces}号部位无链条物理",
+        "ja": "{pieces}番部位にチェーン物理なし",
     },
     "note_gpuc_pieces": {
         "ko": "{pieces}번 부위 물리 원단(편집 불가)", "en": "piece(s) {pieces} has uneditable GPU cloth",
+        "zh_tw": "{pieces}號部位為物理布料（無法編輯）", "zh_cn": "{pieces}号部位为物理布料（无法编辑）",
+        "ja": "{pieces}番部位が物理布（編集不可）",
     },
-    "btn_apply_to_slot": {"ko": "이 슬롯에 적용", "en": "Apply to this slot"},
-    "btn_leave_unchanged": {"ko": "이 슬롯은 그대로 두기", "en": "Leave this slot unchanged"},
-    "btn_generate_retarget": {"ko": "이동 파일 생성", "en": "Generate Relocated File"},
-    "dlg_choose_mod_archive": {"ko": "모드 압축파일 선택", "en": "Choose mod archive"},
-    "filetype_mod_archive": {"ko": "모드 압축파일", "en": "Mod archive"},
+    "btn_apply_to_slot": {
+        "ko": "이 슬롯에 적용", "en": "Apply to this slot",
+        "zh_tw": "套用至此欄位", "zh_cn": "应用至此栏位", "ja": "このスロットに適用",
+    },
+    "btn_leave_unchanged": {
+        "ko": "이 슬롯은 그대로 두기", "en": "Leave this slot unchanged",
+        "zh_tw": "保持此欄位不變", "zh_cn": "保持此栏位不变", "ja": "このスロットはそのままにする",
+    },
+    "btn_generate_retarget": {
+        "ko": "이동 파일 생성", "en": "Generate Relocated File",
+        "zh_tw": "生成移動後檔案", "zh_cn": "生成移动后文件", "ja": "移動ファイルを生成",
+    },
+    "dlg_choose_mod_archive": {
+        "ko": "모드 압축파일 선택", "en": "Choose mod archive",
+        "zh_tw": "選擇模組壓縮檔", "zh_cn": "选择模组压缩包", "ja": "MODアーカイブを選択",
+    },
+    "filetype_mod_archive": {
+        "ko": "모드 압축파일", "en": "Mod archive",
+        "zh_tw": "模組壓縮檔", "zh_cn": "模组压缩包", "ja": "MODアーカイブ",
+    },
     "msg_retarget_select_target": {
         "ko": "목록에서 옮길 대상 방어구를 선택하세요.", "en": "Select a target armor from the list.",
+        "zh_tw": "請從清單中選擇要移動的目標防具。", "zh_cn": "请从列表中选择要移动的目标防具。",
+        "ja": "リストから移動先の防具を選択してください。",
     },
     "msg_retarget_pick_slot_first": {
         "ko": "먼저 위 목록에서 슬롯을 선택하세요.", "en": "Select a slot from the list above first.",
+        "zh_tw": "請先在上方清單中選擇欄位。", "zh_cn": "请先在上方列表中选择栏位。",
+        "ja": "先に上のリストからスロットを選択してください。",
     },
     "msg_retarget_incomplete": {
         "ko": "아직 결정하지 않은 슬롯이 있습니다. 모든 슬롯에 대해 이동할 곳을 정하거나 "
               "그대로 두기를 선택해야 합니다.",
         "en": "Some detected slots still need a decision. Every slot must be either assigned a target "
               "or explicitly left unchanged before generating.",
+        "zh_tw": "還有欄位尚未決定。每個欄位都必須指定移動目標，或明確選擇保持不變，才能生成檔案。",
+        "zh_cn": "还有栏位尚未决定。每个栏位都必须指定移动目标，或明确选择保持不变，才能生成文件。",
+        "ja": "まだ決定していないスロットがあります。生成する前に、すべてのスロットについて"
+              "移動先を指定するか、明示的にそのままにするかを選んでください。",
     },
     "err_no_game_dir": {
         "ko": "먼저 유효한 게임 폴더를 지정해야 합니다.", "en": "A valid game folder must be set first.",
+        "zh_tw": "請先指定有效的遊戲資料夾。", "zh_cn": "请先指定有效的游戏文件夹。",
+        "ja": "先に有効なゲームフォルダを指定してください。",
     },
     "ask_retarget_unverified": {
         "ko": "다음 이동에서 일부 파일을 현재 게임에서 확인하지 못했습니다:\n{missing}\n"
               "그래도 계속 진행할까요?",
         "en": "Some files for the following move(s) could not be verified against the current game:\n"
               "{missing}\nContinue anyway?",
+        "zh_tw": "以下移動的部分檔案無法在目前的遊戲中確認:\n{missing}\n仍要繼續嗎？",
+        "zh_cn": "以下移动的部分文件无法在当前游戏中确认:\n{missing}\n仍要继续吗？",
+        "ja": "次の移動で一部のファイルが現在のゲームで確認できませんでした:\n{missing}\n"
+              "それでも続行しますか？",
     },
-    "dlg_save_retarget": {"ko": "이동된 모드 파일 저장", "en": "Save relocated mod file"},
-    "filetype_zip": {"ko": "ZIP 파일", "en": "ZIP file"},
-    "msg_retarget_generating": {"ko": "생성 중...", "en": "Generating..."},
+    "dlg_save_retarget": {
+        "ko": "이동된 모드 파일 저장", "en": "Save relocated mod file",
+        "zh_tw": "儲存移動後的模組檔案", "zh_cn": "保存移动后的模组文件", "ja": "移動後のMODファイルを保存",
+    },
+    "filetype_zip": {"ko": "ZIP 파일", "en": "ZIP file", "zh_tw": "ZIP 檔案", "zh_cn": "ZIP 文件", "ja": "ZIPファイル"},
+    "msg_retarget_generating": {
+        "ko": "생성 중...", "en": "Generating...", "zh_tw": "生成中...", "zh_cn": "生成中...", "ja": "生成中...",
+    },
     "msg_retarget_done": {
         "ko": "저장했습니다 ({moved}개 슬롯 이동, {kept}개 슬롯 그대로 유지):\n{path}",
         "en": "Saved ({moved} slot(s) moved, {kept} slot(s) left unchanged):\n{path}",
+        "zh_tw": "已儲存（{moved} 個欄位已移動，{kept} 個欄位保持不變）:\n{path}",
+        "zh_cn": "已保存（{moved} 个栏位已移动，{kept} 个栏位保持不变）:\n{path}",
+        "ja": "保存しました（{moved}個のスロットを移動、{kept}個のスロットはそのまま）:\n{path}",
     },
 }
 

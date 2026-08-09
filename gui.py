@@ -205,6 +205,7 @@ class App:
         self.preserve_extra = BooleanVar(value=False)
         self.shader_migration = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
+        self._retarget_refresh_fn = None  # set while the retarget dialog is open, see _open_retarget_dialog()
 
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._main_thread_queue: queue.Queue[tuple] = queue.Queue()
@@ -387,6 +388,7 @@ class App:
     def _retranslate(self):
         self.btn_settings.configure(text=t("menu_settings"))
         self._build_menubar()
+        self.btn_retarget.configure(text=t("btn_retarget"))
         self.lbl_lang.configure(text=t("lbl_lang"))
         self.lbl_game_dir.configure(text=t("lbl_game_dir"))
         self.btn_browse_game.configure(text=t("btn_browse_game"))
@@ -405,6 +407,8 @@ class App:
             self.notice_verifying.set(t("notice_verifying"))
         else:
             self.status.set(t("status_default"))
+        if self._retarget_refresh_fn is not None:
+            self._retarget_refresh_fn()
 
     def _open_log_folder(self):
         try:
@@ -572,7 +576,8 @@ class App:
 
         file_frame = ttk.Frame(win)
         file_frame.pack(fill="x", padx=10, pady=10)
-        ttk.Label(file_frame, text=t("lbl_retarget_file")).pack(side="left")
+        file_label = ttk.Label(file_frame, text=t("lbl_retarget_file"))
+        file_label.pack(side="left")
         file_var = StringVar(value="")
         ttk.Entry(file_frame, textvariable=file_var, state="readonly").pack(
             side="left", fill="x", expand=True, padx=6)
@@ -630,7 +635,15 @@ class App:
         ttk.Label(btn_frame, textvariable=status_var, foreground=THEME["muted"]).pack(side="left")
         btn_generate = ttk.Button(btn_frame, text=t("btn_generate_retarget"), state="disabled")
         btn_generate.pack(side="right")
-        ttk.Button(btn_frame, text=t("btn_close"), command=win.destroy).pack(side="right", padx=(0, 6))
+        btn_close = ttk.Button(btn_frame, text=t("btn_close"))
+        btn_close.pack(side="right", padx=(0, 6))
+
+        def on_close():
+            self._retarget_refresh_fn = None
+            win.destroy()
+
+        btn_close.configure(command=on_close)
+        win.protocol("WM_DELETE_WINDOW", on_close)
 
         state = {"groups": [], "unmatched": [], "assignments": {}, "active_key": None,
                  "candidates_by_key": {}}
@@ -831,6 +844,61 @@ class App:
         btn_leave.configure(command=do_leave_unchanged)
         btn_generate.configure(command=do_generate)
         slot_tree.bind("<<TreeviewSelect>>", on_slot_selected)
+
+        def refresh_texts():
+            """Called from App._retranslate() when the main window's
+            language selector changes WHILE this dialog is still open --
+            without this, every label/column/row here stayed frozen in
+            whatever language was active at the moment the dialog opened
+            (confirmed directly: switching the main window to Traditional
+            Chinese mid-session left this dialog's headers and rows in
+            English until closed and reopened)."""
+            win.title(t("dlg_retarget_title"))
+            file_label.configure(text=t("lbl_retarget_file"))
+            btn_pick.configure(text=t("btn_choose_file"))
+            slots_frame.configure(text=t("lbl_retarget_slots"))
+            cand_frame.configure(text=t("lbl_retarget_targets"))
+            for col, key in [("slot", "col_slot"), ("name", "col_armor"), ("gender", "col_gender"),
+                              ("files", "col_files"), ("status", "col_status")]:
+                slot_tree.heading(col, text=t(key))
+            for col, key in [("slot", "col_slot"), ("name", "col_armor"), ("gender", "col_gender"),
+                              ("grade", "col_compat"), ("note", "col_note")]:
+                cand_tree.heading(col, text=t(key))
+            btn_apply.configure(text=t("btn_apply_to_slot"))
+            btn_leave.configure(text=t("btn_leave_unchanged"))
+            btn_generate.configure(text=t("btn_generate_retarget"))
+            btn_close.configure(text=t("btn_close"))
+
+            lang = i18n.get_language()
+            if state["groups"]:
+                info_label.configure(text=t("msg_retarget_multi_summary",
+                                             count=len(state["groups"]), unmatched=len(state["unmatched"])))
+            elif not file_var.get():
+                info_label.configure(text=t("msg_retarget_no_file"))
+            # else: a transient/error message is showing -- left as-is, it
+            # self-corrects on the next pick/detect rather than guessing
+            # which specific message was live when the language changed.
+
+            for g in state["groups"]:
+                gl = slot_retarget.gender_label(g.gender, lang)
+                gname = slot_retarget.armor_name(g.name, g.names, lang)
+                status_text, tag = _status_text_for(g.key)
+                slot_tree.item(g.key, values=(g.key, gname, gl, len(g.files), status_text), tags=(tag,))
+
+            active = state["active_key"]
+            if active and active in state["candidates_by_key"]:
+                grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
+                for c in state["candidates_by_key"][active]:
+                    note = ""
+                    if c.lost_pieces:
+                        note = t("note_lost_physics", pieces=",".join(map(str, c.lost_pieces)))
+                    elif c.gpuc_pieces:
+                        note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
+                    gl = slot_retarget.gender_label(c.gender, lang)
+                    cname = slot_retarget.armor_name(c.name, c.names, lang)
+                    cand_tree.item(c.key, values=(c.key, cname, gl, grade_text[c.grade], note), tags=(c.grade,))
+
+        self._retarget_refresh_fn = refresh_texts
 
     def _browse_game_dir(self):
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))
