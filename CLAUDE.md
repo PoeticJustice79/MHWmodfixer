@@ -2538,3 +2538,68 @@ the SAME fresh dump against the pre-patch git baseline instead reproduces
 regression suite and the Esthe/Mask Bikini TRANSPLANT resolution check
 both unaffected (this only touches the snapshot-install pipeline, not the
 currently-active registry file).
+
+## 29. Shader migration texture bleed: a new "Mask" texture slot must never inherit the donor's own value verbatim (2026-08-09)
+
+Second real bug found in the shader migration feature (after the TiNE
+Qipao crash, #26), this time on Bifrost -- the ONE mod this feature had
+actually been confirmed working in-game. User reported the character's
+own hair/detail bleeding through the Helm piece where it shouldn't be,
+compared the exact same rebuild against two OTHER builds of the SAME mod
+that looked clean, and insisted on tracing the real cause rather than
+accepting "maybe it's stale save data" (correctly -- see
+[[no_save_state_excuse]] in memory, the user shut this down twice and it
+should never be offered again for this project).
+
+**Root cause, found by exhaustively diffing the Helm material's every
+texture/prop under two different real donors**: `DetailMaskMap` -- a
+texture slot the mod's OLD material never had at all, so it's entirely
+new content from whichever donor `_find_shader_migration_donor()` picks.
+The FIRST hand-built experiment (this session's very first Bifrost
+validation, #25) happened to use a donor whose `DetailMaskMap` was
+already the engine's own inert "nothing here" placeholder
+(`NullBlack_Alpha_MSK4.tex`) -- safe purely by luck. The actual SHIPPED
+feature's smarter per-material donor selection picked a DIFFERENT, more
+structurally-appropriate donor (`m_0012_UseSC`) for the Helm/Arm/Waist
+pieces -- but that donor's own `DetailMaskMap` is a REAL, non-null mask
+belonging to an entirely unrelated character. A mask texture's "show
+detail here" regions are UV-coordinate-specific to whatever mesh it was
+authored for; applied to Bifrost's own completely different UV layout,
+that unrelated character's detail pattern bleeds through at essentially
+arbitrary spots on the mesh -- visible near the head/hair on the Helm,
+apparently landing somewhere inconspicuous on the Arm (same donor, same
+mask, different mesh UVs -- confirmed the Arm piece got the identical
+fix applied even though it never visibly showed the bug).
+
+**Why this wasn't caught by the extensive earlier field-level validation
+(#25's 100%-match-across-17-mods check)**: that check only verified our
+mechanical transform matches what a REAL AUTHOR'S OWN rebuild produced --
+which it does, exactly. The bug isn't a mismatch from the author's
+intent; it's that trusting an arbitrary structural donor's value for a
+brand-new "Mask"-type slot is unsafe IN GENERAL, regardless of whether
+the result happens to match what got shipped as an author's own real fix
+elsewhere. Blind luck (the first-tested donor happening to be inert)
+made this look safe before a different, equally-valid donor exposed it.
+
+**Fix**: `apply_texture_overrides()` now treats any texture slot whose
+name contains `"mask"` specially IF it's genuinely new to the mod's own
+material (never blind for slots the mod already had -- those still
+correctly keep the mod's own value, name-matched, exactly as before) --
+if the donor's value for that slot isn't already a recognized inert
+placeholder (`_looks_like_null_texture()`: filename starts with `"Null"`,
+matching the `NullGray`/`NullNormal`/`NullBlack_Alpha_MSK4`/`NullWhite`/
+`NullATOS`/`NullNormalRoughnessOcclusion`/etc. convention already used
+pervasively across this game's own materials wherever an optional layer
+is genuinely off), it's forced to `NullBlack_Alpha_MSK4.tex` instead of
+trusting the donor's own UV-mismatched value. The mod never used this
+feature at all, so there's no "correct" mask value to guess at -- forcing
+it off is the only choice that can't be wrong.
+
+Verified: all 5 of Bifrost's migrated materials now get `DetailMaskMap`
+forced to the inert default (confirmed via direct log output), full
+regression suite unaffected (this only fires for a texture slot that's
+both brand-new to the mod AND name-matches "mask" AND isn't already an
+inert placeholder -- none of the standard regression mods' materials hit
+this path at all). Not yet re-confirmed in-game by the user -- a new
+build (`OVR Rogue - Bifrost (fixed, shader-migration, mask-safe).zip`)
+was sent for that.

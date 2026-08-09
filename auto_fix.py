@@ -172,6 +172,23 @@ class FilePlan:
         return any(m.stale for m in self.materials if m.donor_blob is not None)
 
 
+# The inert "this optional layer is off" convention seen pervasively
+# across this game's own materials wherever a *Mask*-named texture slot
+# genuinely isn't in use (e.g. every EmissiveMap/FxMap/ColorLayer_MaskMap
+# this project has dumped that's actually disabled uses this exact file).
+_SAFE_NULL_MASK_TEXTURE = "MasterMaterial/Textures/NullBlack_Alpha_MSK4.tex"
+
+
+def _looks_like_null_texture(path: str) -> bool:
+    """Whether `path` is already one of the engine's own generic "nothing
+    here" placeholders (systems/rendering/Null*.tex, MasterMaterial/
+    Textures/Null*.tex, etc.) -- checked by filename only since every
+    variant seen so far (NullGray, NullNormal, NullBlack_Alpha_MSK4,
+    NullWhite, NullATOS, NullNormalRoughnessOcclusion, ...) simply starts
+    with "Null", regardless of which folder it lives in."""
+    return path.rsplit("/", 1)[-1].lower().startswith("null")
+
+
 def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, int]:
     """Returns (new_material_blob, num_textures_changed). Structural fields
     that reflect the CURRENT mdf2 FORMAT (padding, prop/texture slot
@@ -254,6 +271,32 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
         if new_path is not None and new_path != t["path"]:
             t["path"] = new_path
             changed += 1
+        elif (new_path is None and "mask" in t["type"].lower()
+              and not _looks_like_null_texture(t["path"])):
+            # Confirmed real bug (2026-08-09, "OVR Rogue - Bifrost" helm
+            # texture bleed): a texture slot genuinely NEW to the mod's own
+            # material (it never had this slot at all) otherwise keeps
+            # whatever the donor's OWN value happens to be -- fine for most
+            # slots, but a "*Mask*"-named slot GATES an entire optional
+            # blend feature (e.g. DetailMaskMap gates the Detail_ALBD_*/
+            # NRRH_* detail layer), and the donor's mask was authored for
+            # THAT donor's own UV layout, not the mod's -- if it isn't
+            # already a recognized inert "Null*" placeholder, its "show
+            # detail here" regions land at essentially arbitrary spots on
+            # the mod's own mesh. Confirmed directly: donor "m_0012_UseSC"'s
+            # real (non-null) DetailMaskMap, belonging to an unrelated
+            # character, bled that character's detail pattern onto
+            # Bifrost's helm when applied to its own UVs -- visible near
+            # the head/hair specifically, while the SAME donor on the Arm
+            # piece happened to show no visible bleed (same mask, different
+            # mesh UVs). The mod never used this feature at all, so there's
+            # no "correct" mask to guess -- force the same inert convention
+            # already used pervasively elsewhere in this game's own
+            # materials for "this optional layer is off" instead.
+            t["path"] = _SAFE_NULL_MASK_TEXTURE
+            log(f"    [info] material {mod_mat['name']!r}: new texture slot {t['type']!r} "
+                f"is a mask the mod never used -- forced to the inert default instead of "
+                f"the donor's own (possibly UV-mismatched) value")
     extra = set(mod_tex_by_type) - donor_types
     if extra:
         log(f"    [warn] material {mod_mat['name']!r}: mod texture slot(s) {sorted(extra)} "
