@@ -203,6 +203,13 @@ _STRINGS = {
         "zh_cn": "实验性：保留模组专属效果",
         "ja": "実験的：MOD専用エフェクトを保持",
     },
+    "chk_shader_migration": {
+        "ko": "실험적: 퇴역한 셰이더 자동 전환",
+        "en": "Experimental: Migrate retired shaders",
+        "zh_tw": "實驗性：自動遷移已淘汰的著色器",
+        "zh_cn": "实验性：自动迁移已淘汰的着色器",
+        "ja": "実験的：廃止されたシェーダーを自動移行",
+    },
     "warn_single_instance": {
         "ko": "이미 실행 중입니다.", "en": "already running.",
         "zh_tw": "已經在執行中。", "zh_cn": "已经在运行中。", "ja": "はすでに実行中です。",

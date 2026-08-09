@@ -73,6 +73,7 @@ class App:
         self.lang_display = StringVar(value=i18n.LANGUAGES[i18n.get_language()])
         self.force_unresolved = BooleanVar(value=False)
         self.preserve_extra = BooleanVar(value=False)
+        self.shader_migration = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -167,6 +168,10 @@ class App:
             options_frame, text=t("chk_preserve_extra"), variable=self.preserve_extra,
         )
         self.chk_preserve_extra.pack(side="left", padx=(12, 0))
+        self.chk_shader_migration = ttk.Checkbutton(
+            options_frame, text=t("chk_shader_migration"), variable=self.shader_migration,
+        )
+        self.chk_shader_migration.pack(side="left", padx=(12, 0))
 
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", **pad)
@@ -583,9 +588,11 @@ class App:
         shutil.copytree(mod_root, output_root)
         force_unresolved = self.force_unresolved.get()
         preserve_extra = self.preserve_extra.get()
+        shader_migration = self.shader_migration.get()
         stats = process_mod(mod_root, output_root, game, allow_cross_piece=True, log=self.log,
                              force_unresolved_pfbs=force_unresolved,
                              preserve_extra_pfb_components=preserve_extra,
+                             experimental_shader_migration=shader_migration,
                              progress_cb=self.set_progress)
         repackage_for_fluffy(output_root, log=self.log)
 

@@ -163,7 +163,8 @@ def _plan_pak_rsz_entry(mod_bytes: bytes, donor_bytes: bytes | None, ext: str,
 
 def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
                        whole_game_lookup, log, progress_cb=None,
-                       force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False) -> list[PakPlan]:
+                       force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False,
+                       shader_migration_map: dict | None = None) -> list[PakPlan]:
     """`progress_cb(phase: str, done: int, total: int)`, if given, is called
     periodically (not on every single entry -- see _PROGRESS_STEP) during
     the two genuinely slow passes over a large pak's entry table: "pak_scan"
@@ -250,7 +251,8 @@ def resolve_pak_files(mod_root: Path, game: GameArchive, global_pool: list, allo
             mat_plans = []
             for mm in mod_mats:
                 donor_hit = find_donor_for_material(mm, u["own_pool"], global_pool, allow_cross_piece,
-                                                     log=log, whole_game_lookup=whole_game_lookup)
+                                                     log=log, whole_game_lookup=whole_game_lookup,
+                                                     shader_migration_map=shader_migration_map)
                 if donor_hit is None:
                     mat_plans.append(MaterialPlan(mm, None, None, None, stale=True))
                     continue

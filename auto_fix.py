@@ -285,7 +285,7 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
 
 
 def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, allow_cross_piece: bool,
-                          whole_game_lookup, log, progress_cb=None) -> list[FilePlan]:
+                          whole_game_lookup, log, progress_cb=None, shader_migration_map=None) -> list[FilePlan]:
     progress_cb = progress_cb or (lambda phase, done, total: None)
     mod_files = sorted(find_mdf2_files(mod_root))
     total = len(mod_files)
@@ -328,7 +328,8 @@ def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, a
         mat_plans = []
         for mm in mod_mats:
             donor_hit = find_donor_for_material(mm, info["own_pool"], global_pool, allow_cross_piece,
-                                                 log=log, whole_game_lookup=whole_game_lookup)
+                                                 log=log, whole_game_lookup=whole_game_lookup,
+                                                 shader_migration_map=shader_migration_map)
             if donor_hit is None:
                 mat_plans.append(MaterialPlan(mm, None, None, None, stale=True))
                 continue
@@ -340,7 +341,8 @@ def _resolve_loose_files(mod_root: Path, game: GameArchive, global_pool: list, a
 
 
 def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lambda s: None, progress_cb=None,
-             force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False):
+             force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False,
+             experimental_shader_migration: bool = False):
     """Resolves donors and determines staleness for every .mdf2 file (loose
     or inside the mod's own .pak files), but never writes anything --
     shared by the diagnostic pass (diagnose.py) and the actual fixer
@@ -361,22 +363,32 @@ def plan_mod(mod_root: Path, game: GameArchive, allow_cross_piece: bool, log=lam
     with force/preserve-extra on isn't distinguishable from "nothing to
     fix" during diagnosis -- the exact same pre-existing gap loose-file
     pfb staleness already has (diagnose.py doesn't look at pfb_fix.py's
-    plans at all), not a new one introduced here."""
+    plans at all), not a new one introduced here.
+    `experimental_shader_migration`: opt-in, see `slot_merge.SHADER_MIGRATION_MAP`
+    -- lets a material whose shader is confirmed near-retired game-wide
+    (currently only `Base_Equip_Fur.mmtr`) rebuild under its real,
+    in-game-verified successor shader instead of a distant, semantically
+    wrong same-shader donor. Off by default like the other structural
+    opt-ins above."""
     from pak_mod_fix import resolve_pak_files  # local import: avoids a cycle at module load time
     from whole_game_index import LazyWholeGameIndex
+    from slot_merge import SHADER_MIGRATION_MAP
 
     global_pool: list[tuple[str, dict]] = []
     whole_game_lookup = LazyWholeGameIndex(game, log=log).find_by_mmtr
+    shader_migration_map = SHADER_MIGRATION_MAP if experimental_shader_migration else None
     file_plans = _resolve_loose_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
-                                       progress_cb=progress_cb)
+                                       progress_cb=progress_cb, shader_migration_map=shader_migration_map)
     pak_plans = resolve_pak_files(mod_root, game, global_pool, allow_cross_piece, whole_game_lookup, log,
                                    progress_cb=progress_cb, force_unresolved_pfbs=force_unresolved_pfbs,
-                                   preserve_extra_pfb_components=preserve_extra_pfb_components)
+                                   preserve_extra_pfb_components=preserve_extra_pfb_components,
+                                   shader_migration_map=shader_migration_map)
     return file_plans, pak_plans
 
 
 def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cross_piece: bool, log,
                  force_unresolved_pfbs: bool = False, preserve_extra_pfb_components: bool = False,
+                 experimental_shader_migration: bool = False,
                  progress_cb=None) -> dict:
     from pak_mod_fix import write_fixed_pak
 
@@ -385,7 +397,8 @@ def process_mod(mod_root: Path, output_root: Path, game: GameArchive, allow_cros
 
     file_plans, pak_plans = plan_mod(mod_root, game, allow_cross_piece, log=log, progress_cb=progress_cb,
                                       force_unresolved_pfbs=force_unresolved_pfbs,
-                                      preserve_extra_pfb_components=preserve_extra_pfb_components)
+                                      preserve_extra_pfb_components=preserve_extra_pfb_components,
+                                      experimental_shader_migration=experimental_shader_migration)
     if not file_plans and not pak_plans:
         log(f"No .mdf2 content found under {mod_root} (loose or packed) -- nothing to fix "
             f"(other files will still be copied as-is)")

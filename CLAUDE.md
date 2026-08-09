@@ -2300,3 +2300,56 @@ suite (SilverWolf/Endfield/DoA) plus TiNE Qipao and Arsinia Bunnysuit
 prior baselines -- zero regressions. Fixed in both `auto_fix.py`
 (loose-file materials) and `pak_mod_fix.py` (materials inside a mod's own
 `.pak`) -- same bug, same fix, both call sites.
+
+## 25. Shipped: automated shader migration for `Base_Equip_Fur.mmtr`, in-game verified (2026-08-09)
+
+Turned #24's confirmation into an actual opt-in feature. `slot_merge.py`
+now has `SHADER_MIGRATION_MAP` (currently just
+`{"Base_Equip_Fur.mmtr": "Base_Equip.mmtr"}`, deliberately a hardcoded,
+individually-verified map, not a general "find a similarly-named shader"
+heuristic) and `_find_shader_migration_donor()`, which searches
+whole-game for an EXACT match on the target mmtr first (no
+`_NoMultiBlend`-variant tolerance -- the same-path vanilla donor for a
+migrated material is often only the narrower sibling, which produced a
+smaller field set than the real author's own fix in testing). Wired
+through `find_donor_for_material(..., shader_migration_map=...)`, tried
+BEFORE the material's own mmtr tiers (a known-retired shader's own tiers
+already "succeed" today, just badly -- that's the whole bug), falling
+through to normal resolution if the migration search itself finds
+nothing. New `experimental_shader_migration` parameter threaded through
+`process_mod()`/`plan_mod()`/`_resolve_loose_files()`/`resolve_pak_files()`,
+off by default, exposed in the GUI as a third experimental checkbox
+alongside force-fix/preserve-extra.
+
+**Validated three ways before and after shipping:**
+1. Field-level: an in-memory transform of the OLD (broken) Bifrost Arm
+   material matched the REAL author-provided new material's texture-slot
+   set and prop-name set 100% (25/25, 191/191); of 32 differing prop
+   VALUES, every single one traced to either (a) a field the old material
+   never had at all (donor default used, no way to know the author's
+   later choice) or (b) the author's own deliberate recolor/retune of a
+   field the old material DID have (confirmed by checking the OLD
+   material's own value directly) -- i.e. the mechanical transform never
+   invented or corrupted anything; it only couldn't replicate the
+   author's independent creative work.
+2. **Real in-game test, the decisive one**: built a full deployable
+   Bifrost archive (all 5 affected materials migrated, everything else
+   byte-identical to the original broken mod) and the user confirmed live
+   in MHWilds -- wings intact, materials rendering correctly, matching the
+   reference appearance. This is the strongest verification this project
+   can produce for a content-level fix.
+3. Ran the shipped feature (not the earlier hand-rolled experiment) against
+   all 5 Bifrost materials, the already-current new Bifrost file (correctly
+   left untouched -- its materials aren't `Base_Equip_Fur.mmtr` so the
+   migration map never triggers), TiNE Qipao (all `Base_Equip_Fur.mmtr`
+   materials migrate cleanly, 0 errors), and the standard regression suite
+   with the flag OFF (byte-identical to baseline -- confirmed opt-in,
+   zero effect when not requested).
+
+**Important asymmetry, told to the user directly**: Bifrost's result is
+in-game verified. TiNE Qipao's is NOT -- its mod author is no longer
+reachable, so there is no way to confirm the migrated file actually
+renders correctly in that specific mod's case, only that it produces the
+same class of structurally-sound, field-preserving output the Bifrost
+case proved out. Ship it as available but explicitly label results from
+this option as unverified per-mod until someone confirms in-game.
