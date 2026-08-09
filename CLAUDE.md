@@ -2741,4 +2741,6 @@ danger slightly -- acceptable; overwarning is the safe direction).
 
 Full-mod final build (`TiNE's Qipao Ver.R Remastered (fixed final).zip`,
 79 materials migrated across all sub-options, 79 masks neutralized, zero
-errors) delivered for complete in-game verification.
+errors) -- **CONFIRMED fully working in-game by the user ("완벽하게
+작동해")**. Both mods that ever exercised the shader-migration path
+(Bifrost, Qipao) are now end-to-end verified on the current pipeline.
