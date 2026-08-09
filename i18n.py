@@ -308,6 +308,12 @@ _STRINGS = {
         "ko": "설치 완료: {count}개 타입, 라벨 \"{label}\"",
         "en": "Installed: {count} types, label \"{label}\"",
     },
+    "msg_snapshot_merge_stats": {
+        "ko": "\n\n기존 레지스트리를 덮어쓰지 않고 보강했습니다: {corrected}개 타입 보정, "
+              "{added}개 새 타입 추가, {shape_mismatches}개는 모양이 안 맞아 기존 값 그대로 유지.",
+        "en": "\n\nMerged into the existing registry instead of overwriting it: {corrected} type(s) "
+              "corrected, {added} new type(s) added, {shape_mismatches} left unchanged (shape mismatch).",
+    },
     "err_snapshot_import": {
         "ko": "스냅샷을 설치하지 못했습니다:\n{e}", "en": "Couldn't install the snapshot:\n{e}",
     },

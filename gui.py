@@ -417,6 +417,9 @@ class App:
             suffix = (t("msg_snapshot_verify_ok") if verify_result is True else
                       t("msg_snapshot_verify_fail") if verify_result is False else
                       t("msg_snapshot_verify_unknown"))
+            merge_stats = meta.get("merge_stats")
+            if merge_stats:
+                suffix += t("msg_snapshot_merge_stats", **merge_stats)
             messagebox.showinfo(
                 APP_TITLE, t("msg_snapshot_installed", count=meta["entry_count"], label=meta["label"]) + suffix,
                 parent=win)

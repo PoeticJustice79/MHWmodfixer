@@ -2478,3 +2478,63 @@ window, not part of the root window's OS-drawn frame, so it DOES honor
 to render right since the old attachment point couldn't use them). Same
 menu content/behavior, fully themed now, verified via the same headless
 smoke-instantiation approach.
+
+## 28. "Check GitHub for latest data" could have silently undone today's own registry precision work -- fixed to merge, not overwrite (2026-08-09)
+
+User looked at the (now-themed) RSZ Snapshot dialog and asked directly
+whether its "Check GitHub for latest data" button was actually safe.
+Traced it: that button calls `fetch_latest_dump()` (downloads a fresh raw
+REasy dump) -> `install_snapshot(dump_path, as_role="current")` ->
+`detect_and_convert()` -> `_bake_raw_dump()`, a straight wholesale rebake
+with ZERO awareness of anything already installed. This is the EXACT
+mechanism items #21-23 (earlier the same day) proved dangerous: a
+wholesale rebake from a raw dump collapsed total entries 323,073 ->
+48,448 (raw dumps have no reliable "confirmed fieldless" marker) and
+broke `via.render.Mesh`'s field count (native `via.*` types are
+inherently less reliable in any raw dump). That whole investigation ended
+in a one-off manual script, never fed back into the actual `install_snapshot()`
+code path -- meaning this GUI button, sitting right there the whole time,
+could silently undo all of that work and reintroduce the exact regression
+the moment anyone clicked it (auto-archiving the previous "current" first,
+so not unrecoverable, but silently ACTIVE until someone noticed and
+manually reverted).
+
+**Fix, per the user's own suggested direction ("다운로드하면 덮어씌워지는게
+아니라 분석해서 기존 레지스트리를 보강하는 방식으로는 안되나" -- exactly
+right)**: generalized the earlier one-off manual patch script into the
+actual code path. `_bake_raw_dump()` now takes an optional `merge_with`
+(the current registry's own entries) and, when given, does a SAFE MERGE
+instead of a wholesale rebake: a type already in `merge_with` gets its
+`is_variable`/type-string corrected ONLY if the fresh dump agrees with
+the trusted entry on every field's `(size, align, is_array)` at the same
+position -- any shape disagreement anywhere leaves that whole type
+completely untouched; a type the fresh dump doesn't mention (or has no
+usable field data for) is likewise untouched; a type genuinely new to
+`merge_with` gets added wholesale (nothing existing to protect there).
+`install_snapshot()` now automatically loads the current registry as
+`merge_with` whenever `as_role == "current"` and one already exists --
+callers (the GUI, an import) don't need to know or opt into this, it's
+just how installing "current" from a raw dump works now.
+
+**One more real gap this surfaced**: the earlier manual patch's exclusion
+of the 30 type_ids touched by the ONLY two mods this project's
+`app.ChainSetting` transplant path has ever been verified against (their
+resync-recovery depends on those specific types staying byte-identical to
+what was tested, even where a plain shape-agreement check would otherwise
+call correcting them safe) was never captured as a reusable constant --
+it lived only in that session's scratchpad file. Promoted it to
+`_TRANSPLANT_VERIFIED_TYPE_IDS`, a real module-level constant in
+`rsz_layout.py`, and wired it into the merge loop so this exact protection
+survives every future registry refresh, not just the one script run that
+originally established it.
+
+Verified against real data: merging the same fresh dump used earlier
+that day against the (already-patched) current registry reproduces
+`corrected: 0` (nothing left to fix, since it's already fixed) with
+`via.render.Mesh` and `app.ChainSetting` both byte-identical; merging
+the SAME fresh dump against the pre-patch git baseline instead reproduces
+`corrected: 47630` -- an EXACT match to that morning's manual patch run
+-- with `app.ChainSetting` still fully protected either way. Full
+regression suite and the Esthe/Mask Bikini TRANSPLANT resolution check
+both unaffected (this only touches the snapshot-install pipeline, not the
+currently-active registry file).

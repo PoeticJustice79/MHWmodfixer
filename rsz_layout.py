@@ -495,7 +495,34 @@ def list_snapshots() -> list[dict]:
     return out
 
 
-def _bake_raw_dump(raw_path: Path) -> dict:
+# Every type_id (hex, matching this module's registry keys) referenced
+# anywhere in the two real mods (Mangie "Esthe"/"Mask Bikini") this
+# project's ONLY verified `app.ChainSetting` transplant-resolution path has
+# ever been tested against (2026-08-09, is_variable precision patch --
+# see the "surgical is_variable patch" work earlier that session). That
+# resolution depends on `walk_instances_with_recovery()`'s byte-content
+# resync landing at the exact right offset after `app.ChainSetting` throws
+# (the mod's instance predates the registry's current field shape), and
+# that resync's landing point is `pos`-dependent: correcting `is_variable`
+# for ANY of these types (even ones walked before ChainSetting itself,
+# confirmed real: `app.CharacterEditRegion`) shifts where the resync
+# search starts, silently moving the recovery point -- confirmed to break
+# the walk at a completely unrelated later instance during that
+# investigation. `_bake_raw_dump()`'s merge path excludes these
+# specifically so a future registry refresh (this function, run either via
+# the GUI's "Check GitHub" button or a manual import) can never reintroduce
+# that regression, even though a plain shape-agreement check would
+# otherwise consider some of them safe to "correct".
+_TRANSPLANT_VERIFIED_TYPE_IDS = frozenset([
+    "0", "206169e6", "23f9647a", "253f86ee", "278c2bbe", "3dd0b54", "45301b93",
+    "4d94fbe4", "5882a4b", "6c00c472", "6c13b6a3", "7091fa", "8d8f9b0b", "91c5fed4",
+    "acab5fe7", "addf3bf7", "b67210e9", "bc86cc1f", "be980941", "c20504c1",
+    "c348b8db", "c902a417", "ce514949", "cf318533", "dfac3046", "ed683451",
+    "eff0c408", "f829f958", "f9b54376", "fdcea1a0",
+])
+
+
+def _bake_raw_dump(raw_path: Path, merge_with: dict | None = None) -> tuple[dict, dict]:
     """Confirmed real bug, fixed 2026-08-09: this used to treat any field
     typed `Resource` the same as `String` (variable-length, 4-byte count
     prefix + inline UTF-16 chars). A `Resource` field is NOT
@@ -519,25 +546,114 @@ def _bake_raw_dump(raw_path: Path) -> dict:
     previously absent) -- not used for parsing yet (only `is_variable`,
     now derived correctly as `type == "String"`, is), but available for
     a future field-level migration pass that needs to know more than
-    "same size" to migrate a reshaped instance's data correctly."""
+    "same size" to migrate a reshaped instance's data correctly.
+
+    `merge_with`, if given (the CURRENT registry's own entries, same
+    `{type_key: {"n":..., "f":...}, ...}` shape this function returns),
+    switches this from a wholesale rebake to a SAFE MERGE -- required
+    after a real close call, 2026-08-09: rebaking wholesale straight from
+    a fresh raw dump (exactly what the GUI's "Check GitHub for latest
+    data" button used to do) silently dropped total entries from 323,073
+    to 48,448, because raw dumps have no reliable "confirmed fieldless"
+    marker (unlike `_bake_two_version_snapshot()`'s format, which has an
+    explicit separate fieldless list) -- this function's own `if not
+    fields: continue` can't tell "genuinely zero fields" from "just not
+    dumped", so a wholesale rebake treats both as "drop this type
+    entirely". It also broke a real mod's resolution by mismatching a
+    NATIVE (`via.*`) type's field count (`via.render.Mesh`: 82 trusted
+    fields vs 83 in the fresh dump, a real size mismatch at one position)
+    -- native types are inherently less reliable in ANY raw RSZ dump,
+    confirmed even by REFramework's own official dumping pipeline, which
+    documents native-type field layouts as CPU-emulation "guesses", unlike
+    managed (`app.*`) types that come from real C#-reflection metadata.
+    The original fix for this was a one-off manual script; this generalizes
+    it into the actual code path so every future refresh (via the GUI
+    button or a manual import) is safe by construction, not just the one
+    the script happened to be run against.
+
+    Merge rule, per type already in `merge_with`: correct `is_variable`
+    (+ append the type string) ONLY if the raw dump agrees with the
+    trusted entry on every field's `(size, align, is_array)` at the same
+    position; ANY shape disagreement anywhere leaves that entire type's
+    trusted entry completely untouched (a mismatch at one position means
+    later same-index fields might not even be the same field, so nothing
+    past it can be trusted positionally either) -- same "only trust
+    cross-source agreement at the same position" principle already used
+    for `is_variable_patched_at`/Object-field detection elsewhere in this
+    project's history. A type the raw dump doesn't mention at all, or has
+    no usable field data for, is also left completely untouched. A type
+    genuinely new to `merge_with` gets added from the raw dump wholesale
+    -- there's no existing trusted data to protect there, so gaining
+    (possibly still-guessed, for a native type) information beats having
+    none at all.
+
+    Returns `(entries, stats)`. `stats` is `{}` when `merge_with` is None
+    (a plain wholesale bake, e.g. installing this as a brand new registry
+    with nothing yet to protect); otherwise `{"corrected": N,
+    "shape_mismatches": N, "added": N}`."""
     with open(raw_path, encoding="utf-8") as f:
         raw = json.load(f)
-    out = {}
+
+    if merge_with is None:
+        out = {}
+        for key, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            fields = entry.get("fields")
+            if not fields:
+                continue  # can't tell "zero fields" from "not dumped"
+            out[key] = {
+                "n": entry.get("name", ""),
+                "f": [
+                    [f["name"], f["size"], f["align"], bool(f["array"]),
+                     f["type"] == "String", f["type"]]
+                    for f in fields
+                ],
+            }
+        return out, {}
+
+    out = dict(merge_with)
+    corrected = shape_mismatches = added = 0
     for key, entry in raw.items():
         if not isinstance(entry, dict):
             continue
         fields = entry.get("fields")
-        if not fields:
-            continue  # can't tell "zero fields" from "not dumped"
-        out[key] = {
-            "n": entry.get("name", ""),
-            "f": [
-                [f["name"], f["size"], f["align"], bool(f["array"]),
-                 f["type"] == "String", f["type"]]
-                for f in fields
-            ],
-        }
-    return out
+        old = out.get(key)
+        if old is None:
+            if fields:
+                out[key] = {
+                    "n": entry.get("name", ""),
+                    "f": [
+                        [f["name"], f["size"], f["align"], bool(f["array"]),
+                         f["type"] == "String", f["type"]]
+                        for f in fields
+                    ],
+                }
+                added += 1
+            continue
+        if not fields or old.get("fieldless") or "f" not in old:
+            continue
+        if key in _TRANSPLANT_VERIFIED_TYPE_IDS:
+            continue
+        old_fields = old["f"]
+        if len(old_fields) != len(fields):
+            continue
+        shapes_match = all(
+            of[1] == rf["size"] and of[2] == rf["align"] and of[3] == bool(rf["array"])
+            for of, rf in zip(old_fields, fields)
+        )
+        if not shapes_match:
+            shape_mismatches += 1
+            continue
+        new_fields = [
+            [of[0], of[1], of[2], of[3], rf["type"] == "String", rf["type"]]
+            for of, rf in zip(old_fields, fields)
+        ]
+        if new_fields != [list(f) for f in old_fields]:
+            corrected += 1
+        out[key] = {"n": old.get("n") or entry.get("name", ""), "f": new_fields}
+
+    return out, {"corrected": corrected, "shape_mismatches": shape_mismatches, "added": added}
 
 
 def _bake_two_version_snapshot(path: Path, half: str) -> tuple[dict, str]:
@@ -550,12 +666,19 @@ def _bake_two_version_snapshot(path: Path, half: str) -> tuple[dict, str]:
     return out, version.get("label", half)
 
 
-def detect_and_convert(path: Path, half: str | None = None) -> tuple[dict, str]:
-    """Returns (entries, default_label) for any snapshot shape this project
-    knows how to read: this project's own compact format, a raw
+def detect_and_convert(path: Path, half: str | None = None,
+                        merge_with: dict | None = None) -> tuple[dict, str, dict]:
+    """Returns (entries, default_label, stats) for any snapshot shape this
+    project knows how to read: this project's own compact format, a raw
     rszmhwilds.json-style community dump, or another community fixer's
     two-version rszlayouts_MHWILDS.json.gz (pass half= for that one).
-    Raises SnapshotError if the file matches none of them."""
+    Raises SnapshotError if the file matches none of them.
+
+    `merge_with` (see `_bake_raw_dump()`'s own docstring for the full
+    rationale) only affects the raw-dump branch -- a compact-format or
+    two-version source is already self-contained/trusted on its own, so
+    there's nothing to merge-protect there. `stats` is `{}` whenever
+    merging wasn't applicable."""
     try:
         with gzip.open(path, "rt", encoding="utf-8") as f:
             data = json.load(f)
@@ -572,21 +695,22 @@ def detect_and_convert(path: Path, half: str | None = None) -> tuple[dict, str]:
         if half is None:
             raise SnapshotError(f"{path.name} is a two-version snapshot -- specify which half to use")
         try:
-            return _bake_two_version_snapshot(path, half)
+            entries, label = _bake_two_version_snapshot(path, half)
+            return entries, label, {}
         except KeyError as exc:
             raise SnapshotError(f"{path.name}: missing expected data ({exc})") from exc
 
     sample = next((v for k, v in data.items() if k != "_meta" and isinstance(v, dict)), None)
     if sample is not None and "f" in sample and "n" in sample:
-        return _entries_only(data), (data.get("_meta") or {}).get("label", path.stem)
+        return _entries_only(data), (data.get("_meta") or {}).get("label", path.stem), {}
 
     try:
-        entries = _bake_raw_dump(path)
+        entries, stats = _bake_raw_dump(path, merge_with=merge_with)
     except (KeyError, TypeError) as exc:
         raise SnapshotError(f"{path.name} doesn't match any known snapshot format ({exc})") from exc
     if not entries:
         raise SnapshotError(f"{path.name} doesn't match any known snapshot format")
-    return entries, path.stem
+    return entries, path.stem, stats
 
 
 def _write_gz(dest: Path, payload: dict):
@@ -628,10 +752,29 @@ def install_snapshot(source_path: Path, as_role: str, label: str | None = None,
 
     Returns the new snapshot's _meta dict. Raises SnapshotError on anything
     that would leave a broken or empty snapshot installed -- never writes a
-    partial result."""
+    partial result.
+
+    When `as_role == "current"` and a current snapshot already exists,
+    that existing snapshot's own entries are passed to `detect_and_convert()`
+    as a merge base (see `_bake_raw_dump()`'s docstring) -- this only
+    changes behavior for a raw-dump source (the GUI's "Check GitHub for
+    latest data" button, or manually importing a raw dump and choosing
+    "current"): instead of a wholesale rebake silently discarding whatever
+    the current registry already had confirmed, it reinforces the
+    existing trusted registry with whatever the fresh dump agrees on, adds
+    genuinely new types, and leaves everything else untouched. A compact-
+    format or two-version source is unaffected either way -- those are
+    already self-contained."""
     if as_role not in ("current", "archive"):
         raise SnapshotError(f"unknown role {as_role!r}")
-    entries, default_label = detect_and_convert(source_path, half)
+    merge_with = None
+    if as_role == "current" and CURRENT_PATH.exists():
+        try:
+            with gzip.open(CURRENT_PATH, "rt", encoding="utf-8") as f:
+                merge_with = _entries_only(json.load(f))
+        except (OSError, gzip.BadGzipFile, json.JSONDecodeError):
+            merge_with = None  # current snapshot unreadable -- fall back to a plain wholesale bake
+    entries, default_label, merge_stats = detect_and_convert(source_path, half, merge_with=merge_with)
     if not entries:
         raise SnapshotError(f"{source_path.name} converted to zero typed classes -- refusing to install it")
 
@@ -643,6 +786,8 @@ def install_snapshot(source_path: Path, as_role: str, label: str | None = None,
         "source": f"imported from {source_path.name}",
         "entry_count": len(entries),
     }
+    if merge_stats:
+        payload["_meta"]["merge_stats"] = merge_stats
 
     if as_role == "current":
         if rotate:
