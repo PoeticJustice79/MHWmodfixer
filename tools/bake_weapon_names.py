@@ -89,8 +89,20 @@ _WEAPONDATA_CDATA_ID = int("45cb10d", 16)
 
 
 def _extract_index_model_id(game: GameArchive, registry: dict, type_file: str) -> list[tuple[int, int]]:
-    """Every (index, model_id) row from Common/Weapon/<type_file>.user.3's
-    WeaponData.cData instances. Empty list if the file doesn't exist."""
+    """Every (index, model_id, name_guid) row from
+    Common/Weapon/<type_file>.user.3's WeaponData.cData instances --
+    `name_guid` is the raw 16-byte `_Name` field (hex string), a DIRECT
+    link to a msg entry's own UUID (see `_load_msg_names`) -- far more
+    reliable than matching by position (`index+1 == msg suffix`), which
+    silently mismatches whenever an entry's numbering doesn't line up
+    1:1 with its data row (confirmed real 2026-08-10: switching from
+    index-matching to UUID-matching took Hammer's own match rate from a
+    positional guess to 84/85 direct hits). `_Name` sits right after the
+    four leading S32 fields + 14 per-type S32 cross-reference fields
+    (18 x 4 = 72 bytes), 8-byte aligned (already is, 72 % 8 == 0) --
+    read directly rather than walking `_parse_instance`'s full field
+    list a second time, since only this one field's bytes are needed.
+    Empty list if the file doesn't exist."""
     found = game.find_versioned(f"natives/stm/GameDesign/Common/Weapon/{type_file}", "user", version_range=range(1, 50))
     if found is None:
         return []
@@ -115,7 +127,8 @@ def _extract_index_model_id(game: GameArchive, registry: dict, type_file: str) -
             break
         if type_id == _WEAPONDATA_CDATA_ID:
             idx, _wtype, model_id, _custom_id = struct.unpack_from("<iiii", insts_data, start)
-            rows.append((idx, model_id))
+            name_guid = insts_data[start + 72:start + 88].hex()
+            rows.append((idx, model_id, name_guid))
         pos = newpos
     return rows
 
@@ -123,8 +136,8 @@ def _extract_index_model_id(game: GameArchive, registry: dict, type_file: str) -
 _LANG_CODE_MAP = {"ko": 11, "en": 1, "ja": 0, "zh_tw": 12, "zh_cn": 13}
 
 
-def _load_msg_names(game: GameArchive, type_file: str) -> dict[int, dict[str, str]]:
-    """1-indexed msg suffix -> {"ko"/"en"/"ja"/"zh_tw"/"zh_cn": text}, for
+def _load_msg_names(game: GameArchive, type_file: str) -> dict[str, dict[str, str]]:
+    """msg entry UUID (hex) -> {"ko"/"en"/"ja"/"zh_tw"/"zh_cn": text}, for
     <type_file>.msg.23. Unlike armor (bake_armor_slots.py), there's no
     external spreadsheet supplying Korean -- every language here,
     Korean included, comes straight from the game's own msg data via the
@@ -138,16 +151,15 @@ def _load_msg_names(game: GameArchive, type_file: str) -> dict[int, dict[str, st
     lang_idx = {code: langs.index(via_code) for code, via_code in _LANG_CODE_MAP.items() if via_code in langs}
     if not lang_idx:
         return {}
-    pat = re.compile(rf"^{re.escape(type_file)}_(\d+)$", re.IGNORECASE)
     names = {}
     for e in result["entries"]:
-        m = pat.match(e["name"])
-        if m:
-            content = e["content"]
-            names[int(m.group(1))] = {
-                code: content[idx].strip() for code, idx in lang_idx.items()
-                if idx < len(content) and content[idx].strip()
-            }
+        content = e["content"]
+        d = {
+            code: content[idx].strip() for code, idx in lang_idx.items()
+            if idx < len(content) and content[idx].strip()
+        }
+        if d:
+            names[e["uuid"]] = d
     return names
 
 
@@ -165,14 +177,14 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
         if not rows or not msg_names:
             print(f"it{code} ({type_file}): no data rows or no msg names, skipping")
             continue
-        # lowest msg index per unique model_id -> that model's representative name
-        best_index_by_model: dict[int, int] = {}
-        for idx, model_id in rows:
-            if model_id not in best_index_by_model or idx < best_index_by_model[model_id]:
-                best_index_by_model[model_id] = idx
+        # lowest msg index per unique model_id -> that model's representative row
+        best_row_by_model: dict[int, tuple[int, str]] = {}
+        for idx, model_id, name_guid in rows:
+            if model_id not in best_row_by_model or idx < best_row_by_model[model_id][0]:
+                best_row_by_model[model_id] = (idx, name_guid)
         resolved = 0
-        for model_id, idx in best_index_by_model.items():
-            names = msg_names.get(idx + 1)  # msg suffix is 1-indexed
+        for model_id, (idx, name_guid) in best_row_by_model.items():
+            names = msg_names.get(name_guid)
             if not names:
                 continue
             sid = f"{model_id // 1000:02d}"
