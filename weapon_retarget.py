@@ -256,7 +256,15 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModWeaponInfo,
     a whole-path substring replace). File contents are copied
     byte-identical; nothing inside any file is touched."""
     src_code, src_sid, src_iid = source.type_code, source.sid, source.iid
-    file_re = re.compile(rf"it{src_code}{src_sid}_{src_iid}_0", re.IGNORECASE)
+    # Matches the ID prefix only (not a hardcoded trailing "_0") -- a real
+    # ReyDau Greatsword "Effect" mod (2026-08-10) showed this matters: its
+    # bundled sound bank is named "it0010_0002_m.sbnk...", not "..._0...",
+    # so a "_0"-only pattern silently left the OLD id in that filename
+    # (and the safety leftover-scan below didn't catch it either, since it
+    # requires a separator between the type code and sid that a bare
+    # filename like this doesn't have). Also covers numbered sub-variants
+    # like "_1" (confirmed real: Dual Blades' two-pistol reskins).
+    file_re = re.compile(rf"it{src_code}{src_sid}_{src_iid}", re.IGNORECASE)
     moved = 0
     for p in source.files:
         parts = list(p.relative_to(mod_root).parts)
@@ -274,7 +282,7 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModWeaponInfo,
                 new_parts.extend([f"wp{dst_code}", dst_sid, dst_iid])
                 i += 3
                 continue
-            np = file_re.sub(f"it{dst_code}{dst_sid}_{dst_iid}_0", part)
+            np = file_re.sub(f"it{dst_code}{dst_sid}_{dst_iid}", part)
             new_parts.append(np)
             i += 1
         dst = out_root.joinpath(*new_parts)
@@ -282,8 +290,13 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModWeaponInfo,
         shutil.copyfile(p, dst)
         if new_parts != parts:
             moved += 1
+    # The separator between the type code and sid is OPTIONAL here (not
+    # just "[\\/_]") -- a bare filename like "it0010_0002_m.sbnk" has NO
+    # separator there at all ("it00"+"10" concatenated directly), which a
+    # required-separator pattern silently missed (the same real gap that
+    # motivated widening file_re above).
     leftover = [str(q.relative_to(out_root)) for q in out_root.rglob("*")
-                if re.search(rf"it{src_code}[\\/_]{src_sid}[\\/_]{src_iid}|wp{src_code}[\\/]{src_sid}[\\/]{src_iid}",
+                if re.search(rf"it{src_code}[\\/_]?{src_sid}[\\/_]{src_iid}|wp{src_code}[\\/]{src_sid}[\\/]{src_iid}",
                               str(q.relative_to(out_root)), re.IGNORECASE)]
     if leftover:
         raise RuntimeError(f"retarget left {len(leftover)} source-weapon path(s) behind: {leftover[:3]}")
