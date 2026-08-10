@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import glob
+import os
 from PyInstaller.utils.hooks import collect_all
 
 datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools'),
@@ -10,6 +11,11 @@ binaries = []
 hiddenimports = ['pak_mod_fix', 'whole_game_index', 'slot_retarget']
 tmp_ret = collect_all('tkinterdnd2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('backports.zstd')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+import backports.zstd as _bz
+_bz_dir = os.path.dirname(_bz.__file__)
+binaries += [(p, 'backports/zstd') for p in glob.glob(os.path.join(_bz_dir, '*.pyd'))]
 
 
 a = Analysis(
@@ -21,7 +27,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['backports.zstd._zstd', 'backports.zstd._cffi'],
     noarchive=False,
     optimize=0,
 )
