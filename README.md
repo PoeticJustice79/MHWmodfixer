@@ -146,7 +146,6 @@ just looked frozen during this stretch, which was confusing feedback.
 ```
 pip install -r requirements.txt
 pyinstaller --noconfirm --onedir --windowed --noupx --name "MHWmodfixer" ^
-    --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
     --hidden-import pak_mod_fix ^
@@ -166,10 +165,10 @@ compression tool) is also extremely commonly abused by actual malware to
 hide its payload, making UPX-packed executables another frequent false-
 positive trigger on their own, independent of onefile/onedir. Neither
 change affects behavior, only how the exe is physically packaged. Either
-way, zip (stdlib) / 7z (py7zr,
-pure Python) / rar (bundled UnRAR.exe, redistributable under RARLAB's
-freeware license) extraction all happen inside the exe, so nothing needs
-to be installed on the recipient's machine.
+way, zip (stdlib) / 7z (py7zr, pure Python) / rar (Windows's own built-in
+`tar.exe`, no bundled binary at all -- see `archive_extract.py`) extraction
+all happen without anything extra needing to be installed on the
+recipient's machine.
 
 ## Mods packaged as their own `.pak`
 
@@ -407,7 +406,7 @@ of generating one from scratch. See its module docstring for details.
 - `pak_writer.py` — simple (unencrypted) KPKA pak writer (for reassembling `.pak`-packaged mods)
 - `xxhash_re.py` — xxHash32/64 port used for pak entry checksums
 - `game_archive.py` — layer that merges multiple paks so the current version of any file can be read directly; includes local caching, version-number brute-forcing, and direct hash lookup (`read_by_hash`)
-- `archive_extract.py` — zip (stdlib) / 7z (py7zr) / rar (bundled UnRAR.exe) extraction
+- `archive_extract.py` — zip (stdlib) / 7z (py7zr) / rar (Windows's own built-in `tar.exe`) extraction
 - `mdf2.py` — MDF2 binary parser + in-place texture-path patching + version-number brute-force detection when there's no filename (`detect_numVersion`)
 - `mdf2_slice.py` — per-material extraction/reassembly (building a new file from scratch)
 - `donor.py` — custom-slot path substitution heuristic (mh↔ch etc., loose files only)
@@ -416,5 +415,4 @@ of generating one from scratch. See its module docstring for details.
 - `auto_fix.py` — core diagnose+repair logic and CLI (`plan_mod`/`process_mod`, loose-file handling)
 - `pak_mod_fix.py` — handling specific to mods packaged as their own `.pak` (direct hash matching + reassembly)
 - `diagnose.py` — the "is there anything to fix" diagnosis the GUI uses (reuses auto_fix's `plan_mod`)
-- `tools/UnRAR.exe` — bundled RAR extraction tool
 - `test_*.py` — test/regression scripts verified against real game files (for reference)

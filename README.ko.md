@@ -118,7 +118,6 @@ python auto_fix.py "모드.zip"               # 커맨드라인
 ```
 pip install -r requirements.txt
 pyinstaller --noconfirm --onedir --windowed --noupx --name "MHWmodfixer" ^
-    --add-data "tools/UnRAR.exe;tools" ^
     --add-data "tools/mdf2_filelist.txt;tools" ^
     --collect-all tkinterdnd2 ^
     --hidden-import pak_mod_fix ^
@@ -136,9 +135,9 @@ exe를 UPX로 압축하지 않게 하는 옵션인데, UPX 자체는 정상적�
 UPX로 압축된 실행파일 자체가 onefile/onedir이랑 별개로 또 다른 흔한
 오탐 트리거임. 둘 다 실제 동작에는 영향 없고 exe를 물리적으로 어떻게
 포장하느냐만 다름. 압축 해제는 여전히
-zip(표준 라이브러리)/7z(py7zr, 순수 파이썬)/rar(bundled UnRAR.exe, RARLAB
-프리웨어 라이선스로 재배포 허용)를
-전부 exe 안에서 처리하므로 받는 사람 PC에 아무것도 설치할 필요 없음.
+zip(표준 라이브러리)/7z(py7zr, 순수 파이썬)/rar(Windows 기본 내장
+`tar.exe`, 별도 번들 파일 전혀 없음 — `archive_extract.py` 참고)를
+전부 받는 사람 PC에 별도 설치 없이 그대로 처리함.
 
 ## .pak으로 패키징된 모드 (자체 .pak 파일을 포함하는 모드)
 
@@ -338,7 +337,7 @@ MHWmodfixer는 대부분의 수정 작업을 현재 설치된 게임 파일에�
 - `xxhash_re.py` — pak 항목 체크섬 계산용 xxHash32/64 포팅
 - `game_archive.py` — 여러 pak을 하나로 합쳐서 최신 파일을 바로 읽어주는 레이어,
   로컬 캐시 + 버전 번호 브루트포스 탐색 + 해시 직접 조회(`read_by_hash`) 포함
-- `archive_extract.py` — zip(stdlib)/7z(py7zr)/rar(bundled UnRAR.exe) 압축 해제
+- `archive_extract.py` — zip(stdlib)/7z(py7zr)/rar(Windows 기본 내장 `tar.exe`) 압축 해제
 - `mdf2.py` — MDF2 바이너리 파서 + 텍스처 경로 인플레이스 패치 +
   파일명 없는 경우의 버전 번호 브루트포스 탐지(`detect_numVersion`)
 - `mdf2_slice.py` — 머티리얼 단위 추출/재조립 (새 파일 처음부터 조립)
@@ -350,5 +349,4 @@ MHWmodfixer는 대부분의 수정 작업을 현재 설치된 게임 파일에�
 - `auto_fix.py` — 진단+복구 핵심 로직 + CLI (`plan_mod`/`process_mod`, loose file 처리)
 - `pak_mod_fix.py` — .pak으로 패키징된 모드 전용 처리 (해시 직접 매칭 + 재조립)
 - `diagnose.py` — GUI가 쓰는 "고칠 게 있는지" 진단 (auto_fix의 plan_mod 재사용)
-- `tools/UnRAR.exe` — 번들된 RAR 압축 해제 도구
 - `test_*.py` — 실제 게임 파일로 검증한 테스트/회귀 스크립트 (참고용)
