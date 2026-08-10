@@ -250,6 +250,45 @@ def resolve_names_from_live_dump(dump_path: Path) -> dict[str, dict[str, str]]:
     return out
 
 
+# Manually confirmed by the user directly testing real mods in-game
+# (2026-08-10) -- NOT derived from any general rule (checked: subid=00's
+# single "lambert2, no name" slot does NOT reliably correspond to a
+# weapon type's Artian tier-3-unique model count across other types, so
+# this stays a one-off, per-key correction, not a general merge step).
+# it04 (Hammer) Artian: tiers 1&2 ("아티어해머Ⅰ"/"Ⅱ") share ONE model
+# (it04/10/0002, confirmed via a real "Rocket Hammer_DIAGNOSTIC_singlesource"
+# mod that targets ONLY it04/00/0012 and renders as tier 3 "모토반켈"),
+# tier 3 has its OWN separate model (it04/00/0012). The tier-3 name is
+# the game's own real text (from the live dump, model_id=100002's third
+# msg entry); the tier-1/2 "shared" label is THIS PROJECT'S OWN composite
+# (real localized stem + "Ⅰ/Ⅱ" appended), not a string the game itself
+# ever displays verbatim -- there's no single official name for "the
+# model tiers 1 and 2 share," since the game only ever shows one specific
+# tier's name at a time depending on what the player crafted.
+CONFIRMED_MANUAL_NAMES = {
+    "it04/00/0012": {
+        "ko": "모토반켈", "en": "Moteurvankel", "ja": "モートヴァンケル",
+        "zh_cn": "汪克尔原动机", "zh_tw": "汪克爾引擎",
+    },
+    "it04/10/0002": {
+        "ko": "아티어해머 (Ⅰ/Ⅱ 공용)", "en": "Artian Hammer (I/II shared)",
+        "ja": "アーティアハンマー（Ⅰ/Ⅱ共用）",
+        "zh_cn": "机械战锤（Ⅰ/Ⅱ共用）", "zh_tw": "機械大錘（Ⅰ/Ⅱ共用）",
+    },
+    # it00 (Great Sword) Artian, same pattern -- confirmed via "Wyvern
+    # Impact2.2" targeting ONLY it00/00/0002, user-identified in-game as
+    # tier 3 of the plain "Artian Blade" branch (model_id=100003: "Artian
+    # Blade I/II" -> "Varianza"). The tier-1/2 shared-model slot is NOT
+    # included here -- it00 has TWO subid=10 candidates (0000, 0003) and
+    # there's no confirmed way yet to tell which one belongs to this same
+    # branch, so it stays unresolved rather than guessed.
+    "it00/00/0002": {
+        "ko": "발리안차", "en": "Varianza", "ja": "ヴァリアンツァ",
+        "zh_cn": "英勇变形大剑", "zh_tw": "英勇變形大劍",
+    },
+}
+
+
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--live-dump":
         names = resolve_names_from_live_dump(Path(sys.argv[2]))
@@ -274,11 +313,37 @@ def main():
         entry.pop("name", None)
 
     matched = 0
+    added_sid100 = 0
     for key, name_dict in names.items():
         if key in payload["entries"]:
             payload["entries"][key]["names"] = name_dict
             matched += 1
-    print(f"resolved {len(names)} names via {source}, {matched} matched a real baked weapon_slots.json.gz entry")
+        elif "/100/" in key:
+            # subid=100 (Artian) rows have no discoverable mesh file at the
+            # expected path convention (see bake_weapon_slots.py's own
+            # "unsolved" note, 2026-08-10) -- so bake_weapon_slots.py's
+            # existence-scan never creates a table entry for them at all.
+            # Confirmed real, exclusively Artian weapons (100% of subid=100
+            # entries checked follow the "Ⅰ/Ⅱ/unique-name" 3-tier pattern,
+            # decided with the user 2026-08-10 to add here anyway, name-only
+            # -- no has_mdf2/materials/physics, so find_compatible_weapon_targets()
+            # correctly never offers these as a retarget TARGET (its own
+            # `if not cand.get("has_mdf2"): continue` guard already excludes
+            # any key missing that field) -- this is purely so weapon_label()
+            # can show a real name instead of a raw id wherever one of these
+            # keys is ever displayed (e.g. as a mod's own detected SOURCE,
+            # should a real Artian-targeting mod ever surface one).
+            payload["entries"][key] = {"names": name_dict}
+            added_sid100 += 1
+    print(f"resolved {len(names)} names via {source}, {matched} matched a real baked weapon_slots.json.gz entry, "
+          f"{added_sid100} subid=100 (Artian) entr{'y' if added_sid100 == 1 else 'ies'} added name-only")
+
+    manual_applied = 0
+    for key, name_dict in CONFIRMED_MANUAL_NAMES.items():
+        if key in payload["entries"]:
+            payload["entries"][key]["names"] = name_dict
+            manual_applied += 1
+    print(f"applied {manual_applied} manually-confirmed name(s) (CONFIRMED_MANUAL_NAMES)")
 
     payload["_meta"]["names_baked_at"] = "2026-08-10"
     payload["_meta"]["names_source"] = source

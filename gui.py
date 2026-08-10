@@ -38,7 +38,7 @@ except ImportError:
 import i18n
 import rsz_layout
 from archive_extract import extract_archive
-from auto_fix import DEFAULT_GAME_DIR, process_mod
+from auto_fix import DEFAULT_GAME_DIR, DEFAULT_FLUFFY_DIR, auto_detect_fluffy_dir, process_mod
 from diagnose import diagnose, summarize
 from fluffy_repackage import needs_repackaging, repackage_for_fluffy
 from game_archive import GameArchive
@@ -199,6 +199,8 @@ class App:
         i18n.set_language(i18n.load_saved_language())
 
         self.game_dir = StringVar(value=DEFAULT_GAME_DIR if Path(DEFAULT_GAME_DIR).is_dir() else "")
+        _fluffy_default = auto_detect_fluffy_dir() or (DEFAULT_FLUFFY_DIR if Path(DEFAULT_FLUFFY_DIR).is_dir() else "")
+        self.fluffy_dir = StringVar(value=_fluffy_default)
         self.status = StringVar(value=t("status_default"))
         self.lang_display = StringVar(value=i18n.LANGUAGES[i18n.get_language()])
         self.force_unresolved = BooleanVar(value=False)
@@ -287,6 +289,14 @@ class App:
         ttk.Entry(game_frame, textvariable=self.game_dir).pack(side="left", fill="x", expand=True, padx=6)
         self.btn_browse_game = ttk.Button(game_frame, text=t("btn_browse_game"), command=self._browse_game_dir)
         self.btn_browse_game.pack(side="left")
+
+        fluffy_frame = ttk.Frame(self.root)
+        fluffy_frame.pack(fill="x", padx=10, pady=(0, 6))
+        self.lbl_fluffy_dir = ttk.Label(fluffy_frame, text=t("lbl_fluffy_dir"))
+        self.lbl_fluffy_dir.pack(side="left")
+        ttk.Entry(fluffy_frame, textvariable=self.fluffy_dir).pack(side="left", fill="x", expand=True, padx=6)
+        self.btn_browse_fluffy = ttk.Button(fluffy_frame, text=t("btn_browse_game"), command=self._browse_fluffy_dir)
+        self.btn_browse_fluffy.pack(side="left")
 
         list_label_frame = ttk.Frame(self.root)
         list_label_frame.pack(fill="x", padx=10)
@@ -408,6 +418,8 @@ class App:
         self.lbl_lang.configure(text=t("lbl_lang"))
         self.lbl_game_dir.configure(text=t("lbl_game_dir"))
         self.btn_browse_game.configure(text=t("btn_browse_game"))
+        self.lbl_fluffy_dir.configure(text=t("lbl_fluffy_dir"))
+        self.btn_browse_fluffy.configure(text=t("btn_browse_game"))
         self.lbl_mod_list.configure(text=t("lbl_mod_list"))
         self.btn_add_mod.configure(text=t("btn_add_mod"))
         self.btn_remove_selected.configure(text=t("btn_remove_selected"))
@@ -610,6 +622,7 @@ class App:
         it exactly where it is), and generation is blocked until every
         single one has been decided."""
         import slot_retarget
+        import fluffy_installed
 
         win = tk.Toplevel(self.root, bg=THEME["bg"])
         win.title(t("dlg_retarget_title"))
@@ -689,7 +702,7 @@ class App:
         win.protocol("WM_DELETE_WINDOW", on_close)
 
         state = {"groups": [], "unmatched": [], "assignments": {}, "active_key": None,
-                 "candidates_by_key": {}}
+                 "candidates_by_key": {}, "occupancy_by_key": {}, "fluffy_index": {}}
         table = slot_retarget.slot_table()
 
         def set_pick_busy(busy: bool):
@@ -757,6 +770,7 @@ class App:
         def _on_detected(groups, unmatched):
             set_pick_busy(False)
             state["groups"], state["unmatched"] = groups, unmatched
+            state["fluffy_index"] = self._load_fluffy_index()
             if not groups:
                 info_label.configure(text=t("msg_retarget_no_slot_found"))
                 return
@@ -782,12 +796,18 @@ class App:
                 state["candidates_by_key"][key] = cands
             lang = i18n.get_language()
             grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
+            game_dir = self.game_dir.get()
+            occ_by_cand = state["occupancy_by_key"].setdefault(key, {})
             for c in cands:
                 note = ""
                 if c.lost_pieces:
                     note = t("note_lost_physics", pieces=",".join(map(str, c.lost_pieces)))
                 elif c.gpuc_pieces:
                     note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
+                if game_dir and c.key not in occ_by_cand:
+                    occ_by_cand[c.key] = slot_retarget.find_target_occupants(game_dir, group, c)
+                occ_note = self._occupied_note(state["fluffy_index"], occ_by_cand.get(c.key, []))
+                note = f"{note} {occ_note}".strip() if note else occ_note
                 gl = slot_retarget.gender_label(c.gender, lang)
                 cname = slot_retarget.armor_name(c.name, c.names, lang)
                 cand_tree.insert("", "end", iid=c.key, values=(c.key, cname, gl, grade_text[c.grade], note),
@@ -834,6 +854,7 @@ class App:
                 return
             game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
             unverified = []
+            occupant_relpaths_all = []
             for g in groups:
                 dst = assignments[g.key]
                 if dst is None:
@@ -847,8 +868,14 @@ class App:
                 ok, missing = slot_retarget.verify_target_vanilla(game, g, cand)
                 if not ok:
                     unverified.append(f"{g.key} -> {dst_key}: {', '.join(missing)}")
+                occupant_relpaths_all.extend(
+                    state["occupancy_by_key"].get(g.key, {}).get(dst_key)
+                    or slot_retarget.find_target_occupants(self.game_dir.get(), g, cand))
             if unverified and not messagebox.askyesno(
                     APP_TITLE, t("ask_retarget_unverified", missing="\n".join(unverified)), parent=win):
+                return
+            if occupant_relpaths_all and not self._confirm_occupied(
+                    state["fluffy_index"], occupant_relpaths_all, win):
                 return
             src_stem = Path(file_var.get()).stem
             out_path = filedialog.asksaveasfilename(
@@ -931,12 +958,15 @@ class App:
             active = state["active_key"]
             if active and active in state["candidates_by_key"]:
                 grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
+                occ_by_cand = state["occupancy_by_key"].get(active, {})
                 for c in state["candidates_by_key"][active]:
                     note = ""
                     if c.lost_pieces:
                         note = t("note_lost_physics", pieces=",".join(map(str, c.lost_pieces)))
                     elif c.gpuc_pieces:
                         note = t("note_gpuc_pieces", pieces=",".join(map(str, c.gpuc_pieces)))
+                    occ_note = self._occupied_note(state["fluffy_index"], occ_by_cand.get(c.key, []))
+                    note = f"{note} {occ_note}".strip() if note else occ_note
                     gl = slot_retarget.gender_label(c.gender, lang)
                     cname = slot_retarget.armor_name(c.name, c.names, lang)
                     cand_tree.item(c.key, values=(c.key, cname, gl, grade_text[c.grade], note), tags=(c.grade,))
@@ -944,21 +974,25 @@ class App:
         self._retarget_refresh_fn = refresh_texts
 
     def _open_weapon_retarget_dialog(self):
-        """'적용 무기 변경' -- relocate a mod built for one weapon model onto
-        a different model of the SAME weapon type (see weapon_retarget.py).
-        Simpler than the armor dialog: a weapon mod targets exactly ONE
-        model (no per-piece/per-slot decisions the way armor has), so this
-        is a single detect -> pick-a-target -> generate flow, no Treeview
-        of "groups" needed. **weapon_retarget.py itself is not yet verified
-        against a real weapon mod archive** -- this dialog will surface
-        whatever detect_mod_weapon() actually finds, correct or not, until
-        that verification happens."""
+        """'적용 무기 변경' -- relocate a mod built for one or more weapon
+        models onto different, physics-compatible models of the SAME
+        weapon type (see weapon_retarget.py). Mirrors _open_retarget_dialog
+        (armor)'s exact multi-slot architecture: a mod CAN legitimately
+        bundle more than one weapon model's files at once (confirmed real
+        2026-08-10, "ReyDau_Fixed.zip" -- two distinct (type,sid,iid)
+        triples in one flat loose-file tree), so every detected weapon
+        gets its own row and its own explicit decision (move it somewhere,
+        or leave it exactly where it is), and generation is blocked until
+        every single one has been decided -- same reasoning as armor's own
+        dialog, ported here 2026-08-10 after the single-target-only
+        version turned out to reject a real mod outright."""
         import weapon_retarget
+        import fluffy_installed
 
         win = tk.Toplevel(self.root, bg=THEME["bg"])
         win.title(t("dlg_weapon_retarget_title"))
-        win.geometry("640x520")
-        win.minsize(560, 420)
+        win.geometry("680x640")
+        win.minsize(600, 480)
         win.transient(self.root)
 
         file_frame = ttk.Frame(win)
@@ -971,16 +1005,32 @@ class App:
         btn_pick = ttk.Button(file_frame, text=t("btn_choose_file"))
         btn_pick.pack(side="left")
 
-        info_label = ttk.Label(win, text=t("msg_weapon_retarget_no_file"), justify="left", wraplength=600)
+        info_label = ttk.Label(win, text=t("msg_weapon_retarget_no_file"), justify="left", wraplength=640)
         info_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        slots_frame = ttk.LabelFrame(win, text=t("lbl_weapon_retarget_slots"))
+        slots_frame.pack(fill="both", expand=False, padx=10, pady=(0, 8))
+        slot_columns = ("weapon", "files", "status")
+        slot_tree = ttk.Treeview(slots_frame, columns=slot_columns, show="headings",
+                                  height=5, selectmode="browse")
+        for col, key, width in [("weapon", "col_weapon", 140), ("files", "col_files", 60),
+                                 ("status", "col_status", 260)]:
+            slot_tree.heading(col, text=t(key))
+            slot_tree.column(col, width=width, anchor="w")
+        slot_vsb = ttk.Scrollbar(slots_frame, orient="vertical", command=slot_tree.yview)
+        slot_tree.configure(yscrollcommand=slot_vsb.set)
+        slot_tree.pack(side="left", fill="both", expand=True)
+        slot_vsb.pack(side="right", fill="y")
+        slot_tree.tag_configure("done", foreground=THEME["success"])
+        slot_tree.tag_configure("pending", foreground=THEME["warn"])
 
         cand_frame = ttk.LabelFrame(win, text=t("lbl_weapon_retarget_targets"))
         cand_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         cand_columns = ("weapon", "grade", "note")
         cand_tree = ttk.Treeview(cand_frame, columns=cand_columns, show="headings",
-                                  height=10, selectmode="browse")
-        for col, key, width in [("weapon", "col_weapon", 120), ("grade", "col_compat", 110),
-                                 ("note", "col_note", 300)]:
+                                  height=8, selectmode="browse")
+        for col, key, width in [("weapon", "col_weapon", 140), ("grade", "col_compat", 110),
+                                 ("note", "col_note", 280)]:
             cand_tree.heading(col, text=t(key))
             cand_tree.column(col, width=width, anchor="w")
         cand_vsb = ttk.Scrollbar(cand_frame, orient="vertical", command=cand_tree.yview)
@@ -990,6 +1040,13 @@ class App:
         cand_tree.tag_configure("exact", foreground=THEME["success"])
         cand_tree.tag_configure("partial", foreground=THEME["warn"])
         cand_tree.tag_configure("refused", foreground=THEME["danger"])
+
+        cand_btn_frame = ttk.Frame(win)
+        cand_btn_frame.pack(fill="x", padx=10, pady=(0, 8))
+        btn_apply = ttk.Button(cand_btn_frame, text=t("btn_apply_to_slot"), state="disabled")
+        btn_apply.pack(side="left")
+        btn_leave = ttk.Button(cand_btn_frame, text=t("btn_leave_unchanged"), state="disabled")
+        btn_leave.pack(side="left", padx=(6, 0))
 
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill="x", padx=10, pady=10)
@@ -1007,7 +1064,8 @@ class App:
         btn_close.configure(command=on_close)
         win.protocol("WM_DELETE_WINDOW", on_close)
 
-        state = {"source": None, "candidates": []}
+        state = {"groups": [], "unmatched": [], "assignments": {}, "active_key": None,
+                 "candidates_by_key": {}, "occupancy_by_key": {}, "fluffy_index": {}}
 
         def _weapon_note_for(c) -> str:
             if not c.missing_physics:
@@ -1018,6 +1076,27 @@ class App:
         def set_pick_busy(busy: bool):
             btn_pick.configure(state="disabled" if busy else "normal")
 
+        def _refresh_generate_enabled():
+            groups = state["groups"]
+            ready = bool(groups) and all(g.key in state["assignments"] for g in groups)
+            btn_generate.configure(state="normal" if ready else "disabled")
+
+        def _status_text_for(key):
+            lang = i18n.get_language()
+            if key not in state["assignments"]:
+                return t("status_pending"), "pending"
+            dst = state["assignments"][key]
+            if dst is None:
+                return t("status_unchanged"), "done"
+            dst_key = f"it{dst[0]}/{dst[1]}/{dst[2]}"
+            return t("status_target", name=weapon_retarget.weapon_label(dst_key, lang), slot=dst_key), "done"
+
+        def _refresh_slot_row(key):
+            text, tag = _status_text_for(key)
+            vals = list(slot_tree.item(key, "values"))
+            vals[2] = text
+            slot_tree.item(key, values=vals, tags=(tag,))
+
         def do_pick():
             path = filedialog.askopenfilename(
                 title=t("dlg_choose_mod_archive"),
@@ -1027,9 +1106,12 @@ class App:
             if not path:
                 return
             file_var.set(path)
+            slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
-            state["source"], state["candidates"] = None, []
+            state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
             info_label.configure(text=t("msg_retarget_detecting"))
+            btn_apply.configure(state="disabled")
+            btn_leave.configure(state="disabled")
             btn_generate.configure(state="disabled")
             set_pick_busy(True)
 
@@ -1038,55 +1120,124 @@ class App:
                     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_ui_"))
                     try:
                         mod_root = extract_archive(Path(path), work)
-                        info = weapon_retarget.detect_mod_weapon(mod_root)
+                        groups, unmatched = weapon_retarget.detect_mod_weapons(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
                     return
-                win.after(0, lambda: _on_detected(info))
+                win.after(0, lambda: _on_detected(groups, unmatched))
 
             threading.Thread(target=worker, daemon=True).start()
 
-        def _on_detected(info):
+        def _on_detected(groups, unmatched):
             set_pick_busy(False)
-            if not isinstance(info, weapon_retarget.ModWeaponInfo):
-                found = ", ".join(info) if info else "-"
-                info_label.configure(text=t("msg_weapon_retarget_no_weapon_found", found=found))
+            state["groups"], state["unmatched"] = groups, unmatched
+            state["fluffy_index"] = self._load_fluffy_index()
+            if not groups:
+                info_label.configure(text=t("msg_weapon_retarget_no_slot_found"))
                 return
-            state["source"] = info
-            info_label.configure(text=t(
-                "msg_weapon_retarget_detected", wkey=info.key,
-                mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
-                pfb="O" if info.has_pfb else "X"))
-            cands = weapon_retarget.find_compatible_weapon_targets(info)
-            state["candidates"] = cands
+            info_label.configure(text=t("msg_weapon_retarget_multi_summary",
+                                         count=len(groups), unmatched=len(unmatched)))
+            lang = i18n.get_language()
+            for g in groups:
+                slot_tree.insert("", "end", iid=g.key,
+                                  values=(weapon_retarget.weapon_label(g.key, lang), len(g.files), t("status_pending")),
+                                  tags=("pending",))
+            slot_tree.selection_set(groups[0].key)
+            _select_slot(groups[0].key)
+
+        def _select_slot(key):
+            state["active_key"] = key
+            group = next(g for g in state["groups"] if g.key == key)
+            cand_tree.delete(*cand_tree.get_children())
+            if key in state["candidates_by_key"]:
+                cands = state["candidates_by_key"][key]
+            else:
+                cands = weapon_retarget.find_compatible_weapon_targets(group)
+                state["candidates_by_key"][key] = cands
             lang = i18n.get_language()
             grade_text = {"exact": t("grade_weapon_exact"), "partial": t("grade_weapon_partial"),
                           "refused": t("grade_weapon_refused")}
+            game_dir = self.game_dir.get()
+            occ_by_cand = state["occupancy_by_key"].setdefault(key, {})
             for c in cands:
                 note = _weapon_note_for(c)
+                if game_dir and c.key not in occ_by_cand:
+                    occupant = weapon_retarget.find_target_occupant(game_dir, c)
+                    occ_by_cand[c.key] = [str(occupant.relative_to(Path(game_dir)))] if occupant else []
+                occ_note = self._occupied_note(state["fluffy_index"], occ_by_cand.get(c.key, []))
+                note = f"{note} {occ_note}".strip() if note else occ_note
                 cand_tree.insert("", "end", iid=c.key,
                                   values=(weapon_retarget.weapon_label(c.key, lang), grade_text[c.grade], note),
                                   tags=(c.grade,))
+            btn_apply.configure(state="normal" if cands else "disabled")
+            btn_leave.configure(state="normal")
+            existing = state["assignments"].get(key)
+            if existing is not None:
+                dst_key = f"it{existing[0]}/{existing[1]}/{existing[2]}"
+                if cand_tree.exists(dst_key):
+                    cand_tree.selection_set(dst_key)
 
-        def do_generate():
-            source = state["source"]
+        def on_slot_selected(_event=None):
+            sel = slot_tree.selection()
+            if sel:
+                _select_slot(sel[0])
+
+        def do_apply_to_slot():
+            key = state["active_key"]
             sel = cand_tree.selection()
-            if source is None or not sel:
+            if key is None or not sel:
                 messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_select_target"), parent=win)
                 return
-            cand = next(c for c in state["candidates"] if c.key == sel[0])
+            cand = next(c for c in state["candidates_by_key"][key] if c.key == sel[0])
             if cand.grade == "refused":
                 messagebox.showerror(APP_TITLE, t("msg_weapon_retarget_refused_blocked"), parent=win)
+                return
+            state["assignments"][key] = (cand.type_code, cand.sid, cand.iid)
+            _refresh_slot_row(key)
+            _refresh_generate_enabled()
+
+        def do_leave_unchanged():
+            key = state["active_key"]
+            if key is None:
+                messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_pick_first"), parent=win)
+                return
+            state["assignments"][key] = None
+            _refresh_slot_row(key)
+            _refresh_generate_enabled()
+
+        def do_generate():
+            groups = state["groups"]
+            assignments = state["assignments"]
+            if not groups or not all(g.key in assignments for g in groups):
+                messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_incomplete"), parent=win)
                 return
             if not Path(self.game_dir.get()).is_dir():
                 messagebox.showerror(APP_TITLE, t("err_no_game_dir"), parent=win)
                 return
             game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
-            ok, missing = weapon_retarget.verify_target_vanilla(game, source, cand)
-            if not missing_ok(ok, missing, win):
+            unverified = []
+            occupant_relpaths_all = []
+            for g in groups:
+                dst = assignments[g.key]
+                if dst is None:
+                    continue
+                dst_key = f"it{dst[0]}/{dst[1]}/{dst[2]}"
+                cand = next((c for c in state["candidates_by_key"].get(g.key, []) if c.key == dst_key), None)
+                if cand is None:
+                    cand = weapon_retarget.TargetWeaponCandidate(
+                        key=dst_key, type_code=dst[0], sid=dst[1], iid=dst[2], grade="exact")
+                ok, missing = weapon_retarget.verify_target_vanilla(game, g, cand)
+                if not ok:
+                    unverified.append(f"{g.key} -> {dst_key}: {', '.join(missing)}")
+                occupant_relpaths_all.extend(state["occupancy_by_key"].get(g.key, {}).get(dst_key, []))
+            if unverified and not messagebox.askyesno(
+                    APP_TITLE, t("ask_retarget_unverified", missing="\n".join(unverified)), parent=win):
+                return
+            if occupant_relpaths_all and not self._confirm_occupied(
+                    state["fluffy_index"], occupant_relpaths_all, win):
                 return
             src_stem = Path(file_var.get()).stem
             out_path = filedialog.asksaveasfilename(
@@ -1102,33 +1253,25 @@ class App:
 
             def worker():
                 try:
-                    weapon_retarget.retarget_archive(
-                        Path(file_var.get()), Path(out_path),
-                        cand.type_code, cand.sid, cand.iid, log=lambda s: None)
+                    weapon_retarget.retarget_archive_multi(
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
                                           status_var.set(""), btn_pick.configure(state="normal"),
-                                          btn_generate.configure(state="normal")))
+                                          _refresh_generate_enabled()))
                     return
                 win.after(0, lambda: (status_var.set(""), btn_pick.configure(state="normal"),
-                                      btn_generate.configure(state="normal"),
+                                      _refresh_generate_enabled(),
                                       messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_done", path=out_path),
                                                            parent=win)))
 
             threading.Thread(target=worker, daemon=True).start()
 
-        def missing_ok(ok, missing, parent_win):
-            if ok:
-                return True
-            return messagebox.askyesno(
-                APP_TITLE, t("ask_retarget_unverified", missing=", ".join(missing)), parent=parent_win)
-
-        def on_cand_selected(_event=None):
-            btn_generate.configure(state="normal" if cand_tree.selection() else "disabled")
-
         btn_pick.configure(command=do_pick)
-        cand_tree.bind("<<TreeviewSelect>>", on_cand_selected)
+        slot_tree.bind("<<TreeviewSelect>>", on_slot_selected)
+        btn_apply.configure(command=do_apply_to_slot)
+        btn_leave.configure(command=do_leave_unchanged)
         btn_generate.configure(command=do_generate)
 
         def refresh_texts():
@@ -1138,26 +1281,40 @@ class App:
             win.title(t("dlg_weapon_retarget_title"))
             file_label.configure(text=t("lbl_retarget_file"))
             btn_pick.configure(text=t("btn_choose_file"))
+            slots_frame.configure(text=t("lbl_weapon_retarget_slots"))
             cand_frame.configure(text=t("lbl_weapon_retarget_targets"))
+            for col, key in [("weapon", "col_weapon"), ("files", "col_files"), ("status", "col_status")]:
+                slot_tree.heading(col, text=t(key))
             for col, key in [("weapon", "col_weapon"), ("grade", "col_compat"), ("note", "col_note")]:
                 cand_tree.heading(col, text=t(key))
+            btn_apply.configure(text=t("btn_apply_to_slot"))
+            btn_leave.configure(text=t("btn_leave_unchanged"))
             btn_generate.configure(text=t("btn_generate_retarget"))
             btn_close.configure(text=t("btn_close"))
-            if not file_var.get():
-                info_label.configure(text=t("msg_weapon_retarget_no_file"))
-            elif state["source"] is not None:
-                info = state["source"]
-                info_label.configure(text=t(
-                    "msg_weapon_retarget_detected", wkey=info.key,
-                    mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
-                    pfb="O" if info.has_pfb else "X"))
+
             lang = i18n.get_language()
-            grade_text = {"exact": t("grade_weapon_exact"), "partial": t("grade_weapon_partial"),
-                          "refused": t("grade_weapon_refused")}
-            for c in state["candidates"]:
-                note = _weapon_note_for(c)
-                cand_tree.item(c.key, values=(weapon_retarget.weapon_label(c.key, lang), grade_text[c.grade], note),
-                                tags=(c.grade,))
+            if state["groups"]:
+                info_label.configure(text=t("msg_weapon_retarget_multi_summary",
+                                             count=len(state["groups"]), unmatched=len(state["unmatched"])))
+            elif not file_var.get():
+                info_label.configure(text=t("msg_weapon_retarget_no_file"))
+
+            for g in state["groups"]:
+                status_text, tag = _status_text_for(g.key)
+                slot_tree.item(g.key, values=(weapon_retarget.weapon_label(g.key, lang), len(g.files), status_text),
+                                tags=(tag,))
+
+            active = state["active_key"]
+            if active and active in state["candidates_by_key"]:
+                grade_text = {"exact": t("grade_weapon_exact"), "partial": t("grade_weapon_partial"),
+                              "refused": t("grade_weapon_refused")}
+                occ_by_cand = state["occupancy_by_key"].get(active, {})
+                for c in state["candidates_by_key"][active]:
+                    note = _weapon_note_for(c)
+                    occ_note = self._occupied_note(state["fluffy_index"], occ_by_cand.get(c.key, []))
+                    note = f"{note} {occ_note}".strip() if note else occ_note
+                    cand_tree.item(c.key, values=(weapon_retarget.weapon_label(c.key, lang),
+                                                   grade_text[c.grade], note), tags=(c.grade,))
 
         self._weapon_retarget_refresh_fn = refresh_texts
 
@@ -1165,6 +1322,58 @@ class App:
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))
         if d:
             self.game_dir.set(d)
+
+    def _browse_fluffy_dir(self):
+        d = filedialog.askdirectory(title=t("dlg_choose_fluffy_dir"))
+        if d:
+            self.fluffy_dir.set(d)
+
+    def _load_fluffy_index(self):
+        """Parses Fluffy's installed.ini fresh (cheap -- a plain text
+        file, no reason to cache across dialog sessions) if a Fluffy path
+        is configured and looks valid; {} otherwise (silently -- an
+        unconfigured/wrong Fluffy path just means occupancy notes fall
+        back to the generic "another mod" wording instead of naming it,
+        never an error)."""
+        import fluffy_installed
+        fdir = self.fluffy_dir.get()
+        if not fdir:
+            return {}
+        ini_path = fluffy_installed.installed_ini_path(fdir)
+        if not ini_path.is_file():
+            return {}
+        return fluffy_installed.parse_installed_ini(ini_path)
+
+    def _confirm_occupied(self, fluffy_index: dict, occupant_relpaths: list[str], parent_win) -> bool:
+        """Popup shown at Generate time (not just the inline list note)
+        when the selected target slot is already occupied -- selection
+        itself stays unrestricted (per the user's own explicit call,
+        2026-08-10: warn, don't block), this is the one point where
+        proceeding needs an explicit yes. Returns True to proceed."""
+        import fluffy_installed
+        names = set()
+        for p in occupant_relpaths:
+            names.update(fluffy_installed.find_occupant_names(fluffy_index, p))
+        mod_suffix = t("mod_suffix_named", mod=", ".join(sorted(names))) if names else ""
+        return messagebox.askyesno(
+            APP_TITLE, t("ask_confirm_target_occupied", mod_suffix=mod_suffix), parent=parent_win)
+
+    def _occupied_note(self, fluffy_index: dict, occupant_relpaths: list[str]) -> str:
+        """occupant_relpaths: natives/-relative paths of loose files
+        already found sitting at a candidate target's slot (empty list
+        means free -- see game_archive.find_loose_files). Returns "" if
+        free, else a note naming the occupying mod when Fluffy's
+        installed.ini resolves it, or a generic warning when it doesn't
+        (no Fluffy path configured, or the file wasn't Fluffy-deployed)."""
+        import fluffy_installed
+        if not occupant_relpaths:
+            return ""
+        names = set()
+        for p in occupant_relpaths:
+            names.update(fluffy_installed.find_occupant_names(fluffy_index, p))
+        if names:
+            return t("note_target_occupied_named", mod=", ".join(sorted(names)))
+        return t("note_target_occupied")
 
     def _browse_mod(self):
         files = filedialog.askopenfilenames(

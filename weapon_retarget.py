@@ -307,6 +307,78 @@ def detect_mod_weapon(mod_root: Path) -> ModWeaponInfo | list[str]:
     return info
 
 
+def _flags_from_files(info: ModWeaponInfo) -> None:
+    """Sets has_mdf2/has_mesh/has_pfb/has_physics_files on `info` by
+    inspecting its OWN `files` list -- shared by both the single- and
+    multi-target detection paths so they can never drift apart."""
+    for p in info.files:
+        name = p.name.lower()
+        if ".mdf2" in name:
+            info.has_mdf2 = True
+        elif ".mesh" in name:
+            info.has_mesh = True
+        elif ".pfb" in name:
+            info.has_pfb = True
+        elif any(ext in name for ext in _PHYSICS_FILE_EXTS):
+            info.has_physics_files = True
+
+
+def detect_mod_weapons(mod_root: Path) -> tuple[list[ModWeaponInfo], list[Path]]:
+    """Plural counterpart to `detect_mod_weapon()`, for a mod that bundles
+    MORE than one weapon model's worth of files (e.g. several FOMOD pages
+    merged into one archive -- confirmed real 2026-08-10 against a real
+    mod, "ReyDau_Fixed.zip", which surfaced exactly this: two distinct
+    (type,sid,iid) triples in one flat loose-file tree). Mirrors
+    slot_retarget.detect_mod_slots()'s exact shape: every distinct triple
+    becomes its own `ModWeaponInfo` group (holding only ITS OWN files),
+    plus the list of files matching no weapon pattern at all (FOMOD
+    config, readmes, covers, ...) that always pass through untouched
+    regardless of what any group is assigned to.
+
+    Falls back to pak-based detection when no loose triples are found at
+    all (mirrors `detect_mod_weapon()`'s own fallback) -- confirmed real
+    2026-08-10: this fallback was accidentally left out of the first
+    version of this function, which silently broke every previously-working
+    standalone-.pak weapon mod (e.g. "Dreaming Dalamadur") the moment this
+    function replaced the singular one as the dialog's detection call.
+    Each bundled .pak that resolves to exactly ONE triple becomes its own
+    group (`ModWeaponInfo.pak_path` set); a pak resolving to zero or
+    multiple triples is skipped entirely (still not supported -- a real
+    multi-weapon standalone .pak has never been observed, unlike the
+    multi-weapon LOOSE-file case this function was built for)."""
+    triple_files: dict[tuple[str, str, str], list[Path]] = {}
+    unmatched: list[Path] = []
+    for p in mod_root.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = str(p.relative_to(mod_root))
+        m = _MODEL_DIR_RE.search(rel) or _PFB_DIR_RE.search(rel)
+        if not m:
+            m = _FILE_RE.search(p.name)
+        if m:
+            triple_files.setdefault((m.group(1), m.group(2), m.group(3)), []).append(p)
+        else:
+            unmatched.append(p)
+
+    groups = []
+    if not triple_files:
+        pak_files = list(find_pak_files(mod_root))
+        resolved_pak_paths = set()
+        for pf in pak_files:
+            info, _unmatched_keys = detect_mod_weapon_pak(pf)
+            if info is not None:
+                groups.append(info)
+                resolved_pak_paths.add(pf)
+        unmatched = [p for p in mod_root.rglob("*") if p.is_file() and p not in resolved_pak_paths]
+    else:
+        for (type_code, sid, iid), files in triple_files.items():
+            info = ModWeaponInfo(type_code=type_code, sid=sid, iid=iid, files=files)
+            _flags_from_files(info)
+            groups.append(info)
+    groups.sort(key=lambda g: (-len(g.files), g.type_code, g.sid, g.iid))
+    return groups, unmatched
+
+
 @dataclass
 class TargetWeaponCandidate:
     key: str            # "itNN/SID/IID"
@@ -379,6 +451,26 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
     grade_rank = {"exact": 0, "partial": 1, "refused": 2}
     out.sort(key=lambda c: (grade_rank[c.grade], c.sid, c.iid))
     return out
+
+
+def find_target_occupant(game_dir, target: TargetWeaponCandidate) -> Path | None:
+    """Checks whether this target slot's mdf2 already has a REAL loose
+    file sitting under <game_dir>/natives/... -- meaning some other
+    currently-active mod (Fluffy Mod Manager, or any tool that does real
+    loose-file deployment -- MO2's virtualized overlay is a known,
+    accepted exception, decided with the user 2026-08-10) already
+    occupies this slot. Returns the conflicting file's path, or None if
+    free. Checking mdf2 alone (not mesh/pfb too) is a deliberately cheap,
+    single-glob check -- any mod touching a weapon slot at all bundles a
+    material file, so this is already a reliable signal, and staying
+    cheap is what makes it safe to run for every candidate in a list up
+    front (see game_archive.find_loose_files's own docstring on why this
+    never constructs a full GameArchive)."""
+    from game_archive import find_loose_files
+    code, sid, iid = target.type_code, target.sid, target.iid
+    base = f"natives/stm/art/model/item/it{code}/{sid}/{iid}/it{code}{sid}_{iid}_0"
+    found = find_loose_files(game_dir, base, "mdf2")
+    return found[0] if found else None
 
 
 def verify_target_vanilla(game, source: ModWeaponInfo, target: TargetWeaponCandidate) -> tuple[bool, list[str]]:
@@ -551,5 +643,103 @@ def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_code: str, dst_sid
                 if f.is_file():
                     zf.write(f, f.relative_to(out_root))
         return info
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def retarget_tree_multi(mod_root: Path, out_root: Path, groups: list[ModWeaponInfo],
+                         unmatched: list[Path], assignments: dict, log=lambda s: None) -> dict:
+    """Relocates every detected weapon group independently per
+    `assignments` ({group.key: (dst_code, dst_sid, dst_iid) | None}) --
+    `None` means "leave this group's files exactly where they are,
+    untouched," a real, deliberate choice mirroring
+    slot_retarget.retarget_tree_multi()'s own semantics exactly. Every
+    unmatched file (FOMOD config, readmes, ...) is always copied through
+    byte-identical regardless of any group's assignment. Returns
+    {group.key: files actually relocated} for reporting.
+
+    Handles BOTH loose-file groups and pak-bearing groups (`pak_path` set,
+    from detect_mod_weapons()'s pak fallback) -- a pak group rebuilds its
+    own pak directly via retarget_pak() (no staging needed, the rebuild is
+    already self-contained) instead of going through the loose-file
+    retarget_tree() path."""
+    import tempfile
+    moved_counts = {}
+    for group in groups:
+        dst = assignments.get(group.key)
+        if group.pak_path is not None:
+            out_pak = out_root / group.pak_path.relative_to(mod_root)
+            out_pak.parent.mkdir(parents=True, exist_ok=True)
+            if dst is None:
+                shutil.copyfile(group.pak_path, out_pak)
+                moved_counts[group.key] = 0
+                log(f"    [retarget] {group.key} (pak) left unchanged")
+            else:
+                dst_code, dst_sid, dst_iid = dst
+                moved_counts[group.key] = retarget_pak(
+                    group.pak_path, out_pak, group, dst_code, dst_sid, dst_iid, log=log)
+            continue
+        if dst is None:
+            for p in group.files:
+                out = out_root / p.relative_to(mod_root)
+                out.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, out)
+            moved_counts[group.key] = 0
+            log(f"    [retarget] {group.key} left unchanged ({len(group.files)} file(s))")
+            continue
+        dst_code, dst_sid, dst_iid = dst
+        # Each reassigned group is built in an ISOLATED staging directory
+        # first, then merged into out_root -- retarget_tree()'s own
+        # leftover-trace safety scan covers the whole tree it's given, and
+        # running several groups directly into a shared out_root would let
+        # one group's own output accidentally satisfy (or fail) another's
+        # scan (same reasoning as slot_retarget.retarget_tree_multi()).
+        stage = Path(tempfile.mkdtemp(prefix="weapon_retarget_stage_"))
+        try:
+            moved_counts[group.key] = retarget_tree(mod_root, stage, group, dst_code, dst_sid, dst_iid, log=log)
+            for f in stage.rglob("*"):
+                if f.is_file():
+                    out = out_root / f.relative_to(stage)
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(f, out)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+
+    for p in unmatched:
+        out = out_root / p.relative_to(mod_root)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, out)
+    return moved_counts
+
+
+def retarget_archive_multi(archive_or_dir: Path, out_zip: Path, assignments: dict,
+                            log=lambda s: None) -> tuple[list[ModWeaponInfo], dict]:
+    """End-to-end multi-weapon version: extract, detect every weapon
+    group, apply `assignments`, write out_zip. Every detected group MUST
+    have an entry in `assignments` (even if the value is `None`, meaning
+    "leave it") -- a group the caller never decided on is refused rather
+    than silently left as a default, so a GUI can't accidentally ship a
+    half-decided mod. Mirrors slot_retarget.retarget_archive_multi()
+    exactly."""
+    import tempfile
+    from archive_extract import extract_archive
+    work = Path(tempfile.mkdtemp(prefix="weapon_retarget_multi_"))
+    try:
+        mod_root = archive_or_dir if archive_or_dir.is_dir() else extract_archive(archive_or_dir, work)
+        groups, unmatched = detect_mod_weapons(mod_root)
+        missing = [g.key for g in groups if g.key not in assignments]
+        if missing:
+            raise ValueError(f"no decision provided for detected weapon(s): {missing}")
+        out_root = work / "out"
+        out_root.mkdir(parents=True, exist_ok=True)
+        moved_counts = retarget_tree_multi(mod_root, out_root, groups, unmatched, assignments, log=log)
+        out_zip.parent.mkdir(parents=True, exist_ok=True)
+        if out_zip.exists():
+            out_zip.unlink()
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in out_root.rglob("*"):
+                if f.is_file():
+                    zf.write(f, f.relative_to(out_root))
+        return groups, moved_counts
     finally:
         shutil.rmtree(work, ignore_errors=True)

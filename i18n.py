@@ -34,6 +34,11 @@ _STRINGS = {
         "ko": "게임 폴더:", "en": "Game folder:", "zh_tw": "遊戲資料夾:",
         "zh_cn": "游戏文件夹:", "ja": "ゲームフォルダ:",
     },
+    "lbl_fluffy_dir": {
+        "ko": "Fluffy 폴더 (선택):", "en": "Fluffy folder (optional):",
+        "zh_tw": "Fluffy 資料夾（選填）:", "zh_cn": "Fluffy 文件夹（可选）:",
+        "ja": "Fluffy フォルダ（任意）:",
+    },
     "btn_browse_game": {
         "ko": "변경", "en": "Change", "zh_tw": "變更", "zh_cn": "更改", "ja": "変更",
     },
@@ -116,6 +121,13 @@ _STRINGS = {
         "zh_tw": "選擇《魔物獵人 Wilds》安裝資料夾",
         "zh_cn": "选择《怪物猎人 Wilds》安装文件夹",
         "ja": "モンスターハンターワイルズのインストールフォルダを選択",
+    },
+    "dlg_choose_fluffy_dir": {
+        "ko": "Fluffy Mod Manager 설치 폴더 선택",
+        "en": "Select Fluffy Mod Manager install folder",
+        "zh_tw": "選擇 Fluffy Mod Manager 安裝資料夾",
+        "zh_cn": "选择 Fluffy Mod Manager 安装文件夹",
+        "ja": "Fluffy Mod Manager のインストールフォルダを選択",
     },
     "dlg_choose_mod": {
         "ko": "모드 압축파일 선택 (여러 개 선택 가능)",
@@ -564,6 +576,45 @@ _STRINGS = {
         "ko": "감지된 방어구 슬롯", "en": "Detected armor slots",
         "zh_tw": "偵測到的防具欄位", "zh_cn": "检测到的防具栏位", "ja": "検出された防具スロット",
     },
+    "lbl_weapon_retarget_slots": {
+        "ko": "감지된 무기", "en": "Detected weapons",
+        "zh_tw": "偵測到的武器", "zh_cn": "检测到的武器", "ja": "検出された武器",
+    },
+    "msg_weapon_retarget_multi_summary": {
+        "ko": "이 모드는 무기 모델 {count}개를 사용합니다 (그 외 무관한 파일 {unmatched}개는 "
+              "손대지 않고 그대로 포함됩니다). 아래 목록에서 무기를 하나씩 선택해 옮길 곳을 정하거나 "
+              "그대로 둘지 결정하세요 -- 전부 결정해야 파일을 생성할 수 있습니다.",
+        "en": "This mod uses {count} weapon model(s) (plus {unmatched} unrelated file(s), which are "
+              "always kept exactly as they are). Select each weapon below and either choose where to "
+              "move it or leave it unchanged -- every one needs a decision before you can generate the file.",
+        "zh_tw": "此模組使用了 {count} 個武器模型（另有 {unmatched} 個無關檔案，將原封不動保留）。"
+                 "請在下方清單中逐一選擇武器，決定移動目標或保持不變 -- 全部決定後才能生成檔案。",
+        "zh_cn": "此模组使用了 {count} 个武器模型（另有 {unmatched} 个无关文件，将原封不动保留）。"
+                 "请在下方列表中逐一选择武器，决定移动目标或保持不变 -- 全部决定后才能生成文件。",
+        "ja": "このMODは{count}個の武器モデルを使用しています（無関係なファイル{unmatched}個は"
+              "そのまま保持されます）。下のリストから武器を1つずつ選択し、移動先を決めるか"
+              "そのままにするか選んでください -- すべて決定しないとファイルを生成できません。",
+    },
+    "msg_weapon_retarget_no_slot_found": {
+        "ko": "이 모드에서 무기 모델을 찾지 못했습니다.", "en": "No weapon model was detected in this mod.",
+        "zh_tw": "在此模組中找不到武器模型。", "zh_cn": "在此模组中找不到武器模型。",
+        "ja": "このMODには武器モデルが見つかりませんでした。",
+    },
+    "msg_weapon_retarget_incomplete": {
+        "ko": "아직 결정하지 않은 무기가 있습니다. 모든 무기에 대해 이동할 곳을 정하거나 "
+              "그대로 두기를 선택해야 합니다.",
+        "en": "Some detected weapons still need a decision. Every one must be either assigned a target "
+              "or explicitly left unchanged before generating.",
+        "zh_tw": "還有武器尚未決定。每個武器都必須指定移動目標，或明確選擇保持不變，才能生成檔案。",
+        "zh_cn": "还有武器尚未决定。每个武器都必须指定移动目标，或明确选择保持不变，才能生成文件。",
+        "ja": "まだ決定していない武器があります。すべての武器について移動先を決めるか、"
+              "明示的にそのままにするかを選んでください。",
+    },
+    "msg_weapon_retarget_pick_first": {
+        "ko": "먼저 위 목록에서 무기를 선택하세요.", "en": "Select a weapon from the list above first.",
+        "zh_tw": "請先在上方清單中選擇武器。", "zh_cn": "请先在上方列表中选择武器。",
+        "ja": "先に上のリストから武器を選択してください。",
+    },
     "lbl_retarget_targets": {
         "ko": "변경 가능한 방어구", "en": "Compatible target armor",
         "zh_tw": "可變更的防具", "zh_cn": "可变更的防具", "ja": "変更可能な防具",
@@ -803,6 +854,36 @@ _STRINGS = {
                  "（目标缺少的基础物理：{physics}）",
         "ja": "MODに含まれる物理ファイル（chain2など）がこの対象では反映されない可能性があります"
               "（対象に不足している基本物理：{physics}）",
+    },
+    "note_target_occupied": {
+        "ko": "⚠ 이미 다른 모드가 사용 중",
+        "en": "⚠ already used by another mod",
+        "zh_tw": "⚠ 已被其他模組使用",
+        "zh_cn": "⚠ 已被其他模组使用",
+        "ja": "⚠ 既に別のMODが使用中",
+    },
+    "note_target_occupied_named": {
+        "ko": "⚠ 이미 다른 모드가 사용 중 (모드: {mod})",
+        "en": "⚠ already used by another mod (mod: {mod})",
+        "zh_tw": "⚠ 已被其他模組使用（模組：{mod}）",
+        "zh_cn": "⚠ 已被其他模组使用（模组：{mod}）",
+        "ja": "⚠ 既に別のMODが使用中（MOD：{mod}）",
+    },
+    "ask_confirm_target_occupied": {
+        "ko": "선택한 자리는 이미 다른 모드가 사용 중입니다{mod_suffix}. 그래도 여기로 옮기시겠습니까? "
+              "(기존 모드와 자리가 겹치게 됩니다)",
+        "en": "The selected slot is already used by another mod{mod_suffix}. Move here anyway? "
+              "(it will overlap with the existing mod)",
+        "zh_tw": "所選位置已被其他模組使用{mod_suffix}。仍要移動到這裡嗎？"
+                 "（將與現有模組的位置重疊）",
+        "zh_cn": "所选位置已被其他模组使用{mod_suffix}。仍要移动到这里吗？"
+                 "（将与现有模组的位置重叠）",
+        "ja": "選択した場所は既に別のMODが使用中です{mod_suffix}。それでもここに移動しますか？"
+              "（既存のMODと場所が重なります）",
+    },
+    "mod_suffix_named": {
+        "ko": " (모드: {mod})", "en": " (mod: {mod})", "zh_tw": "（模組：{mod}）",
+        "zh_cn": "（模组：{mod}）", "ja": "（MOD：{mod}）",
     },
     "msg_weapon_retarget_select_target": {
         "ko": "목록에서 옮길 대상 무기를 선택하세요.", "en": "Select a target weapon from the list.",
