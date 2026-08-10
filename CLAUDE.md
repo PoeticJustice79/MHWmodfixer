@@ -722,20 +722,38 @@ directly during application, not assumed either way.
   single time. **Deliberately does NOT compile the bootloader from
   source** (see the reversal above) -- stock PyInstaller bootloader,
   matching the confirmed-clean v0.3/v0.4 baseline.
-- **Not yet done**: this workflow has never actually been run/tested
-  (no tag pushed since it was added, no manual dispatch triggered yet)
-  -- verify it actually produces a working exe before trusting it for a
-  real release. The SignPath Foundation application has NOT been
-  submitted yet either (requires the user's own account/identity, was
-  intentionally left for the user to do rather than submitted on their
-  behalf) -- no signing is live yet, `MHWmodfixer.exe` is still unsigned.
-- **Next steps for a future session**: (1) trigger the workflow manually
-  and confirm the produced exe launches correctly (same smoke-test
-  pattern used throughout this project -- launch, check window title,
-  close cleanly), (2) help draft the actual SignPath application content
-  if the user wants to submit it, (3) once/if approved, wire SignPath's
-  actual signing step into `build.yml` (their docs cover the GitHub
-  Actions integration specifically), (4) after a real signed build
+- **Update, same day, from a second machine (work PC, browser-only session,
+  no local clone there)**: triggered `workflow_dispatch` manually via the
+  GitHub web UI (Actions tab -> Build -> Run workflow) -- **Build #1
+  (`fe88655`) succeeded, 1m7s total, produced the `MHWmodfixer-dist`
+  artifact (25.3MB, `sha256:873324f5f658f3db4c3be8053cef8d69881d131a075d92c379ebc7bf3eb19c4b`,
+  run id 31349622848)**. Confirms the workflow itself builds cleanly on a
+  cold `windows-2022` runner with no local-environment assumptions baked
+  in. One harmless annotation (GitHub's own Node.js 20 deprecation notice
+  on `actions/checkout@v4`/`setup-python@v5`/`upload-artifact@v4` --
+  infra-side, not this repo's problem).
+- **Still not done, deliberately, from that same session**: did NOT
+  download the artifact or run the exe -- the work PC this ran from is a
+  company machine, and the user judged running an unverified freshly-built
+  exe there too risky to do at work. **The actual smoke-test (download the
+  zip, launch `MHWmodfixer.exe`, confirm the main window renders with the
+  correct title, close cleanly) is still outstanding** and is the right
+  next thing for a session running on the user's home PC to do -- the
+  build artifact above is already sitting on GitHub, no need to re-trigger
+  the workflow again first.
+- The SignPath Foundation application has NOT been submitted yet either
+  (requires the user's own account/identity, was intentionally left for
+  the user to do rather than submitted on their behalf) -- no signing is
+  live yet, `MHWmodfixer.exe` is still unsigned.
+- **Next steps for a future session**: (1) **on a machine where it's fine
+  to run a fresh unsigned exe** (i.e. not a work PC) -- download the
+  `MHWmodfixer-dist` artifact from run 31349622848 (or trigger a fresh run
+  if it's expired) and confirm the produced exe launches correctly (same
+  smoke-test pattern used throughout this project -- launch, check window
+  title, close cleanly), (2) help draft the actual SignPath application
+  content if the user wants to submit it, (3) once/if approved, wire
+  SignPath's actual signing step into `build.yml` (their docs cover the
+  GitHub Actions integration specifically), (4) after a real signed build
   exists, re-run the VirusTotal comparison (same method used to catch
   the bootloader regression above) to confirm signing actually helped
   before declaring victory.
