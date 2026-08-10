@@ -120,33 +120,45 @@ def _extract_index_model_id(game: GameArchive, registry: dict, type_file: str) -
     return rows
 
 
-def _load_msg_names(game: GameArchive, type_file: str) -> dict[int, str]:
-    """1-indexed msg suffix -> English display name, for <type_file>.msg.23."""
+_LANG_CODE_MAP = {"ko": 11, "en": 1, "ja": 0, "zh_tw": 12, "zh_cn": 13}
+
+
+def _load_msg_names(game: GameArchive, type_file: str) -> dict[int, dict[str, str]]:
+    """1-indexed msg suffix -> {"ko"/"en"/"ja"/"zh_tw"/"zh_cn": text}, for
+    <type_file>.msg.23. Unlike armor (bake_armor_slots.py), there's no
+    external spreadsheet supplying Korean -- every language here,
+    Korean included, comes straight from the game's own msg data via the
+    same via.Language codes bake_armor_slots.py already uses."""
     found = game.find_versioned(f"natives/stm/gamedesign/text/excel_equip/{type_file}", "msg", version_range=range(1, 50))
     if found is None:
         return {}
     _, data = found
     result = parse_msg(data)
     langs = result["languages"]
-    en_idx = langs.index(1) if 1 in langs else None
-    if en_idx is None:
+    lang_idx = {code: langs.index(via_code) for code, via_code in _LANG_CODE_MAP.items() if via_code in langs}
+    if not lang_idx:
         return {}
     pat = re.compile(rf"^{re.escape(type_file)}_(\d+)$", re.IGNORECASE)
     names = {}
     for e in result["entries"]:
         m = pat.match(e["name"])
         if m:
-            names[int(m.group(1))] = e["content"][en_idx]
+            content = e["content"]
+            names[int(m.group(1))] = {
+                code: content[idx].strip() for code, idx in lang_idx.items()
+                if idx < len(content) and content[idx].strip()
+            }
     return names
 
 
-def resolve_names(game_dir: str = "") -> dict[str, str]:
-    """Returns {"it<code>/<sid>/<iid>": name} for every weapon model this
-    project's own game-data reading can confidently name."""
+def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
+    """Returns {"it<code>/<sid>/<iid>": {"ko"/"en"/"ja"/"zh_tw"/"zh_cn": name}}
+    for every weapon model this project's own game-data reading can
+    confidently name."""
     game = GameArchive(game_dir or auto_fix.DEFAULT_GAME_DIR)
     registry = rsz_layout._registry()
 
-    out: dict[str, str] = {}
+    out: dict[str, dict[str, str]] = {}
     for code, type_file in TYPE_FILES.items():
         rows = _extract_index_model_id(game, registry, type_file)
         msg_names = _load_msg_names(game, type_file)
@@ -160,12 +172,12 @@ def resolve_names(game_dir: str = "") -> dict[str, str]:
                 best_index_by_model[model_id] = idx
         resolved = 0
         for model_id, idx in best_index_by_model.items():
-            name = msg_names.get(idx + 1)  # msg suffix is 1-indexed
-            if name is None:
+            names = msg_names.get(idx + 1)  # msg suffix is 1-indexed
+            if not names:
                 continue
             sid = f"{model_id // 1000:02d}"
             iid = f"{model_id % 1000:04d}"
-            out[f"it{code}/{sid}/{iid}"] = name
+            out[f"it{code}/{sid}/{iid}"] = names
             resolved += 1
         print(f"it{code} ({type_file}): {resolved} model(s) named")
     return out
@@ -179,9 +191,10 @@ def main():
         payload = json.load(f)
 
     matched = 0
-    for key, name in names.items():
+    for key, name_dict in names.items():
         if key in payload["entries"]:
-            payload["entries"][key]["name"] = name
+            payload["entries"][key]["names"] = name_dict
+            payload["entries"][key].pop("name", None)  # superseded by the multi-language "names" dict
             matched += 1
     print(f"resolved {len(names)} names, {matched} matched a real baked weapon_slots.json.gz entry")
 

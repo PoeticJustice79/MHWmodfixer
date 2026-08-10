@@ -107,21 +107,27 @@ def weapon_table() -> dict:
     return _weapon_table_cache
 
 
-def weapon_label(key: str) -> str:
-    """UI-facing label for a weapon table key. Real per-model English
-    names, baked by `tools/bake_weapon_names.py` (CLAUDE.md, 2026-08-10)
-    directly from the game's own WeaponData tables + per-type msg files
-    -- mirrors armor's `armor_name()`/`ArmorSeries.msg` resolution
-    (#39), just via a different real data source (weapon names aren't
-    1:1 in any single msg file the way armor's are). Falls back to the
-    raw id for the ~45% of real weapon models this project's own data
-    reading couldn't confidently name (mostly non-representative extra
-    variants and a few gaps in the WeaponData<->mesh cross-reference) --
-    never guessed, same "show the id, don't invent a name" rule this
-    tool follows everywhere else."""
+def weapon_label(key: str, lang: str = "ko") -> str:
+    """UI-facing label for a weapon table key. Real per-model names in
+    all 5 UI languages, baked by `tools/bake_weapon_names.py` (CLAUDE.md,
+    2026-08-10) directly from the game's own WeaponData tables +
+    per-type msg files -- mirrors armor's `armor_name()`/`ArmorSeries.msg`
+    resolution (#39), just via a different real data source (weapon
+    names aren't 1:1 in any single msg file the way armor's are).
+    Unlike armor_name(), every language here -- Korean included -- comes
+    straight from the game's own msg data (armor's Korean instead came
+    from an external spreadsheet, with only en/ja/zh_tw/zh_cn
+    game-sourced), so there's no separate "always Korean for a Korean
+    UI" special case: just look up the requested language, falling back
+    to English, then to the raw id for the ~45% of real weapon models
+    this project's own data reading couldn't confidently name (mostly
+    non-representative extra variants and a few gaps in the
+    WeaponData<->mesh cross-reference) -- never guessed, same "show the
+    id, don't invent a name" rule this tool follows everywhere else."""
     entry = weapon_table().get(key)
-    if entry and entry.get("name"):
-        return entry["name"]
+    names = entry.get("names") if entry else None
+    if names:
+        return names.get(lang) or names.get("en") or key
     return key
 
 
