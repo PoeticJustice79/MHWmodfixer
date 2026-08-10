@@ -206,6 +206,7 @@ class App:
         self.shader_migration = BooleanVar(value=False)
         self.mod_queue: list[Path] = []
         self._retarget_refresh_fn = None  # set while the retarget dialog is open, see _open_retarget_dialog()
+        self._weapon_retarget_refresh_fn = None  # see _open_weapon_retarget_dialog()
         self._snapshot_refresh_fn = None  # set while the RSZ snapshot dialog is open, see _open_snapshot_dialog()
 
         self._log_queue: queue.Queue[str] = queue.Queue()
@@ -260,6 +261,16 @@ class App:
         self.lbl_retarget_info = ttk.Label(top_frame, text="ⓘ", foreground=THEME["accent"], cursor="question_arrow")
         self.lbl_retarget_info.pack(side="left", padx=(4, 0))
         _Tooltip(self.lbl_retarget_info, lambda: t("tip_retarget"))
+        # "적용 무기 변경" -- weapon-model retargeting, same rationale as the
+        # armor button above (separate dialog, kept out of the main repair
+        # flow); see _open_weapon_retarget_dialog / weapon_retarget.py.
+        self.btn_weapon_retarget = ttk.Button(
+            top_frame, text=t("btn_weapon_retarget"), command=self._open_weapon_retarget_dialog)
+        self.btn_weapon_retarget.pack(side="left", padx=(8, 0))
+        self.lbl_weapon_retarget_info = ttk.Label(
+            top_frame, text="ⓘ", foreground=THEME["accent"], cursor="question_arrow")
+        self.lbl_weapon_retarget_info.pack(side="left", padx=(4, 0))
+        _Tooltip(self.lbl_weapon_retarget_info, lambda: t("tip_weapon_retarget"))
         self.lbl_lang = ttk.Label(top_frame, text=t("lbl_lang"))
         self.lbl_lang.pack(side="right", padx=(6, 0))
         self.lang_combo = ttk.Combobox(
@@ -393,6 +404,7 @@ class App:
         self.btn_settings.configure(text=t("menu_settings"))
         self._build_menubar()
         self.btn_retarget.configure(text=t("btn_retarget"))
+        self.btn_weapon_retarget.configure(text=t("btn_weapon_retarget"))
         self.lbl_lang.configure(text=t("lbl_lang"))
         self.lbl_game_dir.configure(text=t("lbl_game_dir"))
         self.btn_browse_game.configure(text=t("btn_browse_game"))
@@ -413,6 +425,8 @@ class App:
             self.status.set(t("status_default"))
         if self._retarget_refresh_fn is not None:
             self._retarget_refresh_fn()
+        if self._weapon_retarget_refresh_fn is not None:
+            self._weapon_retarget_refresh_fn()
         if self._snapshot_refresh_fn is not None:
             self._snapshot_refresh_fn()
 
@@ -928,6 +942,215 @@ class App:
                     cand_tree.item(c.key, values=(c.key, cname, gl, grade_text[c.grade], note), tags=(c.grade,))
 
         self._retarget_refresh_fn = refresh_texts
+
+    def _open_weapon_retarget_dialog(self):
+        """'적용 무기 변경' -- relocate a mod built for one weapon model onto
+        a different model of the SAME weapon type (see weapon_retarget.py).
+        Simpler than the armor dialog: a weapon mod targets exactly ONE
+        model (no per-piece/per-slot decisions the way armor has), so this
+        is a single detect -> pick-a-target -> generate flow, no Treeview
+        of "groups" needed. **weapon_retarget.py itself is not yet verified
+        against a real weapon mod archive** -- this dialog will surface
+        whatever detect_mod_weapon() actually finds, correct or not, until
+        that verification happens."""
+        import weapon_retarget
+
+        win = tk.Toplevel(self.root, bg=THEME["bg"])
+        win.title(t("dlg_weapon_retarget_title"))
+        win.geometry("640x520")
+        win.minsize(560, 420)
+        win.transient(self.root)
+
+        file_frame = ttk.Frame(win)
+        file_frame.pack(fill="x", padx=10, pady=10)
+        file_label = ttk.Label(file_frame, text=t("lbl_retarget_file"))
+        file_label.pack(side="left")
+        file_var = StringVar(value="")
+        ttk.Entry(file_frame, textvariable=file_var, state="readonly").pack(
+            side="left", fill="x", expand=True, padx=6)
+        btn_pick = ttk.Button(file_frame, text=t("btn_choose_file"))
+        btn_pick.pack(side="left")
+
+        info_label = ttk.Label(win, text=t("msg_weapon_retarget_no_file"), justify="left", wraplength=600)
+        info_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        cand_frame = ttk.LabelFrame(win, text=t("lbl_weapon_retarget_targets"))
+        cand_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        cand_columns = ("weapon", "grade", "note")
+        cand_tree = ttk.Treeview(cand_frame, columns=cand_columns, show="headings",
+                                  height=10, selectmode="browse")
+        for col, key, width in [("weapon", "col_weapon", 120), ("grade", "col_compat", 110),
+                                 ("note", "col_note", 300)]:
+            cand_tree.heading(col, text=t(key))
+            cand_tree.column(col, width=width, anchor="w")
+        cand_vsb = ttk.Scrollbar(cand_frame, orient="vertical", command=cand_tree.yview)
+        cand_tree.configure(yscrollcommand=cand_vsb.set)
+        cand_tree.pack(side="left", fill="both", expand=True)
+        cand_vsb.pack(side="right", fill="y")
+        cand_tree.tag_configure("exact", foreground=THEME["success"])
+        cand_tree.tag_configure("refused", foreground=THEME["danger"])
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        status_var = StringVar(value="")
+        ttk.Label(btn_frame, textvariable=status_var, foreground=THEME["muted"]).pack(side="left")
+        btn_generate = ttk.Button(btn_frame, text=t("btn_generate_retarget"), state="disabled")
+        btn_generate.pack(side="right")
+        btn_close = ttk.Button(btn_frame, text=t("btn_close"))
+        btn_close.pack(side="right", padx=(0, 6))
+
+        def on_close():
+            self._weapon_retarget_refresh_fn = None
+            win.destroy()
+
+        btn_close.configure(command=on_close)
+        win.protocol("WM_DELETE_WINDOW", on_close)
+
+        state = {"source": None, "candidates": []}
+
+        def set_pick_busy(busy: bool):
+            btn_pick.configure(state="disabled" if busy else "normal")
+
+        def do_pick():
+            path = filedialog.askopenfilename(
+                title=t("dlg_choose_mod_archive"),
+                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
+                           (t("filetype_allfiles"), "*.*")],
+            )
+            if not path:
+                return
+            file_var.set(path)
+            cand_tree.delete(*cand_tree.get_children())
+            state["source"], state["candidates"] = None, []
+            info_label.configure(text=t("msg_retarget_detecting"))
+            btn_generate.configure(state="disabled")
+            set_pick_busy(True)
+
+            def worker():
+                try:
+                    work = Path(tempfile.mkdtemp(prefix="weapon_retarget_ui_"))
+                    try:
+                        mod_root = extract_archive(Path(path), work)
+                        info = weapon_retarget.detect_mod_weapon(mod_root)
+                    finally:
+                        shutil.rmtree(work, ignore_errors=True)
+                except Exception as exc:
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
+                    return
+                win.after(0, lambda: _on_detected(info))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _on_detected(info):
+            set_pick_busy(False)
+            if not isinstance(info, weapon_retarget.ModWeaponInfo):
+                found = ", ".join(info) if info else "-"
+                info_label.configure(text=t("msg_weapon_retarget_no_weapon_found", found=found))
+                return
+            state["source"] = info
+            info_label.configure(text=t(
+                "msg_weapon_retarget_detected", key=info.key,
+                mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
+                pfb="O" if info.has_pfb else "X"))
+            cands = weapon_retarget.find_compatible_weapon_targets(info)
+            state["candidates"] = cands
+            grade_text = {"exact": t("grade_weapon_exact"), "refused": t("grade_weapon_refused")}
+            for c in cands:
+                note = t("note_weapon_missing_physics", physics=", ".join(c.missing_physics)) \
+                    if c.missing_physics else ""
+                cand_tree.insert("", "end", iid=c.key,
+                                  values=(weapon_retarget.weapon_label(c.key), grade_text[c.grade], note),
+                                  tags=(c.grade,))
+
+        def do_generate():
+            source = state["source"]
+            sel = cand_tree.selection()
+            if source is None or not sel:
+                messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_select_target"), parent=win)
+                return
+            cand = next(c for c in state["candidates"] if c.key == sel[0])
+            if cand.grade == "refused":
+                messagebox.showerror(APP_TITLE, t("msg_weapon_retarget_refused_blocked"), parent=win)
+                return
+            if not Path(self.game_dir.get()).is_dir():
+                messagebox.showerror(APP_TITLE, t("err_no_game_dir"), parent=win)
+                return
+            game = GameArchive(self.game_dir.get(), log=lambda *a, **k: None)
+            ok, missing = weapon_retarget.verify_target_vanilla(game, source, cand)
+            if not missing_ok(ok, missing, win):
+                return
+            src_stem = Path(file_var.get()).stem
+            out_path = filedialog.asksaveasfilename(
+                title=t("dlg_save_weapon_retarget"), defaultextension=".zip",
+                initialfile=f"{src_stem} (retargeted).zip",
+                filetypes=[(t("filetype_zip"), "*.zip")],
+            )
+            if not out_path:
+                return
+            btn_generate.configure(state="disabled")
+            btn_pick.configure(state="disabled")
+            status_var.set(t("msg_retarget_generating"))
+
+            def worker():
+                try:
+                    weapon_retarget.retarget_archive(
+                        Path(file_var.get()), Path(out_path),
+                        cand.type_code, cand.sid, cand.iid, log=lambda s: None)
+                except Exception as exc:
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
+                                          status_var.set(""), btn_pick.configure(state="normal"),
+                                          btn_generate.configure(state="normal")))
+                    return
+                win.after(0, lambda: (status_var.set(""), btn_pick.configure(state="normal"),
+                                      btn_generate.configure(state="normal"),
+                                      messagebox.showinfo(APP_TITLE, t("msg_weapon_retarget_done", path=out_path),
+                                                           parent=win)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def missing_ok(ok, missing, parent_win):
+            if ok:
+                return True
+            return messagebox.askyesno(
+                APP_TITLE, t("ask_retarget_unverified", missing=", ".join(missing)), parent=parent_win)
+
+        def on_cand_selected(_event=None):
+            btn_generate.configure(state="normal" if cand_tree.selection() else "disabled")
+
+        btn_pick.configure(command=do_pick)
+        cand_tree.bind("<<TreeviewSelect>>", on_cand_selected)
+        btn_generate.configure(command=do_generate)
+
+        def refresh_texts():
+            """Same pattern as _open_retarget_dialog()'s own refresh hook --
+            called from App._retranslate() when the language changes while
+            this dialog is open."""
+            win.title(t("dlg_weapon_retarget_title"))
+            file_label.configure(text=t("lbl_retarget_file"))
+            btn_pick.configure(text=t("btn_choose_file"))
+            cand_frame.configure(text=t("lbl_weapon_retarget_targets"))
+            for col, key in [("weapon", "col_weapon"), ("grade", "col_compat"), ("note", "col_note")]:
+                cand_tree.heading(col, text=t(key))
+            btn_generate.configure(text=t("btn_generate_retarget"))
+            btn_close.configure(text=t("btn_close"))
+            if not file_var.get():
+                info_label.configure(text=t("msg_weapon_retarget_no_file"))
+            elif state["source"] is not None:
+                info = state["source"]
+                info_label.configure(text=t(
+                    "msg_weapon_retarget_detected", key=info.key,
+                    mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
+                    pfb="O" if info.has_pfb else "X"))
+            grade_text = {"exact": t("grade_weapon_exact"), "refused": t("grade_weapon_refused")}
+            for c in state["candidates"]:
+                note = t("note_weapon_missing_physics", physics=", ".join(c.missing_physics)) \
+                    if c.missing_physics else ""
+                cand_tree.item(c.key, values=(weapon_retarget.weapon_label(c.key), grade_text[c.grade], note),
+                                tags=(c.grade,))
+
+        self._weapon_retarget_refresh_fn = refresh_texts
 
     def _browse_game_dir(self):
         d = filedialog.askdirectory(title=t("dlg_choose_game_dir"))

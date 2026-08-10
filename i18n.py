@@ -714,6 +714,106 @@ _STRINGS = {
         "zh_cn": "已保存（{moved} 个栏位已移动，{kept} 个栏位保持不变）:\n{path}",
         "ja": "保存しました（{moved}個のスロットを移動、{kept}個のスロットはそのまま）:\n{path}",
     },
+
+    # ---- 적용 무기 변경 (weapon slot retargeting) -----------------------
+    "btn_weapon_retarget": {
+        "ko": "적용 무기 변경", "en": "Change Target Weapon",
+        "zh_tw": "更換適用武器", "zh_cn": "更换适用武器", "ja": "適用武器の変更",
+    },
+    "tip_weapon_retarget": {
+        "ko": "모드가 원래 목표로 하는 무기 모델을, 같은 무기 종류(대검/태도 등)의 다른 모델로 옮겨서 "
+              "적용할 수 있게 해줍니다. 예: 다른 모드와 무기 슬롯이 겹칠 때 충돌 없는 모델로 옮기기.\n"
+              "모드 압축파일을 선택하면 어떤 무기 모델을 목표로 하는지 자동으로 인식하고, "
+              "같은 종류 안에서 옮길 수 있는 대상 목록을 보여줍니다.",
+        "en": "Relocates a mod from the weapon model it currently targets onto a different model of "
+              "the SAME weapon type (e.g. two Great Swords) -- e.g. to resolve a slot conflict with "
+              "another mod. Pick a mod archive and this detects which weapon model it targets, then "
+              "lists compatible targets within that same weapon type.",
+        "zh_tw": "將模組原本套用的武器模型，移動到同一武器種類（如太刀對太刀）的其他模型上。例如："
+                 "與其他模組的武器欄位衝突時，改套用不衝突的模型。\n選擇模組壓縮檔後，會自動偵測目前"
+                 "套用的武器模型，並列出同種類中可移動的目標清單。",
+        "zh_cn": "将模组原本套用的武器模型，移动到同一武器种类（如太刀对太刀）的其他模型上。例如："
+                 "与其他模组的武器栏位冲突时，改套用不冲突的模型。\n选择模组压缩包后，会自动检测当前"
+                 "套用的武器模型，并列出同种类中可移动的目标列表。",
+        "ja": "MODが現在対象としている武器モデルを、同じ武器種（太刀と太刀など）の別のモデルに"
+              "移動して適用できるようにします。例：他のMODと武器スロットが競合する場合に、"
+              "競合しないモデルへ移動。\nMODアーカイブを選択すると、対象としている武器モデルを"
+              "自動検出し、同じ武器種内で移動可能な対象の一覧を表示します。",
+    },
+    "dlg_weapon_retarget_title": {
+        "ko": "적용 무기 변경", "en": "Change Target Weapon",
+        "zh_tw": "更換適用武器", "zh_cn": "更换适用武器", "ja": "適用武器の変更",
+    },
+    "msg_weapon_retarget_no_file": {
+        "ko": "이동할 모드 압축파일을 선택하세요.", "en": "Choose a mod archive to relocate.",
+        "zh_tw": "請選擇要移動的模組壓縮檔。", "zh_cn": "请选择要移动的模组压缩包。",
+        "ja": "移動するMODアーカイブを選択してください。",
+    },
+    "msg_weapon_retarget_no_weapon_found": {
+        "ko": "이 모드에서 무기 모델을 정확히 하나만 찾지 못했습니다 (감지된 것: {found}).",
+        "en": "Couldn't detect exactly one weapon model in this mod (found: {found}).",
+        "zh_tw": "在此模組中未能偵測到唯一的武器模型（偵測到：{found}）。",
+        "zh_cn": "在此模组中未能检测到唯一的武器模型（检测到：{found}）。",
+        "ja": "このMODから武器モデルを1つだけ検出できませんでした（検出内容：{found}）。",
+    },
+    "msg_weapon_retarget_detected": {
+        "ko": "감지된 무기 모델: {key} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
+              "아래 목록에서 옮길 대상을 선택하세요.",
+        "en": "Detected weapon model: {key} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
+              "Select a target from the list below.",
+        "zh_tw": "偵測到的武器模型：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+                 "請在下方清單中選擇移動目標。",
+        "zh_cn": "检测到的武器模型：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+                 "请在下方列表中选择移动目标。",
+        "ja": "検出された武器モデル：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+              "下のリストから移動先を選択してください。",
+    },
+    "lbl_weapon_retarget_targets": {
+        "ko": "변경 가능한 무기 모델 (같은 종류만)", "en": "Compatible target weapons (same type only)",
+        "zh_tw": "可變更的武器模型（僅同種類）", "zh_cn": "可变更的武器模型（仅同种类）",
+        "ja": "変更可能な武器モデル（同じ種類のみ）",
+    },
+    "col_weapon": {"ko": "무기 모델", "en": "Weapon model", "zh_tw": "武器模型", "zh_cn": "武器模型", "ja": "武器モデル"},
+    "grade_weapon_exact": {
+        "ko": "적용 가능", "en": "Compatible",
+        "zh_tw": "可套用", "zh_cn": "可套用", "ja": "適用可能",
+    },
+    "grade_weapon_refused": {
+        "ko": "적용 불가", "en": "Not safe to apply",
+        "zh_tw": "不可套用", "zh_cn": "不可套用", "ja": "適用不可",
+    },
+    "note_weapon_missing_physics": {
+        "ko": "모드가 자체 pfb를 포함하는데 대상에 없는 물리: {physics}",
+        "en": "mod bundles its own pfb, but target lacks: {physics}",
+        "zh_tw": "模組包含自己的 pfb，但目標缺少：{physics}",
+        "zh_cn": "模组包含自己的 pfb，但目标缺少：{physics}",
+        "ja": "MODが自前のpfbを含みますが、対象には次がありません：{physics}",
+    },
+    "msg_weapon_retarget_select_target": {
+        "ko": "목록에서 옮길 대상 무기를 선택하세요.", "en": "Select a target weapon from the list.",
+        "zh_tw": "請從清單中選擇要移動的目標武器。", "zh_cn": "请从列表中选择要移动的目标武器。",
+        "ja": "リストから移動先の武器を選択してください。",
+    },
+    "msg_weapon_retarget_refused_blocked": {
+        "ko": "이 대상은 모드가 포함한 pfb와 안전하게 호환되지 않아 적용할 수 없습니다 "
+              "(CLAUDE.md #18 참고: ChainSetting 이식은 부팅 시 불안정함이 확인됨).",
+        "en": "This target isn't safe to apply -- the mod's own bundled pfb wouldn't reconcile safely "
+              "with it (see CLAUDE.md #18: ChainSetting transplant is confirmed unsafe at boot).",
+        "zh_tw": "此目標無法安全套用 -- 模組自帶的 pfb 無法與其安全整合"
+                 "（參見 CLAUDE.md #18：ChainSetting 移植已確認在開機時不穩定）。",
+        "zh_cn": "此目标无法安全套用 -- 模组自带的 pfb 无法与其安全整合"
+                 "（参见 CLAUDE.md #18：ChainSetting 移植已确认在开机时不稳定）。",
+        "ja": "この対象は安全に適用できません -- MOD自体が含むpfbが安全に整合しません"
+              "（CLAUDE.md #18参照：ChainSetting移植は起動時に不安定なことが確認済み）。",
+    },
+    "dlg_save_weapon_retarget": {
+        "ko": "이동된 모드 파일 저장", "en": "Save relocated mod file",
+        "zh_tw": "儲存移動後的模組檔案", "zh_cn": "保存移动后的模组文件", "ja": "移動後のMODファイルを保存",
+    },
+    "msg_weapon_retarget_done": {
+        "ko": "저장했습니다:\n{path}", "en": "Saved:\n{path}",
+        "zh_tw": "已儲存:\n{path}", "zh_cn": "已保存:\n{path}", "ja": "保存しました:\n{path}",
+    },
 }
 
 _current_lang = "en"

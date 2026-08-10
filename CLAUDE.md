@@ -758,6 +758,38 @@ directly during application, not assumed either way.
   the bootloader regression above) to confirm signing actually helped
   before declaring victory.
 
+**Update, later the same day (2026-08-10): steps (1) and (2) done.** (1)
+was effectively superseded by a stronger version of itself: a fresh clone
++ from-source build on the user's home PC (not the CI artifact from run
+31349622848) launched cleanly on the first *fixed* attempt -- see #41 for
+the real `backports.zstd` packaging bug this surfaced and fixed along the
+way, which the untested CI artifact from that run would still have hit.
+(2) was completed and submitted: filled out signpath.org/apply live
+in-browser (via the Claude in Chrome extension, since the in-app browser
+preview couldn't render the embedded form -- iframe content, invisible to
+the accessibility tree, and screenshot compositing didn't work in that
+surface). Objective/project fields (Project Name, Repository/Homepage/
+Download URL, Tagline, Description, Reputation, Maintainer Type =
+"Individual maintainer(s)", Build System = "GitHub Actions") were filled
+in directly; personal-identity fields (name, email) and the reCAPTCHA/
+consent checkboxes were deliberately left for the user to enter/click
+themselves. Reputation field points at the project's own Nexus Mods
+listing (`nexusmods.com/monsterhunterwilds/mods/4695`) plus GitHub
+Releases. **The Download URL field's own stated requirement** ("this page
+must mention that the project uses the SignPath Foundation for code
+signing") **wasn't satisfied yet at the time of filling the form** -- fixed
+by adding a short note to both `README.md` and `README.ko.md` (a new
+paragraph right after the intro, before "## Running it") stating the
+project has applied for SignPath Foundation signing, committed and pushed
+before submitting so the Download URL (set to the repo's own homepage)
+would actually satisfy the requirement when reviewed. **The form has no
+dedicated field for disclosing a bundled non-OSS component** (the
+`tools/UnRAR.exe` question flagged as unresolved above) -- raise it via
+SignPath's own follow-up-questions process during review, not by trying
+to force it into an unrelated field. **Submitted and confirmed** ("Form
+submitted -- Thank you, we'll be in touch soon."). Steps (3) and (4)
+remain blocked on SignPath's review outcome.
+
 ### 9. A crash from an unverified crc-only patch, and the RSZ snapshot pipeline built to stop it recurring (2026-08-08)
 
 Right after item 8 shipped (pak-bundled pfb/user/scn repair, default-on),
@@ -3308,3 +3340,24 @@ Cloning this repo onto a brand-new machine (Python 3.13, freshly `pip install -r
 **Fix, in `MHWmodfixer.spec`**: `collect_all('backports.zstd')` (kept, still needed for its `.py`/data files), `excludes=['backports.zstd._zstd', 'backports.zstd._cffi']` in `Analysis(...)` (stops the broken fallback stub from being graphed), and an explicit `binaries += [(p, 'backports/zstd') for p in glob.glob(...)]` sourced directly from the installed package's own directory (`os.path.dirname(backports.zstd.__file__)`) to guarantee the real compiled extension ships regardless of `collect_all`'s namespace-package blind spot.
 
 Verified: rebuilt exe launches cleanly (window title renders correctly, "Night Ops" theme intact), closed cleanly, no exception. Not yet re-verified whether this was already silently broken in the shipped v0.5 release itself (built on the original dev machine, which may have an older/different `backports.zstd`/py7zr pairing that never hit this) -- if a future session sees this exact crash reported by an end user (not just a from-source builder), the same fix applies, and it's worth checking whether `pip show py7zr`'s pinned version changed recently enough to explain why the dev machine never saw it.
+
+### 42. Weapon-slot retargeting: the #40 groundwork turned into a real feature -- code/GUI built ahead of the game reinstall, still unverified against a real mod or live game (2026-08-10, continued on a new machine)
+
+The "start weapon-slot groundwork" work from #40's commit (`tools/bake_weapon_slots.py` + `tools/weapon_slots.json.gz`, 622 weapon models across all 14 types, baked on a DIFFERENT machine that had the game installed) got interrupted by a computer switch -- this session picked it up on a fresh machine that didn't have Monster Hunter Wilds installed at all (confirmed via `git log`/`git branch -a`/`git stash list` showing nothing else in flight, and the local Claude Code session-transcript folder having no record of the prior session at all -- it ran on a different machine/account, consistent with this whole project's history of switching between a home PC and a work PC). The user chose to reinstall the game on this machine to finish the feature properly rather than leave it stalled; while that install ran in the background, the parts that don't need live game access got built.
+
+**New `weapon_retarget.py`**, a structural mirror of `slot_retarget.py` (armor), adapted for two real differences from armor:
+- **No "pieces" concept.** A weapon model is one mesh + one mdf2 + (usually) one equip pfb, not up to 6 separate piece files like armor -- `ModWeaponInfo`/`detect_mod_weapon()` are correspondingly simpler than `ModSlotInfo`/`detect_mod_slot()` (a single `(type_code, sid, iid)` triple, not a piece-number set).
+- **Compatibility logic is actually simpler than armor's**, per `bake_weapon_slots.py`'s own reasoning already on record: a mod shipping only mesh+mdf2 (the common reskin case, no bundled pfb) is safe to retarget to ANY same-type target regardless of physics profile, since the target's own vanilla pfb is never touched either way. Only a mod that bundles its OWN pfb needs a physics-superset check -- and unlike armor's `partial`/`gpuc` grades (which are still usable, just less ideal), a weapon target that fails this check is graded `refused` outright and blocked from being applied in the GUI, not just discouraged: there is no safe reconciliation path for a mismatched bundled weapon pfb, since that would need the same `app.ChainSetting` transplant mechanism #18 already confirmed unsafe at boot.
+- The weapon TYPE (it-code) is a hard, non-negotiable boundary -- never offered as a candidate outside the source's own type, mirroring how armor never crosses `ch03` but CAN cross set/variant.
+
+**Verified without the game** (everything `find_compatible_weapon_targets()`/`detect_mod_weapon()`/`retarget_tree()` can be tested on, since they only touch the already-baked `weapon_slots.json.gz` and synthetic file trees, never live game files): a fake reskin source (no pfb) returns 100% `exact` across all 44 other `it00` models; a fake source WITH a 5-component physics profile (ChainSetting/Chain2/ChainWind/ShellFurMesh/ShellFurParam, a real `it00/00/0001` entry) correctly grades targets missing the fur components as `refused` with the right missing-physics list (5 exact / 39 refused out of 44); zero cross-type leakage in either case. `detect_mod_weapon()` correctly returns a list (not a single result) for a synthetic 2-weapon mod, and an empty list for a mod matching nothing. `retarget_tree()` on a synthetic reskin mod (`it0000_0006_0.mdf2`/`.mesh` under the confirmed game path convention) relocated both files to the target id with byte-identical content, confirmed directly.
+
+**What's explicitly NOT verified yet, unlike the armor version at the same stage**: armor's `slot_retarget.py` was written only AFTER directly inspecting real Chinese-community-pipeline mod archives (per #33/#34) to confirm mods actually mirror the game's own path convention. No real weapon mod archive has been obtained or inspected yet for this feature -- `detect_mod_weapon()`'s regexes are built purely from `bake_weapon_slots.py`'s own confirmed GAME-side convention, extrapolated to what a mod's own file layout probably looks like. This module's own docstring flags this explicitly. **Do not treat this as validated the way armor retargeting is** -- get a real weapon mod (ideally one with a bundled pfb, to exercise the `refused` path for real) and run it through `detect_mod_weapon()` before trusting output from this feature.
+
+**GUI**: new `btn_weapon_retarget` ("적용 무기 변경"/"Change Target Weapon") next to the existing armor button, opening `_open_weapon_retarget_dialog()` -- deliberately simpler than the armor dialog (no per-slot Treeview/assignment dance, since a weapon mod targets exactly one model): pick file -> background-thread detect -> a single compatibility Treeview (green=exact, red=refused, refused rows blocked from `do_generate()` with an explanatory error rather than silently allowed) -> live-verify the selected target only -> save. Same `_retarget_refresh_fn`-style hook pattern (`_weapon_retarget_refresh_fn`) wired into `App._retranslate()` for live language switching while the dialog is open, learned directly from the two real bugs #39 found in the armor dialog and the RSZ Snapshot dialog (missing button retranslation, no live refresh at all) -- built correctly the first time here instead of repeating that discovery.
+
+Added 18 new i18n keys, all 5 languages filled in immediately (not deferred) per #39's own explicit lesson about exactly this mistake; a full-audit script (`for key in i18n._STRINGS: check all 5 langs present`) confirms 128/128 keys with zero gaps, project-wide.
+
+**Verified via headless GUI smoke test** (the established `_apply_theme()` + `App()` + `root.update()` pattern from #27, extended here to actually open/close the new dialog and switch language both with the dialog open and after closing it): App instantiates cleanly, the dialog opens and closes without exception, and -- a real bug the FIRST test run caught before it ever reached a real user -- closing the dialog via a raw `Toplevel.destroy()` instead of going through its own `WM_DELETE_WINDOW` handler leaves `_weapon_retarget_refresh_fn` stale (never cleared), which the test surfaced immediately by asserting the hook is `None` after a proper close and initially failing until the test itself was fixed to close via the real handler -- not a product bug, but a reminder that even a "just testing" shortcut can silently exercise the wrong code path.
+
+**Still to do once the game finishes installing** (tracked here so a future session doesn't have to rediscover the plan): (1) obtain a real weapon mod (reskin-only first, then one with a bundled pfb) and run it through `detect_mod_weapon()` to confirm the path-convention assumption actually holds, fixing the regexes if it doesn't; (2) run `verify_target_vanilla()` against the live game for real; (3) do an actual `retarget_archive()` end-to-end relocation and deploy it in-game, mirroring #33's manual verification process before trusting this the way armor retargeting is trusted; (4) weapon name resolution is still explicitly deferred (`weapon_label()` just returns the raw id) -- `weaponseries.msg` only covers 47 series for 622 individual models, so the same per-model-name-resolution problem #39 solved for armor via `ArmorSeries.msg` doesn't have an obvious equivalent yet for weapons; investigate whether a different live-game data source resolves individual tiers before attempting this.
