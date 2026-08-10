@@ -108,13 +108,20 @@ def weapon_table() -> dict:
 
 
 def weapon_label(key: str) -> str:
-    """UI-facing label for a weapon table key. Raw id only for now --
-    unlike armor's armor_name()/ArmorSeries.msg (CLAUDE.md #39),
-    weaponseries.msg only names 47 SERIES for 622 individual models (not
-    1:1), so no reliable per-model name resolution exists yet
-    (bake_weapon_slots.py's own docstring defers this deliberately).
-    Don't guess a name here -- show the id, exactly like the tool does
-    everywhere else it genuinely doesn't know something."""
+    """UI-facing label for a weapon table key. Real per-model English
+    names, baked by `tools/bake_weapon_names.py` (CLAUDE.md, 2026-08-10)
+    directly from the game's own WeaponData tables + per-type msg files
+    -- mirrors armor's `armor_name()`/`ArmorSeries.msg` resolution
+    (#39), just via a different real data source (weapon names aren't
+    1:1 in any single msg file the way armor's are). Falls back to the
+    raw id for the ~45% of real weapon models this project's own data
+    reading couldn't confidently name (mostly non-representative extra
+    variants and a few gaps in the WeaponData<->mesh cross-reference) --
+    never guessed, same "show the id, don't invent a name" rule this
+    tool follows everywhere else."""
+    entry = weapon_table().get(key)
+    if entry and entry.get("name"):
+        return entry["name"]
     return key
 
 
