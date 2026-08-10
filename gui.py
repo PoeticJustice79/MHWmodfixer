@@ -988,6 +988,7 @@ class App:
         cand_tree.pack(side="left", fill="both", expand=True)
         cand_vsb.pack(side="right", fill="y")
         cand_tree.tag_configure("exact", foreground=THEME["success"])
+        cand_tree.tag_configure("partial", foreground=THEME["warn"])
         cand_tree.tag_configure("refused", foreground=THEME["danger"])
 
         btn_frame = ttk.Frame(win)
@@ -1007,6 +1008,12 @@ class App:
         win.protocol("WM_DELETE_WINDOW", on_close)
 
         state = {"source": None, "candidates": []}
+
+        def _weapon_note_for(c) -> str:
+            if not c.missing_physics:
+                return ""
+            key = "note_weapon_missing_physics" if c.grade == "refused" else "note_weapon_partial_physics"
+            return t(key, physics=", ".join(c.missing_physics))
 
         def set_pick_busy(busy: bool):
             btn_pick.configure(state="disabled" if busy else "normal")
@@ -1055,10 +1062,10 @@ class App:
                 pfb="O" if info.has_pfb else "X"))
             cands = weapon_retarget.find_compatible_weapon_targets(info)
             state["candidates"] = cands
-            grade_text = {"exact": t("grade_weapon_exact"), "refused": t("grade_weapon_refused")}
+            grade_text = {"exact": t("grade_weapon_exact"), "partial": t("grade_weapon_partial"),
+                          "refused": t("grade_weapon_refused")}
             for c in cands:
-                note = t("note_weapon_missing_physics", physics=", ".join(c.missing_physics)) \
-                    if c.missing_physics else ""
+                note = _weapon_note_for(c)
                 cand_tree.insert("", "end", iid=c.key,
                                   values=(weapon_retarget.weapon_label(c.key), grade_text[c.grade], note),
                                   tags=(c.grade,))
@@ -1143,10 +1150,10 @@ class App:
                     "msg_weapon_retarget_detected", key=info.key,
                     mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
                     pfb="O" if info.has_pfb else "X"))
-            grade_text = {"exact": t("grade_weapon_exact"), "refused": t("grade_weapon_refused")}
+            grade_text = {"exact": t("grade_weapon_exact"), "partial": t("grade_weapon_partial"),
+                          "refused": t("grade_weapon_refused")}
             for c in state["candidates"]:
-                note = t("note_weapon_missing_physics", physics=", ".join(c.missing_physics)) \
-                    if c.missing_physics else ""
+                note = _weapon_note_for(c)
                 cand_tree.item(c.key, values=(weapon_retarget.weapon_label(c.key), grade_text[c.grade], note),
                                 tags=(c.grade,))
 

@@ -18,16 +18,36 @@ confirmed the way the armor version is. (Groundwork started 2026-08-10,
 paused for a computer switch -- see CLAUDE.md's "weapon-slot groundwork"
 entry -- and resumed once the game was available again to verify against.)
 
-Compatibility rule, adapted from bake_weapon_slots.py's own reasoning:
+Compatibility rule, adapted from bake_weapon_slots.py's own reasoning AND
+corrected against 4 real weapon mods (2026-08-10 -- Ebony And Ivory Dual
+Pistol, Hirabami Great Sword, Tailless Miyabi's Katana, Uth Duna Sword And
+Shield): 3 of the 4 real mods bundle a loose `.chain2` file with NO pfb at
+all -- a real, common case bake_weapon_slots.py's own docstring didn't
+anticipate ("only a mod bundling its OWN pfb needs the physics check").
+That's wrong for this shape: a bundled chain2-with-no-pfb mod relies on
+the TARGET's own vanilla equip pfb to reference it (by the target's own
+numbered filename, which is exactly what `retarget_tree()` renames the
+bundled chain2 file to match) -- so the target still needs SOME baseline
+chain physics for that reference to mean anything, or the bundled physics
+file just silently goes unreferenced (feature lost, not broken -- no
+crash risk, unlike the bundled-pfb case below).
+
 - The weapon TYPE (it-code, e.g. it00 = Great Sword) is a hard boundary --
   never offered as a candidate outside the source's own type. Different
   weapon types use different skeletons/animations/hitboxes; there is no
   equivalent of armor's cross-set relocation here.
-- A mod that ships ONLY mesh+mdf2 (the common "reskin" case, no bundled
-  pfb) is safe to retarget to ANY same-type target, regardless of the
-  target's own physics profile -- the target's own vanilla equip pfb
-  keeps working completely unmodified either way, since the mod never
-  touches it at all.
+- A mod that ships ONLY mesh+mdf2 (no chain2/jcns/clsp/sfur, no pfb) is
+  safe to retarget to ANY same-type target regardless of physics profile
+  -- the target's own vanilla equip pfb keeps working completely
+  unmodified either way, since the mod never touches or references
+  physics at all.
+- A mod that bundles a LOOSE physics file (`.chain2`/`.jcns`/`.clsp`/
+  `.sfur`) but no pfb of its own needs the target's baseline physics
+  profile to include the game's near-universal chain baseline
+  (`app.ChainSetting`+`via.motion.Chain2`+`via.motion.ChainWind`, present
+  on ~94% of all 622 catalogued weapon models) -- graded `partial`, not
+  `refused`, when it doesn't: the bundled file just goes unreferenced
+  (silent feature loss), never a crash or corruption risk.
 - A mod that bundles its OWN equip pfb needs the target's physics profile
   to be a superset of the source's (mirroring armor's `chain`/`gpuc`
   grading) -- reconciling a mismatched bundled pfb against a different
@@ -64,6 +84,16 @@ _PFB_DIR_RE = re.compile(r"weapon[\\/]wp(\d{2})[\\/](\d{2})[\\/](\d{4})[\\/]", r
 # to tell which of mdf2/mesh/pfb a given file actually is.
 _FILE_RE = re.compile(r"it(\d{2})(\d{2})_(\d{4})_0\b", re.IGNORECASE)
 
+# Loose physics-carrying file types a mod can bundle WITHOUT a pfb (armor's
+# equivalent is `pfb_fix.py`'s `_PHYSICS_EXTS`) -- confirmed real on 3 of 4
+# real weapon mods inspected 2026-08-10 (all shipped `.chain2`, no pfb).
+_PHYSICS_FILE_EXTS = (".chain2", ".jcns", ".clsp", ".sfur")
+# The near-universal baseline physics types (~94% of all 622 catalogued
+# weapon models per bake_weapon_slots.py -- see that script's own docstring)
+# a bundled loose physics file needs the TARGET to also carry, or the
+# bundled file simply goes unreferenced by the target's own vanilla pfb.
+_BASELINE_CHAIN_TYPES = {"app.ChainSetting", "via.motion.Chain2", "via.motion.ChainWind"}
+
 
 def weapon_table() -> dict:
     """{"itNN/SID/IID": {"has_mdf2", "has_pfb", "materials": [...], "physics": [...]}}"""
@@ -96,6 +126,7 @@ class ModWeaponInfo:
     has_mdf2: bool = False
     has_mesh: bool = False
     has_pfb: bool = False
+    has_physics_files: bool = False   # bundles a loose .chain2/.jcns/.clsp/.sfur, no pfb -- see module docstring
     files: list[Path] = field(default_factory=list)
 
     @property
@@ -135,6 +166,8 @@ def detect_mod_weapon(mod_root: Path) -> ModWeaponInfo | list[str]:
             info.has_mesh = True
         elif ".pfb" in name:
             info.has_pfb = True
+        elif any(ext in name for ext in _PHYSICS_FILE_EXTS):
+            info.has_physics_files = True
     return info
 
 
@@ -151,15 +184,18 @@ class TargetWeaponCandidate:
 
 def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCandidate]:
     """Every OTHER weapon model of the SAME type (it-code) with known table
-    data, ranked best first. A mod shipping no pfb of its own always grades
-    "exact" against any same-type target (the target's vanilla pfb is
-    untouched either way). A mod that DOES bundle its own pfb only grades
-    "exact" when the target's own baseline physics profile is a superset
-    of the source's; when it's not a superset, the candidate is graded
-    "refused" (still listed, for visibility, but never legal to apply to --
-    see this module's own docstring for why: no safe reconciliation
-    mechanism exists for a bundled pfb, unlike the armor case's
-    partial/gpuc grades, which ARE still applicable there)."""
+    data, ranked best first. Three grades, per this module's own docstring:
+    - A mod with no pfb AND no loose physics file always grades "exact" --
+      the target's own vanilla pfb (and whatever it references) is never
+      touched either way.
+    - A mod with no pfb but a bundled loose physics file (.chain2 etc.)
+      grades "partial" when the target's baseline physics profile doesn't
+      include the near-universal chain baseline -- the bundled file would
+      just go unreferenced (silent feature loss, not a crash risk).
+    - A mod bundling its OWN pfb grades "refused" (never "partial") when
+      the target's baseline physics isn't a superset of the source's own
+      -- see the module docstring for why this one is a hard block, not a
+      soft warning."""
     table = weapon_table()
     src_key = source.key
     src_entry = table.get(src_key, {})
@@ -175,13 +211,15 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
             continue
         if not cand.get("has_mdf2"):
             continue  # no usable donor data at all -- exclude, never guess
-        if not source.has_pfb:
-            grade = "exact"
-            missing = []
-        else:
-            cand_physics = set(cand.get("physics", []))
+        cand_physics = set(cand.get("physics", []))
+        if source.has_pfb:
             missing = sorted(src_physics - cand_physics)
             grade = "refused" if missing else "exact"
+        elif source.has_physics_files:
+            missing = sorted(_BASELINE_CHAIN_TYPES - cand_physics)
+            grade = "partial" if missing else "exact"
+        else:
+            grade, missing = "exact", []
         out.append(TargetWeaponCandidate(
             key=key, type_code=t_code, sid=t_sid, iid=t_iid,
             grade=grade, missing_physics=missing,

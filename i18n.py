@@ -782,12 +782,27 @@ _STRINGS = {
         "ko": "적용 불가", "en": "Not safe to apply",
         "zh_tw": "不可套用", "zh_cn": "不可套用", "ja": "適用不可",
     },
+    "grade_weapon_partial": {
+        "ko": "물리 효과 소실 가능", "en": "Physics may be lost",
+        "zh_tw": "物理效果可能消失", "zh_cn": "物理效果可能消失", "ja": "物理効果が消える可能性",
+    },
     "note_weapon_missing_physics": {
         "ko": "모드가 자체 pfb를 포함하는데 대상에 없는 물리: {physics}",
         "en": "mod bundles its own pfb, but target lacks: {physics}",
         "zh_tw": "模組包含自己的 pfb，但目標缺少：{physics}",
         "zh_cn": "模组包含自己的 pfb，但目标缺少：{physics}",
         "ja": "MODが自前のpfbを含みますが、対象には次がありません：{physics}",
+    },
+    "note_weapon_partial_physics": {
+        "ko": "모드에 포함된 물리(chain2 등) 파일이 대상에서 적용 안 될 수 있음 (대상에 없는 기본 물리: {physics})",
+        "en": "the mod's bundled physics file (chain2 etc.) may not take effect on this target "
+              "(baseline physics missing there: {physics})",
+        "zh_tw": "模組附帶的物理檔案（chain2 等）在此目標上可能不會生效"
+                 "（目標缺少的基礎物理：{physics}）",
+        "zh_cn": "模组附带的物理文件（chain2 等）在此目标上可能不会生效"
+                 "（目标缺少的基础物理：{physics}）",
+        "ja": "MODに含まれる物理ファイル（chain2など）がこの対象では反映されない可能性があります"
+              "（対象に不足している基本物理：{physics}）",
     },
     "msg_weapon_retarget_select_target": {
         "ko": "목록에서 옮길 대상 무기를 선택하세요.", "en": "Select a target weapon from the list.",
