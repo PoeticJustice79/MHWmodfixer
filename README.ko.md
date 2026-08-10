@@ -8,6 +8,11 @@
 머티리얼 재조립 → 원래 구조 그대로 재압축까지 전부 자동으로 처리한다.
 ree-pak-gui/REtool/Blender 등 외부 도구를 손으로 실행할 필요 없음.
 
+Windows용 exe는 GitHub Actions(`.github/workflows/build.yml`)로 재현
+가능하게 빌드되며, 배포되는 exe의 백신 오탐을 줄이기 위해
+[SignPath Foundation](https://signpath.org)의 무료 오픈소스 코드 서명
+프로그램에 신청한 상태입니다.
+
 ## 실행하기
 
 **GUI로 그냥 쓰기**: `dist\MHWmodfixer.exe` 더블클릭. Python도, Bandizip도, 7-Zip도

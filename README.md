@@ -10,6 +10,12 @@ actually changed structurally → reassemble materials against the current
 shader → repackage in the mod's original structure. No need to run
 ree-pak-gui/REtool/Blender or any other external tool by hand.
 
+Windows builds are produced reproducibly via GitHub Actions
+(`.github/workflows/build.yml`), and this project has applied for free
+code signing through the [SignPath Foundation](https://signpath.org)
+open-source program to reduce antivirus false positives on the
+distributed exe.
+
 ## Running it
 
 **Just use the GUI**: double-click `dist\MHWmodfixer.exe`. No need to install
