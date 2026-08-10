@@ -66,6 +66,10 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pak_mod_fix import find_pak_files
+from pak_reader import PakArchive, pak_path_hash64
+from pak_writer import write_pak
+
 _HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEAPON_TABLE_PATH = _HERE / "tools" / "weapon_slots.json.gz"
 
@@ -93,6 +97,95 @@ _PHYSICS_FILE_EXTS = (".chain2", ".jcns", ".clsp", ".sfur")
 # a bundled loose physics file needs the TARGET to also carry, or the
 # bundled file simply goes unreferenced by the target's own vanilla pfb.
 _BASELINE_CHAIN_TYPES = {"app.ChainSetting", "via.motion.Chain2", "via.motion.ChainWind"}
+
+# Mods packaged as their own standalone .pak (Fluffy-installed alongside a
+# modinfo.ini, no loose files at all) carry no filename per entry, only a
+# hash64 -- the same "no plaintext directory listing" property the game's
+# own paks have (see pak_reader.py's own docstring). Confirmed real
+# 2026-08-10: every weapon mod a user actually had on hand ("Dreaming
+# Dalamadur" and others) turned out to be this shape, not loose files --
+# `detect_mod_weapon()`'s path-regex approach can never find anything in
+# one, since there are no paths to match at all.
+#
+# The fix mirrors `pak_mod_fix.py`'s own established technique for the
+# regular repair pipeline (`read_by_hash()`'s docstring: "if a mod's entry
+# hash exactly matches one of the game's own current entries, that IS the
+# vanilla donor, unambiguously, no path-guessing needed") -- except here
+# we need to know WHICH real weapon slot an entry corresponds to, not just
+# get its donor bytes. Since `weapon_slots.json.gz` already enumerates
+# every real (type, sid, iid) triple this project knows about, computing
+# each one's canonical path (at every plausible version suffix) and
+# checking membership in the mod's own pak's hash set identifies the
+# source slot exactly, with no path string ever needed from the mod
+# itself. Verified directly against "Dreaming Dalamadur" (a real Nexus
+# weapon mod): its pak's 6 entries include exactly 2 that hash-match a
+# known vanilla path (mdf2 + mesh for it00/01/0004) -- the other 4 are the
+# mod's own custom-named textures, which never hash-match anything (by
+# design -- their paths were never derived from the weapon's slot number).
+_MDF2_VERSIONS = range(1, 80)
+_PFB_VERSIONS = range(1, 60)
+_MESH_VERSIONS = [241111606, 240820143, 230517984]
+_LOOSE_PHYSICS_EXT_VERSIONS = range(1, 40)
+
+
+def _pak_candidate_hashes(code: str, sid: str, iid: str):
+    """Yields (ext, version, hash64) for every plausible pak-entry hash a
+    real weapon model at (code, sid, iid) could occupy -- mdf2/mesh always
+    exist for a real model; pfb and loose physics files only exist for
+    SOME models (a hash simply won't be present in ANY pak if that file
+    type doesn't exist for this model, which is fine -- membership testing
+    doesn't need to know that in advance)."""
+    mesh_base = f"natives/stm/art/model/item/it{code}/{sid}/{iid}/it{code}{sid}_{iid}_0"
+    pfb_base = f"natives/stm/GameDesign/equip/_prefab/weapon/wp{code}/{sid}/{iid}/it{code}{sid}_{iid}_0"
+    for n in _MDF2_VERSIONS:
+        yield "mdf2", n, pak_path_hash64(f"{mesh_base}.mdf2.{n}")
+    for n in _MESH_VERSIONS:
+        yield "mesh", n, pak_path_hash64(f"{mesh_base}.mesh.{n}")
+    for n in _PFB_VERSIONS:
+        yield "pfb", n, pak_path_hash64(f"{pfb_base}.pfb.{n}")
+    for ext in _PHYSICS_FILE_EXTS:
+        ext_bare = ext.lstrip(".")
+        for n in _LOOSE_PHYSICS_EXT_VERSIONS:
+            yield ext_bare, n, pak_path_hash64(f"{mesh_base}.{ext_bare}.{n}")
+
+
+def detect_mod_weapon_pak(pak_path: Path) -> tuple[ModWeaponInfo, None] | tuple[None, list[str]]:
+    """Same contract as `detect_mod_weapon()`'s return shape, for a single
+    standalone-.pak mod file. Returns (info, None) on exactly one match, or
+    (None, sorted_key_list) on zero/multiple."""
+    archive = PakArchive(pak_path)
+    pak_hashes = set(archive.entries.keys())
+
+    triples: set[tuple[str, str, str]] = set()
+    matches: list[dict] = []  # {"hash64", "ext", "version", "base_no_ext"}
+    for key in weapon_table():
+        m = re.match(r"it(\d{2})/(\d{2})/(\d{4})", key)
+        if not m:
+            continue
+        code, sid, iid = m.groups()
+        for ext, version, h in _pak_candidate_hashes(code, sid, iid):
+            if h in pak_hashes:
+                triples.add((code, sid, iid))
+                base = (f"natives/stm/art/model/item/it{code}/{sid}/{iid}/it{code}{sid}_{iid}_0"
+                        if ext != "pfb" else
+                        f"natives/stm/GameDesign/equip/_prefab/weapon/wp{code}/{sid}/{iid}/it{code}{sid}_{iid}_0")
+                matches.append({"hash64": h, "ext": ext, "version": version, "base_no_ext": base})
+
+    if len(triples) != 1:
+        return None, sorted(f"it{a}/{b}/{c}" for a, b, c in triples)
+
+    code, sid, iid = next(iter(triples))
+    info = ModWeaponInfo(type_code=code, sid=sid, iid=iid, pak_path=pak_path, pak_matches=matches)
+    for m in matches:
+        if m["ext"] == "mdf2":
+            info.has_mdf2 = True
+        elif m["ext"] == "mesh":
+            info.has_mesh = True
+        elif m["ext"] == "pfb":
+            info.has_pfb = True
+        else:
+            info.has_physics_files = True
+    return info, None
 
 
 def weapon_table() -> dict:
@@ -141,6 +234,8 @@ class ModWeaponInfo:
     has_pfb: bool = False
     has_physics_files: bool = False   # bundles a loose .chain2/.jcns/.clsp/.sfur, no pfb -- see module docstring
     files: list[Path] = field(default_factory=list)
+    pak_path: Path | None = None      # set when this mod is its own standalone .pak, not loose files
+    pak_matches: list[dict] = field(default_factory=list)  # {"hash64","ext","version","base_no_ext"}
 
     @property
     def key(self) -> str:
@@ -152,7 +247,14 @@ def detect_mod_weapon(mod_root: Path) -> ModWeaponInfo | list[str]:
     ModWeaponInfo when exactly ONE (type, sid, iid) triple is found -- or
     the sorted list of distinct keys seen when zero/multiple are found
     (multi-option FOMOD-style mods aren't supported for automatic
-    retargeting here either, mirroring slot_retarget.detect_mod_slot)."""
+    retargeting here either, mirroring slot_retarget.detect_mod_slot).
+
+    Tries loose-file path matching first (the original, path-regex-based
+    approach); if that finds nothing at all, falls back to treating any
+    bundled .pak file(s) as a standalone-pak mod (see detect_mod_weapon_pak
+    -- confirmed 2026-08-10 to be the actual common case for real weapon
+    mods, not the loose-file layout this module was originally written
+    against)."""
     triples: set[tuple[str, str, str]] = set()
     files = []
     for p in mod_root.rglob("*"):
@@ -167,6 +269,27 @@ def detect_mod_weapon(mod_root: Path) -> ModWeaponInfo | list[str]:
         m = _FILE_RE.search(p.name)
         if m:
             triples.add((m.group(1), m.group(2), m.group(3)))
+
+    if not triples:
+        pak_files = list(find_pak_files(mod_root))
+        if len(pak_files) == 1:
+            info, unmatched = detect_mod_weapon_pak(pak_files[0])
+            if info is not None:
+                return info
+            if unmatched:
+                return unmatched
+        elif len(pak_files) > 1:
+            # More than one bundled pak (e.g. a multi-page FOMOD) -- try
+            # each independently rather than merging their hash sets
+            # together, which could spuriously "detect" a triple that's
+            # really two different pages' two different weapons.
+            per_pak: set[tuple[str, str, str]] = set()
+            for pf in pak_files:
+                _, unmatched = detect_mod_weapon_pak(pf)
+                per_pak.update(tuple(k.split("/")) for k in (unmatched or []))
+            if per_pak:
+                return sorted(f"it{a}/{b}/{c}" for a, b, c in per_pak)
+
     if len(triples) != 1:
         return sorted(f"it{a}/{b}/{c}" for a, b, c in triples)
     type_code, sid, iid = next(iter(triples))
@@ -208,7 +331,21 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
     - A mod bundling its OWN pfb grades "refused" (never "partial") when
       the target's baseline physics isn't a superset of the source's own
       -- see the module docstring for why this one is a hard block, not a
-      soft warning."""
+      soft warning.
+
+    Candidates with no real resolved name (weapon_table()'s "names" field
+    empty/missing) are excluded entirely, not just shown with a raw id --
+    decided 2026-08-10 after finding that a chunk of these are literal
+    development leftovers (a `<COLOR FF0000>#Rejected#</COLOR>`-tagged
+    weapon design Capcom never removed from the shipped data, one per
+    weapon type, plus ~163 other real-but-unnamed models of unknown
+    origin). A user picking a retarget TARGET needs to recognize what
+    they're choosing -- unlike showing a raw id elsewhere in this project
+    (never inventing a name, but never hiding real data either), here the
+    id alone can't inform a safe choice, and at least one confirmed
+    real-world case of "unnamed" already meant "known-bad leftover
+    content." The SOURCE mod's own detection is unaffected -- this only
+    trims the TARGET list."""
     table = weapon_table()
     src_key = source.key
     src_entry = table.get(src_key, {})
@@ -224,6 +361,8 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
             continue
         if not cand.get("has_mdf2"):
             continue  # no usable donor data at all -- exclude, never guess
+        if not cand.get("names"):
+            continue  # no recognizable name -- exclude, don't offer a blind pick
         cand_physics = set(cand.get("physics", []))
         if source.has_pfb:
             missing = sorted(src_physics - cand_physics)
@@ -318,11 +457,60 @@ def retarget_tree(mod_root: Path, out_root: Path, source: ModWeaponInfo,
     return moved
 
 
+def retarget_pak(pak_path: Path, out_pak_path: Path, source: ModWeaponInfo,
+                  dst_code: str, dst_sid: str, dst_iid: str, log=lambda s: None) -> int:
+    """Rebuilds a standalone-.pak weapon mod at a new weapon slot. Every
+    entry whose hash was identified (in `source.pak_matches`) as the
+    SOURCE slot's own mdf2/mesh/pfb/physics file gets re-hashed under the
+    TARGET slot's equivalent path (same ext, same version suffix, only the
+    code/sid/iid substituted) -- the raw on-disk bytes (still compressed,
+    whatever compression they already used) are copied through completely
+    unchanged, only the hash64 key changes. Every OTHER entry (almost
+    always the mod's own custom-named textures) is passed through with its
+    ORIGINAL hash64 untouched -- their paths were never derived from the
+    weapon's slot number in the first place (mdf2/pfb reference them by
+    their own custom string, unaffected by which slot the file now
+    occupies), and since a pak hash isn't invertible there's no way to
+    "relocate" an entry whose original path string was never known."""
+    archive = PakArchive(pak_path)
+    hash_to_match = {m["hash64"]: m for m in source.pak_matches}
+
+    def _dst_hash(m: dict) -> int:
+        base = (f"natives/stm/art/model/item/it{dst_code}/{dst_sid}/{dst_iid}/it{dst_code}{dst_sid}_{dst_iid}_0"
+                if m["ext"] != "pfb" else
+                f"natives/stm/GameDesign/equip/_prefab/weapon/wp{dst_code}/{dst_sid}/{dst_iid}/"
+                f"it{dst_code}{dst_sid}_{dst_iid}_0")
+        return pak_path_hash64(f"{base}.{m['ext']}.{m['version']}")
+
+    out_entries = []
+    relocated = 0
+    for h, entry in archive.entries.items():
+        new_hash = h
+        m = hash_to_match.get(h)
+        if m is not None:
+            new_hash = _dst_hash(m)
+            relocated += 1
+        out_entries.append({
+            "hash64": new_hash,
+            "data": archive.read_raw_compressed(entry),
+            "decompressed_size": entry.decompressed_size,
+            "compression": entry.compression,
+        })
+
+    write_pak(out_entries, str(out_pak_path))
+    log(f"    [retarget] {relocated} pak entr{'y' if relocated == 1 else 'ies'} relocated "
+        f"it{source.type_code}/{source.sid}/{source.iid} -> it{dst_code}/{dst_sid}/{dst_iid} "
+        f"({len(out_entries) - relocated} other entr{'y' if len(out_entries) - relocated == 1 else 'ies'} unchanged)")
+    return relocated
+
+
 def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_code: str, dst_sid: str, dst_iid: str,
                       log=lambda s: None) -> ModWeaponInfo:
     """End-to-end: extract (if an archive), detect, relocate, and write
     out_zip. Raises ValueError with the detected weapon-id list when the
-    mod doesn't target exactly one weapon model."""
+    mod doesn't target exactly one weapon model. Handles both loose-file
+    mods (retarget_tree) and standalone-.pak mods (retarget_pak, see that
+    function's docstring for why the two need genuinely different logic)."""
     import tempfile
     from archive_extract import extract_archive
     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_"))
@@ -332,7 +520,29 @@ def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_code: str, dst_sid
         if not isinstance(info, ModWeaponInfo):
             raise ValueError(f"mod does not target exactly one weapon model (found: {info or 'none'})")
         out_root = work / "out"
-        retarget_tree(mod_root, out_root, info, dst_code, dst_sid, dst_iid, log=log)
+        out_root.mkdir(parents=True, exist_ok=True)
+        if info.pak_path is not None:
+            # Copy the whole mod tree through unchanged (modinfo.ini,
+            # preview image, any other loose files alongside the pak),
+            # then overwrite just the pak itself with the relocated build.
+            # The file list is materialized BEFORE copying starts -- out_root
+            # lives inside mod_root (both under `work`), so a live
+            # mod_root.rglob("*") re-discovers each freshly-copied file as
+            # a new source to copy, recursing into its own output forever
+            # (confirmed real 2026-08-10: caught a live test still copying
+            # the same 3 files in a loop after 180+ seconds). retarget_tree()
+            # never had this bug since it iterates a pre-captured
+            # `source.files` list from detect_mod_weapon(), not a live scan.
+            for p in list(mod_root.rglob("*")):
+                if not p.is_file():
+                    continue
+                dst = out_root / p.relative_to(mod_root)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, dst)
+            out_pak = out_root / info.pak_path.relative_to(mod_root)
+            retarget_pak(info.pak_path, out_pak, info, dst_code, dst_sid, dst_iid, log=log)
+        else:
+            retarget_tree(mod_root, out_root, info, dst_code, dst_sid, dst_iid, log=log)
         out_zip.parent.mkdir(parents=True, exist_ok=True)
         if out_zip.exists():
             out_zip.unlink()

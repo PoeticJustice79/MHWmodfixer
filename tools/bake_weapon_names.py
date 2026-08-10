@@ -136,6 +136,22 @@ def _extract_index_model_id(game: GameArchive, registry: dict, type_file: str) -
 _LANG_CODE_MAP = {"ko": 11, "en": 1, "ja": 0, "zh_tw": 12, "zh_cn": 13}
 
 
+def _is_placeholder_name(text: str) -> bool:
+    """Filters out internal QA/dev-leftover entries the game's own msg data
+    still carries verbatim, found 2026-08-10 via the live singleton dump:
+    exactly ONE `<COLOR FF0000>#Rejected#</COLOR> <TypeFile>_<N></COLOR>`-style
+    entry per weapon type (e.g. `<COLOR FF0000>#Rejected#</COLOR>
+    LongSword_97`) -- a rejected-during-development weapon design Capcom
+    never removed from the shipped data table. This is real text the game
+    itself stores (not a bug in this project's reading of it), but it's
+    never a real player-facing weapon name -- showing raw rich-text markup
+    in a selection UI is actively confusing, so it's excluded here rather
+    than baked in as if it were a legitimate name. Confirmed present in
+    ALL 14 weapon types' data, so this needed a general filter, not a
+    one-off exclusion for a single id."""
+    return "<COLOR" in text or "#Rejected#" in text
+
+
 def _load_msg_names(game: GameArchive, type_file: str) -> dict[str, dict[str, str]]:
     """msg entry UUID (hex) -> {"ko"/"en"/"ja"/"zh_tw"/"zh_cn": text}, for
     <type_file>.msg.23. Unlike armor (bake_armor_slots.py), there's no
@@ -187,6 +203,9 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
             names = msg_names.get(name_guid)
             if not names:
                 continue
+            names = {lang: text for lang, text in names.items() if not _is_placeholder_name(text)}
+            if not names:
+                continue
             sid = f"{model_id // 1000:02d}"
             iid = f"{model_id % 1000:04d}"
             out[f"it{code}/{sid}/{iid}"] = names
@@ -195,22 +214,74 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
     return out
 
 
+def resolve_names_from_live_dump(dump_path: Path) -> dict[str, dict[str, str]]:
+    """Alternative to `resolve_names()`, reading a REFramework Lua dump
+    (`mhwmodfixer_weapon_name_dump.lua`'s own JSON output) instead of
+    static game files. The live singleton (`app.VariousDataManager`'s
+    `_Setting._EquipDatas._Weapon<Key>`) holds every `WeaponData.cData`
+    row already resolved-in-memory -- confirmed 2026-08-10 to cover FAR
+    more than the static file-reading approach: subid=10 turned out to
+    be an ordinary named weapon tree (not Artian-dynamic as earlier
+    assumed -- that assumption was wrong), and a THIRD subid band
+    (subid=100, `_ModelId` 100000+) exists with real static names
+    (Artian base tiers I/II plus real unique/quest-reward final names)
+    that the old static scan never even attempted to probe for. subid=01/03/99
+    still come back with zero rows in this live data too -- confirms
+    (doesn't just repeat) the earlier static-file finding that those
+    genuinely have no data anywhere, live or static."""
+    with open(dump_path, encoding="utf-8") as f:
+        dump = json.load(f)
+    weapons = dump.get("weapons") or {}
+
+    out: dict[str, dict[str, str]] = {}
+    for type_key, rows in weapons.items():  # type_key already "it00".."it13"
+        best_row_by_model: dict[int, tuple[int, dict]] = {}
+        for row in rows:
+            model_id = row["model_id"]
+            idx = row["index"]
+            if model_id not in best_row_by_model or idx < best_row_by_model[model_id][0]:
+                best_row_by_model[model_id] = (idx, row)
+        for model_id, (idx, row) in best_row_by_model.items():
+            names = {lang: text for lang, text in row["names"].items()
+                      if text and not _is_placeholder_name(text)}
+            if not names:
+                continue
+            out[f"{type_key}/{row['sid']}/{row['iid']}"] = names
+    return out
+
+
 def main():
-    game_dir = sys.argv[1] if len(sys.argv) > 1 else ""
-    names = resolve_names(game_dir)
+    if len(sys.argv) > 2 and sys.argv[1] == "--live-dump":
+        names = resolve_names_from_live_dump(Path(sys.argv[2]))
+        source = f"live dump ({sys.argv[2]})"
+    else:
+        game_dir = sys.argv[1] if len(sys.argv) > 1 else ""
+        names = resolve_names(game_dir)
+        source = "static file reading"
 
     with gzip.open(SLOTS_PATH, "rt", encoding="utf-8") as f:
         payload = json.load(f)
+
+    # Clear any stale "names"/"name" from a PREVIOUS run first -- otherwise
+    # a key that resolved before but no longer does (e.g. filtered out by
+    # _is_placeholder_name after this script itself already merged it in
+    # once) keeps its old value forever, since the merge loop below only
+    # ever touches keys present in the CURRENT `names` dict. Confirmed real
+    # 2026-08-10: the 14 "Rejected" placeholder entries survived two
+    # supposedly-clean re-bakes this way before this fix.
+    for entry in payload["entries"].values():
+        entry.pop("names", None)
+        entry.pop("name", None)
 
     matched = 0
     for key, name_dict in names.items():
         if key in payload["entries"]:
             payload["entries"][key]["names"] = name_dict
-            payload["entries"][key].pop("name", None)  # superseded by the multi-language "names" dict
             matched += 1
-    print(f"resolved {len(names)} names, {matched} matched a real baked weapon_slots.json.gz entry")
+    print(f"resolved {len(names)} names via {source}, {matched} matched a real baked weapon_slots.json.gz entry")
 
     payload["_meta"]["names_baked_at"] = "2026-08-10"
+    payload["_meta"]["names_source"] = source
     with gzip.open(SLOTS_PATH, "wt", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
     print(f"wrote {SLOTS_PATH} ({SLOTS_PATH.stat().st_size} bytes)")

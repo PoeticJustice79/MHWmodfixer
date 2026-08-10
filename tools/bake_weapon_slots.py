@@ -3,6 +3,16 @@ game, analogous to `bake_armor_slots.py` / `armor_slots_ch03.json.gz` for
 armor -- built for a possible future "무기 변환" (change weapon) retargeting
 feature, mirroring `slot_retarget.py`'s armor feature.
 
+**Re-running this REBUILDS `weapon_slots.json.gz` from scratch, wiping out
+any `names` field `tools/bake_weapon_names.py` already merged in** -- the
+two scripts write the SAME file but neither is aware of the other's data.
+Confirmed real 2026-08-10: rebaking to test a widened subid probe silently
+discarded all 380 already-merged weapon names, which only surfaced later
+as the GUI showing raw `it00/00/0000`-style ids instead of real names.
+**Always re-run `bake_weapon_names.py --live-dump <path>` (or the
+game-file-reading `resolve_names()` path) immediately after any
+`bake_weapon_slots.py` run**, before shipping/rebuilding the exe.
+
 Unlike armor, there is no community spreadsheet needed for the
 compatibility half: everything here is derived directly from the live
 game's own files (existence probing + RSZ instance-type scanning), the
@@ -63,6 +73,27 @@ OUT_PATH = Path(__file__).resolve().parent / "weapon_slots.json.gz"
 
 NUM_IT_CODES = 14  # confirmed empirically 2026-08-10 -- it00..it13, no it14+
 SUBID_PROBE_RANGE = range(0, 100)
+# subid=100 is a REAL third band in WeaponData.cData -- confirmed
+# 2026-08-10 via the live game's own app.VariousDataManager singleton
+# (mhwmodfixer_weapon_name_dump.lua), which returned real names for
+# `_ModelId` 100000+ rows (Artian base tiers I/II + real unique/
+# quest-reward final weapons, e.g. Fulgurcleaver Guardiana, Varianza).
+# The earlier ITEMID_PROBE_EXTRA guess below had the WRONG axis: model_id
+# 100000 decodes to (sid=100, iid=0000), not (sid=00..99, iid=100000).
+# SUBID_PROBE_EXTRA below fixes that axis -- but even so, `discover_itemids`
+# finds ZERO mesh files anywhere under `art/model/item/<code>/100/<iid>/`
+# for ANY type (checked directly against the live game's own paks, not
+# just this baker's own probe range). `_CustomModelId` (the field right
+# after `_ModelId`) is also 0 for every sid=100 row checked, ruling out
+# "points at a different physical model" as the explanation. **Unsolved**:
+# these weapons are real (nameable, presumably equippable in-game) but
+# this project doesn't know where their mesh/pfb assets actually live --
+# either a different file-path convention entirely, or they share an
+# existing sid=00/10 model through some mechanism not yet found. Left
+# unresolved rather than guessed at; `scan_weapon()` naturally returns an
+# empty dict (no mdf2/mesh/pfb data) for any sid=100 entry until this is
+# cracked, same as any other real-but-unscannable model.
+SUBID_PROBE_EXTRA = [100]
 ITEMID_PROBE_RANGE = range(0, 100)
 # large special IDs seen in a community weapon-ID list (likely DLC/collab
 # equipment/save-data IDs, not literal mesh-file IDs -- probed here just
@@ -109,7 +140,7 @@ def discover_it_codes(game: GameArchive) -> list[str]:
 def discover_subids(game: GameArchive, code: str) -> list[str]:
     hits = []
     probe = list(range(0, 4)) + ITEMID_PROBE_EXTRA
-    for sid_n in SUBID_PROBE_RANGE:
+    for sid_n in list(SUBID_PROBE_RANGE) + SUBID_PROBE_EXTRA:
         sid = f"{sid_n:02d}"
         for iid_n in probe:
             iid = f"{iid_n:04d}"

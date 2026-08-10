@@ -1057,7 +1057,7 @@ class App:
                 return
             state["source"] = info
             info_label.configure(text=t(
-                "msg_weapon_retarget_detected", key=info.key,
+                "msg_weapon_retarget_detected", wkey=info.key,
                 mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
                 pfb="O" if info.has_pfb else "X"))
             cands = weapon_retarget.find_compatible_weapon_targets(info)
@@ -1148,7 +1148,7 @@ class App:
             elif state["source"] is not None:
                 info = state["source"]
                 info_label.configure(text=t(
-                    "msg_weapon_retarget_detected", key=info.key,
+                    "msg_weapon_retarget_detected", wkey=info.key,
                     mdf2="O" if info.has_mdf2 else "X", mesh="O" if info.has_mesh else "X",
                     pfb="O" if info.has_pfb else "X"))
             lang = i18n.get_language()

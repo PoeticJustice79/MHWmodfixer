@@ -757,15 +757,15 @@ _STRINGS = {
         "ja": "このMODから武器モデルを1つだけ検出できませんでした（検出内容：{found}）。",
     },
     "msg_weapon_retarget_detected": {
-        "ko": "감지된 무기 모델: {key} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
+        "ko": "감지된 무기 모델: {wkey} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
               "아래 목록에서 옮길 대상을 선택하세요.",
-        "en": "Detected weapon model: {key} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
+        "en": "Detected weapon model: {wkey} (mdf2:{mdf2} mesh:{mesh} pfb:{pfb}). "
               "Select a target from the list below.",
-        "zh_tw": "偵測到的武器模型：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+        "zh_tw": "偵測到的武器模型：{wkey}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
                  "請在下方清單中選擇移動目標。",
-        "zh_cn": "检测到的武器模型：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+        "zh_cn": "检测到的武器模型：{wkey}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
                  "请在下方列表中选择移动目标。",
-        "ja": "検出された武器モデル：{key}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
+        "ja": "検出された武器モデル：{wkey}（mdf2:{mdf2} mesh:{mesh} pfb:{pfb}）。"
               "下のリストから移動先を選択してください。",
     },
     "lbl_weapon_retarget_targets": {
