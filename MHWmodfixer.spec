@@ -5,10 +5,11 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('tools/UnRAR.exe', 'tools'), ('tools/mdf2_filelist.txt', 'tools'),
          ('tools/rsz_fields_mhwilds.json.gz', 'tools'),
-         ('tools/armor_slots_ch03.json.gz', 'tools')]
+         ('tools/armor_slots_ch03.json.gz', 'tools'),
+         ('tools/weapon_slots.json.gz', 'tools')]
 datas += [(p, 'tools/rsz_archive') for p in glob.glob('tools/rsz_archive/*.json.gz')]
 binaries = []
-hiddenimports = ['pak_mod_fix', 'whole_game_index', 'slot_retarget']
+hiddenimports = ['pak_mod_fix', 'whole_game_index', 'slot_retarget', 'weapon_retarget']
 tmp_ret = collect_all('tkinterdnd2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('backports.zstd')
