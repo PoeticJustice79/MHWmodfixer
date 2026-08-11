@@ -196,6 +196,33 @@ def find_compatible_targets(source: ModSlotInfo) -> list[TargetCandidate]:
     return out
 
 
+def find_target_occupants(game_dir, source: ModSlotInfo, target: TargetCandidate) -> list[str]:
+    """Checks every piece the source mod ships for a REAL loose mdf2 file
+    already sitting at the TARGET slot's path under <game_dir>/natives/...
+    -- meaning some other currently-active mod (Fluffy Mod Manager, or any
+    tool that does real loose-file deployment -- MO2's virtualized overlay
+    is a known, accepted exception, decided with the user 2026-08-10)
+    already occupies that piece. Returns the natives/-relative path of
+    each occupying loose file found (empty if the whole target is free) --
+    callers pass these straight to fluffy_installed.find_occupant_names()
+    for name resolution, same shape weapon_retarget.find_target_occupant()
+    produces for gui.py's shared _occupied_note() helper. Mirrors that
+    function's same cheap, GameArchive-free glob check (see
+    game_archive.find_loose_files's own docstring)."""
+    from game_archive import find_loose_files
+    piece_dirs = {1: "Arm", 2: "Body", 3: "Helm", 4: "Leg", 5: "Waist", 6: "Slinger"}
+    s, v = target.set_no, target.variant
+    occupied = []
+    for p in sorted(source.pieces_shipped):
+        if p not in piece_dirs or p == 6:
+            continue  # slinger has no mdf2 of its own (see verify_target_vanilla)
+        base = f"natives/stm/art/model/character/ch03/{s}/{v}/{p}/ch03_{s}_{v}{p}"
+        found = find_loose_files(game_dir, base, "mdf2")
+        if found:
+            occupied.append(str(found[0].relative_to(Path(game_dir))))
+    return occupied
+
+
 def verify_target_vanilla(game, source: ModSlotInfo, target: TargetCandidate) -> tuple[bool, list[str]]:
     """Live-game completeness check for the target slot: every piece the
     mod ships must have a vanilla mdf2+mesh+pfb at the target (piece 6

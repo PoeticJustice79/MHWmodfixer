@@ -161,3 +161,41 @@ class GameArchive:
             return None
         pak_path_str, entry = self._entries[pak_path_hash64(path)]
         return path, self._read_entry(pak_path_str, entry)
+
+    def find_loose_files(self, base_path_no_version: str, ext: str) -> list[Path]:
+        """Instance-convenience wrapper around the module-level
+        `find_loose_files()` (see its own docstring) -- reuses this
+        instance's already-resolved `game_dir`."""
+        return find_loose_files(self.game_dir, base_path_no_version, ext)
+
+
+def find_loose_files(game_dir: str | Path, base_path_no_version: str, ext: str) -> list[Path]:
+    """Any REAL, on-disk loose file (not pak content) already sitting at
+    this canonical path under <game_dir>/natives/... , any version
+    suffix. Mod managers that loose-file-deploy an active mod (confirmed
+    for Fluffy Mod Manager: an enabled page's files get copied directly
+    into the game's own natives/ tree, see CLAUDE.md's "verify what
+    Fluffy actually deployed" section) leave exactly this kind of file
+    behind -- checking for its existence, tool-agnostically, is how a
+    retargeting feature detects "this slot is already occupied by
+    another active mod" without needing to understand any specific mod
+    manager's own internal database format (MO2's virtualized overlay is
+    a real exception this can't see -- deliberately out of scope, decided
+    with the user 2026-08-10). `base_path_no_version` already starts with
+    "natives/..." (matching this project's own path-string convention
+    everywhere else); Windows path lookups are case-insensitive, so the
+    stored lowercase convention resolves fine against the real mixed-case
+    on-disk folders (e.g. "STM").
+
+    Deliberately a MODULE-LEVEL function, not only a `GameArchive` method:
+    it's a plain filesystem glob, no pak index needed at all -- calling it
+    through a `GameArchive` instance would force that instance's (slow,
+    if not already cache-warm) pak indexing for no reason. Candidate-list
+    population (checking many slots up front) should call this directly
+    with just the game directory string, not construct a `GameArchive`
+    first."""
+    full_base = Path(game_dir) / Path(base_path_no_version)
+    parent = full_base.parent
+    if not parent.is_dir():
+        return []
+    return sorted(parent.glob(f"{full_base.name}.{ext}.*"))

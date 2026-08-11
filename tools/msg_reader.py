@@ -89,7 +89,8 @@ def parse_msg(data: bytes) -> dict:
 
     entries = []
     for eoff in entry_offsets:
-        cur_off = eoff + 16  # skip 16-byte uuid
+        uuid_bytes = data[eoff:eoff + 16]
+        cur_off = eoff + 16
         cur_off += 4         # skip SoundID
         cur_off += 4         # skip nameHash/index (identical size either way)
         name_ptr, _attr_ptr = struct.unpack_from("<QQ", data, cur_off)
@@ -98,6 +99,14 @@ def parse_msg(data: bytes) -> dict:
         entries.append({
             "name": read_wstr(name_ptr),
             "content": [read_wstr(p) for p in lang_ptrs],
+            # Real, direct link to app.user_data.*.cData rows' Guid-typed
+            # fields (e.g. WeaponData.cData's own `_Name`) elsewhere in
+            # this game's RSZ data -- confirmed 2026-08-10 while chasing
+            # weapon name coverage gaps: far more robust than matching by
+            # positional index, which silently mismatches whenever an
+            # entry's numbering doesn't line up 1:1 with its data row
+            # (see bake_weapon_names.py).
+            "uuid": uuid_bytes.hex(),
         })
 
     return {"languages": languages, "entries": entries}

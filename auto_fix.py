@@ -57,6 +57,35 @@ from mesh_check import check_mesh_mdf2_consistency
 from slot_merge import find_donor_for_material
 
 DEFAULT_GAME_DIR = r"D:\SteamLibrary\steamapps\common\MonsterHunterWilds"
+DEFAULT_FLUFFY_DIR = r"D:\GAME\몬헌\modmanager"
+
+
+def auto_detect_fluffy_dir() -> str | None:
+    """Best-effort: if Fluffy Mod Manager (Modmanager.exe) is CURRENTLY
+    RUNNING, its own process path tells us exactly where it's installed.
+    No other detection method exists -- confirmed directly 2026-08-10:
+    Fluffy is a portable app with no installer, so it leaves no
+    HKCU/HKLM Uninstall registry entry, no AppData folder, and no Desktop/
+    Start Menu .lnk shortcut pointing at it (all checked and came back
+    empty on a machine that DOES have it installed). Returns the folder
+    Modmanager.exe lives in, or None if it's not currently running --
+    callers should fall back to a hardcoded personal default, then plain
+    manual entry (see gui.py's fluffy_dir field)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "(Get-Process -Name Modmanager -ErrorAction SilentlyContinue "
+             "| Select-Object -First 1).Path"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        path = result.stdout.strip()
+        if path and Path(path).is_file():
+            return str(Path(path).parent)
+    except Exception:
+        pass
+    return None
 MDF2_RE = re.compile(r"\.mdf2\.(\d+)$", re.IGNORECASE)
 
 
