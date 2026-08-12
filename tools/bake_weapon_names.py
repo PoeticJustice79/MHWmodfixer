@@ -214,6 +214,70 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
     return out
 
 
+def resolve_rodinsect_names(game_dir: str = "") -> dict[str, dict[str, str]]:
+    """Kinsects (it10/03/<iid>, InsectGlaive's "RodInsect" sub-equipment) are
+    NOT part of `WeaponData.cData` (subid=03 has zero rows there, confirmed
+    repeatedly -- see #42/#44/#45) and use a completely separate real game
+    data pair, found 2026-08-12 via `LartTyler/mhdb-wilds-data`'s config.toml:
+    `Common/Equip/RodInsectRecipeData.user.3` (crafting recipe rows --
+    `_Index`/`_ID`/`_KeyItemId`/.../`_PrevID`, no `_ModelId` or `_Name` GUID
+    field at all, so it can't be linked to a msg entry or a file-path iid
+    the same way WeaponData.cData is) and `Excel_Equip/RodInsect.msg.23`
+    (real per-kinsect text, all 5 languages, msg entry names literally
+    `RodInsect_<the cData row's own _ID value>` -- confirmed directly:
+    `_ID=1190390272` <-> msg entry `RodInsect_1190390272`).
+
+    Since neither table exposes the file-path iid (`it10/03/<iid>`) this
+    project's own `bake_weapon_slots.py` existence-probe already
+    established independently, the link used here is NOT id-based --
+    it's a verified TEXT match: `tools/community_mhws_weapon_zh_cn.csv`
+    (see #45) already supplied zh_cn names for all 21 of these iids, and
+    cross-checking those exact zh_cn strings against RodInsect.msg.23's own
+    zh_cn column found a 21/21 (100%) exact match, zero ambiguity -- proof
+    both sources describe the identical 21 kinsects, and the msg entry
+    matched via zh_cn text is the correct FULL-LANGUAGE source for that
+    same iid. This is a one-time, hand-verified bridge (not a general
+    "match by any language's text" mechanism) -- if `bake_weapon_slots.py`
+    ever re-probes and finds a 22nd kinsect slot with no zh_cn counterpart
+    already baked, it will simply stay unresolved here rather than guess.
+    """
+    game = GameArchive(game_dir or auto_fix.DEFAULT_GAME_DIR)
+
+    found = game.find_versioned("natives/stm/gamedesign/text/excel_equip/rodinsect", "msg", version_range=range(1, 50))
+    if found is None:
+        return {}
+    _, mdata = found
+    result = parse_msg(mdata)
+    langs = result["languages"]
+    lang_idx = {code: langs.index(via_code) for code, via_code in _LANG_CODE_MAP.items() if via_code in langs}
+    if not lang_idx:
+        return {}
+    msg_names_by_zh_cn: dict[str, dict[str, str]] = {}
+    for e in result["entries"]:
+        content = e["content"]
+        d = {code: content[idx].strip() for code, idx in lang_idx.items() if idx < len(content) and content[idx].strip()}
+        d = {lang: text for lang, text in d.items() if not _is_placeholder_name(text)}
+        zh_cn = d.get("zh_cn")
+        if zh_cn:
+            msg_names_by_zh_cn[zh_cn] = d
+
+    with gzip.open(SLOTS_PATH, "rt", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    out: dict[str, dict[str, str]] = {}
+    for key, entry_data in payload["entries"].items():
+        parts = key.split("/")
+        if len(parts) != 3 or parts[0] != "it10" or parts[1] != "03":
+            continue
+        existing_zh_cn = (entry_data.get("names") or {}).get("zh_cn")
+        if not existing_zh_cn:
+            continue
+        matched = msg_names_by_zh_cn.get(existing_zh_cn)
+        if matched:
+            out[key] = matched
+    return out
+
+
 def resolve_names_from_live_dump(dump_path: Path) -> dict[str, dict[str, str]]:
     """Alternative to `resolve_names()`, reading a REFramework Lua dump
     (`mhwmodfixer_weapon_name_dump.lua`'s own JSON output) instead of
@@ -418,6 +482,16 @@ def main():
             community_applied += 1
     print(f"applied {community_applied} zh_cn-only name(s) from the trusted community CSV (subid=00/01/03 only, "
           f"never overwrites an already-resolved key)")
+
+    rodinsect_applied = 0
+    game_dir_for_rodinsect = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--live-dump" else ""
+    for key, name_dict in resolve_rodinsect_names(game_dir_for_rodinsect).items():
+        entry = payload["entries"].get(key)
+        if entry is not None:
+            entry["names"] = name_dict
+            rodinsect_applied += 1
+    print(f"applied {rodinsect_applied} full 5-language Kinsect (it10/03) name(s), resolved from "
+          f"RodInsect.msg.23 via verified zh_cn text cross-match")
 
     payload["_meta"]["names_baked_at"] = "2026-08-10"
     payload["_meta"]["names_source"] = source
