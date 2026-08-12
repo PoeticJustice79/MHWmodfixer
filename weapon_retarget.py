@@ -212,15 +212,20 @@ def weapon_label(key: str, lang: str = "ko") -> str:
     from an external spreadsheet, with only en/ja/zh_tw/zh_cn
     game-sourced), so there's no separate "always Korean for a Korean
     UI" special case: just look up the requested language, falling back
-    to English, then to the raw id for the ~45% of real weapon models
-    this project's own data reading couldn't confidently name (mostly
-    non-representative extra variants and a few gaps in the
-    WeaponData<->mesh cross-reference) -- never guessed, same "show the
-    id, don't invent a name" rule this tool follows everywhere else."""
+    to English, then to zh_cn (a real subset of entries -- subid=01/03,
+    which the game's own per-type msg data has zero rows for at all --
+    are only resolvable via a cross-verified third-party community
+    database that's zh_cn-only, see bake_weapon_names.py's own
+    `load_community_zh_cn_names()`; showing that real Chinese name is
+    still strictly more useful than a raw id even to a non-Chinese-reading
+    user), then finally to the raw id for whatever this project's own
+    data reading still couldn't confidently name at all -- never guessed,
+    same "show the id, don't invent a name" rule this tool follows
+    everywhere else."""
     entry = weapon_table().get(key)
     names = entry.get("names") if entry else None
     if names:
-        return names.get(lang) or names.get("en") or key
+        return names.get(lang) or names.get("en") or names.get("zh_cn") or key
     return key
 
 

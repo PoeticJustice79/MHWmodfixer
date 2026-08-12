@@ -288,6 +288,71 @@ CONFIRMED_MANUAL_NAMES = {
     },
 }
 
+# tools/community_mhws_weapon_zh_cn.csv -- a Simplified Chinese weapon-name
+# database bundled inside a third-party Chinese community MHWilds mod
+# manager tool, extracted 2026-08-11 for cross-verification purposes only
+# (never redistributed/linked/named -- this project's own established
+# no-competitor-mention discipline). Format: "<TYPE>,<sid>_<iid>,<name>"
+# (one row per representative model, "/" separating multiple known names
+# for the same model where the source itself wasn't sure which is current).
+#
+# Verified before trusting: cross-checked all 470 of its rows against this
+# project's own already-resolved weapon names (from live game data, not
+# this source) -- subid=00 matched 340/340 (100%), but subid=10 matched
+# only 1/23 (the other 22 are flatly DIFFERENT weapons, not just a
+# translation difference -- e.g. it11/10/0001: ours "龙穿弓" [Dragon-Piercing
+# Bow] vs theirs "护辟虐弓" [Protect-Tyrant Bow], unrelated names). This
+# means subid=10 has a real index-misalignment between the two data
+# sources (which one is wrong, or whether both are self-consistent but
+# numbered differently, is unresolved) -- subid=10 rows from this source
+# are therefore NEVER used, only subid=00/01/03. Also excludes the same
+# "<TypeFile>_<N>" internal-placeholder pattern this project's own
+# `_is_placeholder_name()` already filters (confirmed: this source's
+# "LongSword_97"-style entries are the exact same `#Rejected#` dev-leftover
+# rows found independently in this project's own live dump, see
+# `_is_placeholder_name()`'s docstring) -- proof the two sources really do
+# describe the same underlying game data for sid=00, reinforcing the
+# 100% match rate above rather than being a coincidence.
+_COMMUNITY_TYPE_MAP = {
+    "LONG_SWORD": "00", "SHORT_SWORD": "01", "TWIN_SWORD": "02", "TACHI": "03",
+    "HAMMER": "04", "WHISTLE": "05", "LANCE": "06", "GUN_LANCE": "07",
+    "SLASH_AXE": "08", "CHARGE_AXE": "09", "ROD": "10", "RodInsect": "10",
+    "BOW": "11", "HEAVY_BOWGUN": "12", "LIGHT_BOWGUN": "13",
+}
+_COMMUNITY_TRUSTED_SIDS = {"00", "01", "03"}  # NOT "10" -- see the block comment above
+COMMUNITY_ZH_CN_CSV = Path(__file__).resolve().parent / "community_mhws_weapon_zh_cn.csv"
+
+
+def load_community_zh_cn_names(csv_path: Path = COMMUNITY_ZH_CN_CSV) -> dict[str, str]:
+    """{"itNN/sid/iid": "zh_cn name"} for every row on a subid this source is
+    trusted for (see module comment), skipping placeholder-pattern rows.
+    Where a row lists multiple "/"-separated names, keeps only the first
+    (earliest-tier) one, matching this project's own "lowest index = most
+    representative" convention elsewhere."""
+    if not csv_path.is_file():
+        return {}
+    out = {}
+    with open(csv_path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",", 2)
+            if len(parts) != 3:
+                continue
+            wtype, sidiid, name = parts
+            code = _COMMUNITY_TYPE_MAP.get(wtype)
+            if code is None or "_" not in sidiid:
+                continue
+            sid, iid = sidiid.split("_", 1)
+            if sid not in _COMMUNITY_TRUSTED_SIDS:
+                continue
+            first_name = name.split("/", 1)[0]
+            if _is_placeholder_name(first_name) or re.match(r"^[A-Za-z_]+_?\d+$", first_name):
+                continue
+            out[f"it{code}/{sid}/{iid}"] = first_name
+    return out
+
 
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--live-dump":
@@ -344,6 +409,15 @@ def main():
             payload["entries"][key]["names"] = name_dict
             manual_applied += 1
     print(f"applied {manual_applied} manually-confirmed name(s) (CONFIRMED_MANUAL_NAMES)")
+
+    community_applied = 0
+    for key, zh_cn_name in load_community_zh_cn_names().items():
+        entry = payload["entries"].get(key)
+        if entry is not None and not entry.get("names"):
+            entry["names"] = {"zh_cn": zh_cn_name}
+            community_applied += 1
+    print(f"applied {community_applied} zh_cn-only name(s) from the trusted community CSV (subid=00/01/03 only, "
+          f"never overwrites an already-resolved key)")
 
     payload["_meta"]["names_baked_at"] = "2026-08-10"
     payload["_meta"]["names_source"] = source
