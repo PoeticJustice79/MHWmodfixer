@@ -360,16 +360,43 @@ CONFIRMED_MANUAL_NAMES = {
 # (one row per representative model, "/" separating multiple known names
 # for the same model where the source itself wasn't sure which is current).
 #
-# Verified before trusting: cross-checked all 470 of its rows against this
+# **2026-08-12 correction, real bug found and fixed**: the source's own
+# "01" sid label does NOT mean this project's subid=01 (`model_id // 1000
+# == 1`) at all -- it was originally assumed to, on the strength of
+# subid=00 matching 340/340 (which never actually distinguished this,
+# since every subid=00 model_id is < 1000 and looks identical under any
+# larger divisor too). Proven wrong while investigating a user follow-up
+# request for subid=01 multi-language names: checked one specific "01"
+# row (`LONG_SWORD,01_0006,藏钩大剑`) against this project's OWN
+# independently-resolved WeaponData.cData data and found "藏钩大剑" is the
+# REAL, official name of `it00/10/0006` (model_id=10006, confirmed via
+# the official msg UUID link) -- not `it00/01/0006` at all. Systematically
+# re-checked ALL 31 "01_<iid>" rows the same way (source's `01_<iid>` vs
+# this project's own `it<code>/10/<iid>`, by real official name, tier
+# suffix ignored): **31/31 (100%) match** -- every single "01_<iid>" row
+# is really describing `it<code>/10/<iid>`, and every one of those 31
+# already has a real, better, already-baked multi-language official name
+# from this project's own live-game resolution. This retroactively also
+# explains the ALREADY-KNOWN "subid=10 matched only 1/23" finding below:
+# this project was checking the source's rows under the WRONG label the
+# whole time (real subid=10 matches were sitting under the source's own
+# "01" label, not its "10" label). **Net effect: subid=01 is fully
+# UNRESOLVED again (the CSV never actually described it), and the 32
+# wrongly-labeled zh_cn names previously shipped under `it*/01/*` have
+# been removed** -- a wrong name is worse than no name, per this
+# project's own standing "never guess" discipline. `_COMMUNITY_TRUSTED_SIDS`
+# below now excludes "01" entirely; only "00" (independently verified,
+# safe regardless of the divisor ambiguity since its model_ids are all
+# < 1000) is used. subid=03 (Kinsects, RodInsect type) is unaffected --
+# that data was never trusted via this source's own id-bucket label in
+# the first place, only via a direct TEXT cross-match against
+# `RodInsect.msg.23`'s real official content (see `resolve_rodinsect_names()`),
+# so the same id-labeling confusion never had a chance to affect it.
+#
+# Verified before trusting (original 2026-08-11 pass, subid=00 only, still
+# holds): cross-checked all 470 of the source's rows against this
 # project's own already-resolved weapon names (from live game data, not
-# this source) -- subid=00 matched 340/340 (100%), but subid=10 matched
-# only 1/23 (the other 22 are flatly DIFFERENT weapons, not just a
-# translation difference -- e.g. it11/10/0001: ours "龙穿弓" [Dragon-Piercing
-# Bow] vs theirs "护辟虐弓" [Protect-Tyrant Bow], unrelated names). This
-# means subid=10 has a real index-misalignment between the two data
-# sources (which one is wrong, or whether both are self-consistent but
-# numbered differently, is unresolved) -- subid=10 rows from this source
-# are therefore NEVER used, only subid=00/01/03. Also excludes the same
+# this source) -- subid=00 matched 340/340 (100%). Also excludes the same
 # "<TypeFile>_<N>" internal-placeholder pattern this project's own
 # `_is_placeholder_name()` already filters (confirmed: this source's
 # "LongSword_97"-style entries are the exact same `#Rejected#` dev-leftover
@@ -383,7 +410,7 @@ _COMMUNITY_TYPE_MAP = {
     "SLASH_AXE": "08", "CHARGE_AXE": "09", "ROD": "10", "RodInsect": "10",
     "BOW": "11", "HEAVY_BOWGUN": "12", "LIGHT_BOWGUN": "13",
 }
-_COMMUNITY_TRUSTED_SIDS = {"00", "01", "03"}  # NOT "10" -- see the block comment above
+_COMMUNITY_TRUSTED_SIDS = {"00", "03"}  # NOT "01" or "10" -- see the block comment above
 COMMUNITY_ZH_CN_CSV = Path(__file__).resolve().parent / "community_mhws_weapon_zh_cn.csv"
 
 
