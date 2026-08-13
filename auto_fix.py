@@ -86,6 +86,8 @@ def auto_detect_fluffy_dir() -> str | None:
     except Exception:
         pass
     return None
+
+
 MDF2_RE = re.compile(r"\.mdf2\.(\d+)$", re.IGNORECASE)
 
 
