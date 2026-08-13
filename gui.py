@@ -660,6 +660,28 @@ class App:
         slot_tree.tag_configure("done", foreground=THEME["success"])
         slot_tree.tag_configure("pending", foreground=THEME["warn"])
 
+        # Confirmed real 2026-08-14 (DOA "Ninja 2015- Ayane" -> a real
+        # target-dependent wrist-accessory failure): a piece NUMBERED beyond
+        # the standard 5 (Arm/Body/Helm/Leg/Waist) -- e.g. a bonus mesh-only
+        # accessory some mods ship as piece 6 -- gets relocated by plain
+        # part-level renaming like everything else, but `armor_slots_ch03
+        # .json.gz`'s own compatibility data (see bake_armor_slots.py) only
+        # ever tracks pieces 1-5. There's no way for this tool to verify the
+        # CHOSEN target's real vanilla structure has an equivalent slot for
+        # it -- confirmed empirically: the same mod's piece 6 rendered fine
+        # retargeted to one slot and vanished retargeted to another, with
+        # zero warning either way. Shown per-slot (not per-candidate, since
+        # it's a property of the SOURCE mod, true regardless of which target
+        # gets picked), right under the slot list.
+        extra_pieces_label = ttk.Label(win, text="", justify="left", wraplength=640, foreground=THEME["warn"])
+        extra_pieces_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        def _extra_pieces_text(group) -> str:
+            extra = sorted(p for p in group.pieces_shipped if p > 5)
+            if not extra:
+                return ""
+            return t("note_extra_pieces_unverified", pieces=", ".join(map(str, extra)))
+
         cand_frame = ttk.LabelFrame(win, text=t("lbl_retarget_targets"))
         cand_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         cand_columns = ("slot", "name", "gender", "grade", "note")
@@ -742,6 +764,7 @@ class App:
             file_var.set(path)
             slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
+            extra_pieces_label.configure(text="")
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
             state["archive_password"] = None
             info_label.configure(text=t("msg_retarget_detecting"))
@@ -788,6 +811,7 @@ class App:
         def _select_slot(key):
             state["active_key"] = key
             group = next(g for g in state["groups"] if g.key == key)
+            extra_pieces_label.configure(text=_extra_pieces_text(group))
             cand_tree.delete(*cand_tree.get_children())
             if key in state["candidates_by_key"]:
                 cands = state["candidates_by_key"][key]
@@ -957,6 +981,8 @@ class App:
                 slot_tree.item(g.key, values=(g.key, gname, gl, len(g.files), status_text), tags=(tag,))
 
             active = state["active_key"]
+            active_group = next((g for g in state["groups"] if g.key == active), None) if active else None
+            extra_pieces_label.configure(text=_extra_pieces_text(active_group) if active_group else "")
             if active and active in state["candidates_by_key"]:
                 grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
                 occ_by_cand = state["occupancy_by_key"].get(active, {})
