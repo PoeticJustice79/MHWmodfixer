@@ -288,6 +288,54 @@ CONFIRMED_MANUAL_NAMES = {
     },
 }
 
+# it10/03/* are NOT weapons at all -- they're Kinsects (the Insect Glaive's
+# bug companion), sharing it10's file-numbering convention for a completely
+# different item category. Confirmed 2026-08-13 while investigating a real
+# Nexus mod ("Artian Editor") that also led to item #47's Gogmazios
+# cross-verification: the user pointed out these 21 zh_cn-only entries
+# (from the community CSV, see COMMUNITY_ZH_CN_CSV below) looked like real
+# insect names, not weapons.
+#
+# Sourced from Kiranico's own Kinsect database (mhwilds.kiranico.com/data/
+# kinsects), fetched in en/ko/ja/zh(-simplified) -- NOT machine-translated.
+# Kiranico's own listing order does not match this project's iid-ascending
+# order, so position correspondence between the two was verified via 5
+# independent semantic anchor points before trusting the full mapping:
+# "Pseudocath"/"시나토모도키"/"シナトモドキ" = "Cynato Mimic" (pos 11),
+# "Grancathar"/"킹시나토"/"オオシナト" = "Big/King Cynato" (pos 14),
+# "Monarch Alucanid" = "Monarch"+"Bullstag" (pos 15), "OMG"/"꼬메가"/
+# "プチオメガ" = "mini/petit Omega" (pos 18), "Windchopper"/"카제키리바네"
+# ("wind"+"cut"+"wing") (pos 21) -- all 5 matched their zh_cn counterpart's
+# literal meaning AND landed at the identical position across all 4
+# fetched language pages, confirming the pages share one consistent order.
+# zh_tw intentionally omitted -- Kiranico has no working Traditional
+# Chinese locale for this game (checked several URL path conventions,
+# none returned real content) -- weapon_label()'s existing en fallback
+# covers it rather than guessing a conversion.
+CONFIRMED_MANUAL_NAMES.update({
+    "it10/03/0000": {"en": "Mauldrone", "ko": "말드론", "ja": "マルドローン", "zh_cn": "绿金龟"},
+    "it10/03/0001": {"en": "Culldrone", "ko": "쿨드론", "ja": "クルドローン", "zh_cn": "茶金龟"},
+    "it10/03/0003": {"en": "Alucanid", "ko": "아르마스태그", "ja": "アルマスタッグ", "zh_cn": "原初锹形虫"},
+    "it10/03/0004": {"en": "Monarch Alucanid", "ko": "모나크블스태그", "ja": "モナークブルスタッグ", "zh_cn": "帝王公牛锹形虫"},
+    "it10/03/0005": {"en": "Empresswing", "ko": "레지나볼란테", "ja": "レジナヴォランテ", "zh_cn": "女王飞虫"},
+    "it10/03/0006": {"en": "Rigiprayne", "ko": "가실도레", "ja": "ガシルドーレ", "zh_cn": "亮翅虾蜂"},
+    "it10/03/0007": {"en": "Cancadaman", "ko": "둔크라프", "ja": "ドゥンクラープ", "zh_cn": "土蝼蛄"},
+    "it10/03/0008": {"en": "Fiddlebrix", "ko": "우카드레", "ja": "ウカドゥーレ", "zh_cn": "利爪鲎虫"},
+    "it10/03/0009": {"en": "Windchopper", "ko": "카제키리바네", "ja": "カゼキリバネ", "zh_cn": "风雾蛾"},
+    "it10/03/0010": {"en": "Grancathar", "ko": "킹시나토", "ja": "オオシナト", "zh_cn": "大西纳托虫"},
+    "it10/03/0011": {"en": "Pseudocath", "ko": "시나토모도키", "ja": "シナトモドキ", "zh_cn": "西纳托拟态虫"},
+    "it10/03/0013": {"en": "Foebeetle", "ko": "자미르비틀", "ja": "ザミールビートル", "zh_cn": "短角独角仙"},
+    "it10/03/0014": {"en": "Carnage Beetle", "ko": "퀘니히고어비틀", "ja": "ケーニヒゴアビートル", "zh_cn": "铲刃独角仙"},
+    "it10/03/0015": {"en": "Bonnetfille", "ko": "필카노", "ja": "フィルカーノ", "zh_cn": "巨角蝉"},
+    "it10/03/0016": {"en": "Ladytarge", "ko": "하르키터", "ja": "ハルキータ", "zh_cn": "大口瓢虫"},
+    "it10/03/0017": {"en": "Ladypavise", "ko": "도룬키터", "ja": "ドルンキータ", "zh_cn": "坚甲瓢虫"},
+    "it10/03/0018": {"en": "Arkmaiden", "ko": "아르조아냐", "ja": "アルジョアーニャ", "zh_cn": "圆龟金花虫"},
+    "it10/03/0019": {"en": "Gullshad", "ko": "가르헬", "ja": "ガルーヘル", "zh_cn": "展翅蛾"},
+    "it10/03/0020": {"en": "Bullshroud", "ko": "메이버칠", "ja": "メイヴァーチル", "zh_cn": "敛翅长蛾"},
+    "it10/03/0021": {"en": "Whispervesp", "ko": "반리엘", "ja": "ヴァンリエール", "zh_cn": "叠翅凤蝶"},
+    "it10/03/0022": {"en": "OMG", "ko": "꼬메가", "ja": "プチオメガ", "zh_cn": "迷你欧米茄"},
+})
+
 # tools/community_mhws_weapon_zh_cn.csv -- a Simplified Chinese weapon-name
 # database bundled inside a third-party Chinese community MHWilds mod
 # manager tool, extracted 2026-08-11 for cross-verification purposes only
