@@ -885,6 +885,24 @@ _STRINGS = {
         "ko": " (모드: {mod})", "en": " (mod: {mod})", "zh_tw": "（模組：{mod}）",
         "zh_cn": "（模组：{mod}）", "ja": "（MOD：{mod}）",
     },
+    "dlg_archive_password_title": {
+        "ko": "압축 파일 비밀번호", "en": "Archive password", "zh_tw": "壓縮檔密碼",
+        "zh_cn": "压缩包密码", "ja": "アーカイブのパスワード",
+    },
+    "ask_archive_password": {
+        "ko": "'{name}' 파일은 비밀번호로 보호되어 있습니다. 비밀번호를 입력하세요:",
+        "en": "'{name}' is password-protected. Enter the password:",
+        "zh_tw": "「{name}」已受密碼保護。請輸入密碼：",
+        "zh_cn": "“{name}”已受密码保护。请输入密码：",
+        "ja": "「{name}」はパスワードで保護されています。パスワードを入力してください：",
+    },
+    "ask_archive_password_wrong": {
+        "ko": "비밀번호가 올바르지 않습니다. '{name}'의 비밀번호를 다시 입력하세요:",
+        "en": "Incorrect password. Enter the password for '{name}' again:",
+        "zh_tw": "密碼不正確。請重新輸入「{name}」的密碼：",
+        "zh_cn": "密码不正确。请重新输入“{name}”的密码：",
+        "ja": "パスワードが正しくありません。「{name}」のパスワードをもう一度入力してください：",
+    },
     "msg_weapon_retarget_select_target": {
         "ko": "목록에서 옮길 대상 무기를 선택하세요.", "en": "Select a target weapon from the list.",
         "zh_tw": "請從清單中選擇要移動的目標武器。", "zh_cn": "请从列表中选择要移动的目标武器。",

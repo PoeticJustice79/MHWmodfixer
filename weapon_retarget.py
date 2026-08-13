@@ -718,19 +718,19 @@ def retarget_tree_multi(mod_root: Path, out_root: Path, groups: list[ModWeaponIn
 
 
 def retarget_archive_multi(archive_or_dir: Path, out_zip: Path, assignments: dict,
-                            log=lambda s: None) -> tuple[list[ModWeaponInfo], dict]:
+                            log=lambda s: None, password: str | None = None) -> tuple[list[ModWeaponInfo], dict]:
     """End-to-end multi-weapon version: extract, detect every weapon
     group, apply `assignments`, write out_zip. Every detected group MUST
     have an entry in `assignments` (even if the value is `None`, meaning
     "leave it") -- a group the caller never decided on is refused rather
     than silently left as a default, so a GUI can't accidentally ship a
     half-decided mod. Mirrors slot_retarget.retarget_archive_multi()
-    exactly."""
+    exactly, including the `password` re-extraction caveat documented there."""
     import tempfile
     from archive_extract import extract_archive
     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_multi_"))
     try:
-        mod_root = archive_or_dir if archive_or_dir.is_dir() else extract_archive(archive_or_dir, work)
+        mod_root = archive_or_dir if archive_or_dir.is_dir() else extract_archive(archive_or_dir, work, password=password)
         groups, unmatched = detect_mod_weapons(mod_root)
         missing = [g.key for g in groups if g.key not in assignments]
         if missing:

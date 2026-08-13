@@ -47,7 +47,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archive_extract import extract_archive
+from archive_extract import PasswordRequired, extract_archive
 from donor import candidate_donor_paths
 from game_archive import GameArchive
 from mdf2 import Mdf2File, numVersion_from_filename
@@ -690,6 +690,7 @@ def main(argv=None) -> int:
     ap.add_argument("mod", type=Path, help="Mod archive (.zip/.rar/.7z) or an already-extracted mod folder")
     ap.add_argument("--game", type=Path, default=Path(DEFAULT_GAME_DIR), help="Monster Hunter Wilds install folder")
     ap.add_argument("--output", type=Path, default=None, help="Where to write the fixed mod (default: <mod>_fixed next to the input)")
+    ap.add_argument("--password", default=None, help="Password for a password-protected .zip/.7z archive")
     ap.add_argument("--no-cross-piece", action="store_true",
                     help="Safe mode: only fix materials matchable within their own piece's vanilla file; skip the rest")
     ap.add_argument("--force-unresolved-pfbs", action="store_true",
@@ -718,7 +719,11 @@ def main(argv=None) -> int:
     elif args.mod.is_file():
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
         print(f"Extracting {args.mod} -> {work_dir}")
-        mod_root = extract_archive(args.mod, work_dir)
+        try:
+            mod_root = extract_archive(args.mod, work_dir, password=args.password)
+        except PasswordRequired as e:
+            print(f"error: {e} -- re-run with --password <password>", file=sys.stderr)
+            return 2
     else:
         print(f"error: mod path not found: {args.mod}", file=sys.stderr)
         return 2

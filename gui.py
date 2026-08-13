@@ -26,7 +26,7 @@ import zipfile
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
+from tkinter import BooleanVar, StringVar, filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 
 try:
@@ -37,7 +37,7 @@ except ImportError:
 
 import i18n
 import rsz_layout
-from archive_extract import extract_archive
+from archive_extract import PasswordRequired, extract_archive
 from auto_fix import DEFAULT_GAME_DIR, DEFAULT_FLUFFY_DIR, auto_detect_fluffy_dir, process_mod
 from diagnose import diagnose, summarize
 from fluffy_repackage import needs_repackaging, repackage_for_fluffy
@@ -743,6 +743,7 @@ class App:
             slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
+            state["archive_password"] = None
             info_label.configure(text=t("msg_retarget_detecting"))
             btn_apply.configure(state="disabled")
             btn_leave.configure(state="disabled")
@@ -752,10 +753,9 @@ class App:
             def worker():
                 try:
                     import tempfile
-                    from archive_extract import extract_archive
                     work = Path(tempfile.mkdtemp(prefix="retarget_ui_"))
                     try:
-                        mod_root = extract_archive(Path(path), work)
+                        mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
                         groups, unmatched = slot_retarget.detect_mod_slots(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
@@ -892,7 +892,8 @@ class App:
             def worker():
                 try:
                     _, moved_counts = slot_retarget.retarget_archive_multi(
-                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None,
+                        password=state.get("archive_password"))
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
@@ -1109,6 +1110,7 @@ class App:
             slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
+            state["archive_password"] = None
             info_label.configure(text=t("msg_retarget_detecting"))
             btn_apply.configure(state="disabled")
             btn_leave.configure(state="disabled")
@@ -1119,7 +1121,7 @@ class App:
                 try:
                     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_ui_"))
                     try:
-                        mod_root = extract_archive(Path(path), work)
+                        mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
                         groups, unmatched = weapon_retarget.detect_mod_weapons(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
@@ -1254,7 +1256,8 @@ class App:
             def worker():
                 try:
                     weapon_retarget.retarget_archive_multi(
-                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None,
+                        password=state.get("archive_password"))
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
@@ -1484,6 +1487,34 @@ class App:
     def ask_yes_no(self, title: str, message: str) -> bool:
         return self._run_on_main_thread(messagebox.askyesno, title, message)
 
+    def ask_password(self, title: str, message: str) -> str | None:
+        return self._run_on_main_thread(
+            lambda: simpledialog.askstring(title, message, show="*", parent=self.root))
+
+    def extract_archive_prompting(self, archive_path: Path, dest_dir: Path) -> tuple[Path, str | None]:
+        """`extract_archive()`, but transparently prompts for a password
+        (via `ask_password()`, safe to call from any background thread --
+        see `_run_on_main_thread()`) and retries on `PasswordRequired`
+        instead of failing outright. Raises `PasswordRequired` if the user
+        cancels the prompt, matching the underlying function's own
+        "couldn't extract" signal for callers that don't care why.
+
+        Returns `(mod_root, password)` -- the resolved password (`None` if
+        the archive never needed one) is handed back so a caller that
+        re-extracts the SAME archive later (both retarget dialogs' "Generate"
+        step does exactly this, from a fresh temp dir via
+        `retarget_archive_multi()`) doesn't have to prompt the user twice
+        for one archive."""
+        password = None
+        while True:
+            try:
+                return extract_archive(archive_path, dest_dir, password=password), password
+            except PasswordRequired as e:
+                msg_key = "ask_archive_password_wrong" if e.wrong_password else "ask_archive_password"
+                password = self.ask_password(t("dlg_archive_password_title"), t(msg_key, name=archive_path.name))
+                if not password:
+                    raise
+
     def show_info(self, title: str, message: str):
         self._run_on_main_thread(messagebox.showinfo, title, message)
 
@@ -1566,7 +1597,7 @@ class App:
         "already_current", "unresolved" for the caller to tally."""
         self.log(f"Extracting: {mod_archive.name}")
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
-        mod_root = extract_archive(mod_archive, work_dir)
+        mod_root, _ = self.extract_archive_prompting(mod_archive, work_dir)
 
         self.log("Diagnosing mod state...")
         file_plans, pak_plans = diagnose(mod_root, game, progress_cb=self.set_progress)
