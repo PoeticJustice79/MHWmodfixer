@@ -352,6 +352,19 @@ CONFIRMED_MANUAL_NAMES = {
     },
 }
 
+# it10/03/* Kinsects (Insect Glaive's bug companion, sharing it10's file-
+# numbering convention for a completely different item category, NOT
+# weapons) are named via `resolve_rodinsect_names()` above, not here.
+# A parallel session independently named all 21 of the same entries via
+# Kiranico's own kinsect database (en/ko/ja/zh_cn, 5 semantic anchors
+# verifying page-order correspondence) -- cross-checked against
+# `resolve_rodinsect_names()`'s official-msg-sourced result on merge and
+# found 21/21 exact agreement on every shared language (see CLAUDE.md
+# #56). That confirms both are correct; `resolve_rodinsect_names()` is
+# kept as the single active mechanism since it also resolves zh_tw
+# (which Kiranico doesn't have for this game), so a redundant
+# `CONFIRMED_MANUAL_NAMES` block for the same 21 keys isn't carried here.
+
 # tools/community_mhws_weapon_zh_cn.csv -- a Simplified Chinese weapon-name
 # database bundled inside a third-party Chinese community MHWilds mod
 # manager tool, extracted 2026-08-11 for cross-verification purposes only

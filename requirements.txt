@@ -1,4 +1,5 @@
 zstandard
 py7zr
+pyzipper
 tkinterdnd2
 pyinstaller

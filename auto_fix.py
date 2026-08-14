@@ -47,7 +47,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archive_extract import extract_archive
+from archive_extract import PasswordRequired, extract_archive
 from donor import candidate_donor_paths
 from game_archive import GameArchive
 from mdf2 import Mdf2File, numVersion_from_filename
@@ -209,6 +209,30 @@ class FilePlan:
 # this project has dumped that's actually disabled uses this exact file).
 _SAFE_NULL_MASK_TEXTURE = "MasterMaterial/Textures/NullBlack_Alpha_MSK4.tex"
 
+# Same "brand-new slot, neutralize instead of trusting the donor" safety
+# net as the mask case above, but for the Detail_ALBD_*/Detail_NRRH_*
+# per-channel detail-layer textures a shader migration (Base_Equip_Fur ->
+# Base_Equip) can newly introduce. Confirmed real (2026-08-13, Mangie
+# "Fluffy Bunny"): even with DetailMaskMap itself correctly neutralized by
+# the mask rule below, the individual Detail_ALBD_G/NRRH_G and
+# Detail_ALBD_A/NRRH_A slots on the picked donor ("m_0012_UseSC"-style)
+# still carried real, non-null content (an unrelated leather/chainmail
+# detail decal) straight through unconditionally -- the mask rule never
+# even looked at them since their names don't contain "mask". Whether or
+# not that specific bleed is what caused this mod's reported black-screen-
+# on-reconnect (materials alone are an unusual root cause for a boot-time
+# hang, per this project's own established pattern -- but #26/#32 already
+# confirmed a materially-identical "brand new slot borrows a UV-mismatched
+# real donor value" bug caused an outright crash on a different mod, not
+# just a visual one), it's the same defect class either way and worth
+# closing the same way. The RIGHT neutral default differs by texture kind
+# (not the mask convention) -- taken from what this exact file already
+# uses for its OWN already-unused Detail channels (Detail_ALBD_R here is
+# "systems/rendering/NullGray.tex", Detail_NRRH_R is
+# "systems/rendering/NullNormalRoughnessOcclusion.tex"), not guessed.
+_SAFE_NULL_DETAIL_ALBD_TEXTURE = "systems/rendering/NullGray.tex"
+_SAFE_NULL_DETAIL_NRRH_TEXTURE = "systems/rendering/NullNormalRoughnessOcclusion.tex"
+
 
 def _looks_like_null_texture(path: str) -> bool:
     """Whether `path` is already one of the engine's own generic "nothing
@@ -302,8 +326,7 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
         if new_path is not None and new_path != t["path"]:
             t["path"] = new_path
             changed += 1
-        elif (new_path is None and "mask" in t["type"].lower()
-              and not _looks_like_null_texture(t["path"])):
+        elif new_path is None and not _looks_like_null_texture(t["path"]):
             # Confirmed real bug (2026-08-09, "OVR Rogue - Bifrost" helm
             # texture bleed): a texture slot genuinely NEW to the mod's own
             # material (it never had this slot at all) otherwise keeps
@@ -324,10 +347,31 @@ def apply_texture_overrides(donor_mat: dict, mod_mat: dict, log) -> tuple[dict, 
             # no "correct" mask to guess -- force the same inert convention
             # already used pervasively elsewhere in this game's own
             # materials for "this optional layer is off" instead.
-            t["path"] = _SAFE_NULL_MASK_TEXTURE
-            log(f"    [info] material {mod_mat['name']!r}: new texture slot {t['type']!r} "
-                f"is a mask the mod never used -- forced to the inert default instead of "
-                f"the donor's own (possibly UV-mismatched) value")
+            #
+            # Widened 2026-08-13 (Mangie "Fluffy Bunny"): the same donor-
+            # bleed pattern isn't unique to mask-named slots -- the
+            # Detail_ALBD_*/Detail_NRRH_* per-channel detail textures
+            # themselves can also be brand-new on the mod's side and carry
+            # a real, UV-mismatched value from whatever donor got picked,
+            # even when DetailMaskMap (which gates them) was already
+            # correctly neutralized. Each texture "kind" gets the neutral
+            # default this SAME file already uses for its own genuinely-
+            # unused channels of that kind, not a single one-size-fits-all
+            # value.
+            tlow = t["type"].lower()
+            if "mask" in tlow:
+                safe_default = _SAFE_NULL_MASK_TEXTURE
+            elif tlow.startswith("detail_albd"):
+                safe_default = _SAFE_NULL_DETAIL_ALBD_TEXTURE
+            elif tlow.startswith("detail_nrrh"):
+                safe_default = _SAFE_NULL_DETAIL_NRRH_TEXTURE
+            else:
+                safe_default = None
+            if safe_default is not None:
+                t["path"] = safe_default
+                log(f"    [info] material {mod_mat['name']!r}: new texture slot {t['type']!r} "
+                    f"is a feature the mod never used -- forced to the inert default instead of "
+                    f"the donor's own (possibly UV-mismatched) value")
     extra = set(mod_tex_by_type) - donor_types
     if extra:
         log(f"    [warn] material {mod_mat['name']!r}: mod texture slot(s) {sorted(extra)} "
@@ -646,6 +690,7 @@ def main(argv=None) -> int:
     ap.add_argument("mod", type=Path, help="Mod archive (.zip/.rar/.7z) or an already-extracted mod folder")
     ap.add_argument("--game", type=Path, default=Path(DEFAULT_GAME_DIR), help="Monster Hunter Wilds install folder")
     ap.add_argument("--output", type=Path, default=None, help="Where to write the fixed mod (default: <mod>_fixed next to the input)")
+    ap.add_argument("--password", default=None, help="Password for a password-protected .zip/.7z archive")
     ap.add_argument("--no-cross-piece", action="store_true",
                     help="Safe mode: only fix materials matchable within their own piece's vanilla file; skip the rest")
     ap.add_argument("--force-unresolved-pfbs", action="store_true",
@@ -674,7 +719,11 @@ def main(argv=None) -> int:
     elif args.mod.is_file():
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
         print(f"Extracting {args.mod} -> {work_dir}")
-        mod_root = extract_archive(args.mod, work_dir)
+        try:
+            mod_root = extract_archive(args.mod, work_dir, password=args.password)
+        except PasswordRequired as e:
+            print(f"error: {e} -- re-run with --password <password>", file=sys.stderr)
+            return 2
     else:
         print(f"error: mod path not found: {args.mod}", file=sys.stderr)
         return 2

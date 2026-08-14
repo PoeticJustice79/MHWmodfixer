@@ -26,7 +26,7 @@ import zipfile
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import BooleanVar, StringVar, filedialog, messagebox, ttk
+from tkinter import BooleanVar, StringVar, filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 
 try:
@@ -37,7 +37,7 @@ except ImportError:
 
 import i18n
 import rsz_layout
-from archive_extract import extract_archive
+from archive_extract import PasswordRequired, extract_archive
 from auto_fix import DEFAULT_GAME_DIR, DEFAULT_FLUFFY_DIR, auto_detect_fluffy_dir, process_mod
 from diagnose import diagnose, summarize
 from fluffy_repackage import needs_repackaging, repackage_for_fluffy
@@ -660,6 +660,28 @@ class App:
         slot_tree.tag_configure("done", foreground=THEME["success"])
         slot_tree.tag_configure("pending", foreground=THEME["warn"])
 
+        # Confirmed real 2026-08-14 (DOA "Ninja 2015- Ayane" -> a real
+        # target-dependent wrist-accessory failure): a piece NUMBERED beyond
+        # the standard 5 (Arm/Body/Helm/Leg/Waist) -- e.g. a bonus mesh-only
+        # accessory some mods ship as piece 6 -- gets relocated by plain
+        # part-level renaming like everything else, but `armor_slots_ch03
+        # .json.gz`'s own compatibility data (see bake_armor_slots.py) only
+        # ever tracks pieces 1-5. There's no way for this tool to verify the
+        # CHOSEN target's real vanilla structure has an equivalent slot for
+        # it -- confirmed empirically: the same mod's piece 6 rendered fine
+        # retargeted to one slot and vanished retargeted to another, with
+        # zero warning either way. Shown per-slot (not per-candidate, since
+        # it's a property of the SOURCE mod, true regardless of which target
+        # gets picked), right under the slot list.
+        extra_pieces_label = ttk.Label(win, text="", justify="left", wraplength=640, foreground=THEME["warn"])
+        extra_pieces_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        def _extra_pieces_text(group) -> str:
+            extra = sorted(p for p in group.pieces_shipped if p > 5)
+            if not extra:
+                return ""
+            return t("note_extra_pieces_unverified", pieces=", ".join(map(str, extra)))
+
         cand_frame = ttk.LabelFrame(win, text=t("lbl_retarget_targets"))
         cand_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         cand_columns = ("slot", "name", "gender", "grade", "note")
@@ -742,7 +764,9 @@ class App:
             file_var.set(path)
             slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
+            extra_pieces_label.configure(text="")
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
+            state["archive_password"] = None
             info_label.configure(text=t("msg_retarget_detecting"))
             btn_apply.configure(state="disabled")
             btn_leave.configure(state="disabled")
@@ -752,10 +776,9 @@ class App:
             def worker():
                 try:
                     import tempfile
-                    from archive_extract import extract_archive
                     work = Path(tempfile.mkdtemp(prefix="retarget_ui_"))
                     try:
-                        mod_root = extract_archive(Path(path), work)
+                        mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
                         groups, unmatched = slot_retarget.detect_mod_slots(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
@@ -788,6 +811,7 @@ class App:
         def _select_slot(key):
             state["active_key"] = key
             group = next(g for g in state["groups"] if g.key == key)
+            extra_pieces_label.configure(text=_extra_pieces_text(group))
             cand_tree.delete(*cand_tree.get_children())
             if key in state["candidates_by_key"]:
                 cands = state["candidates_by_key"][key]
@@ -892,7 +916,8 @@ class App:
             def worker():
                 try:
                     _, moved_counts = slot_retarget.retarget_archive_multi(
-                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None,
+                        password=state.get("archive_password"))
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
@@ -956,6 +981,8 @@ class App:
                 slot_tree.item(g.key, values=(g.key, gname, gl, len(g.files), status_text), tags=(tag,))
 
             active = state["active_key"]
+            active_group = next((g for g in state["groups"] if g.key == active), None) if active else None
+            extra_pieces_label.configure(text=_extra_pieces_text(active_group) if active_group else "")
             if active and active in state["candidates_by_key"]:
                 grade_text = {"exact": t("grade_exact"), "partial": t("grade_partial"), "gpuc": t("grade_gpuc")}
                 occ_by_cand = state["occupancy_by_key"].get(active, {})
@@ -1109,6 +1136,7 @@ class App:
             slot_tree.delete(*slot_tree.get_children())
             cand_tree.delete(*cand_tree.get_children())
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
+            state["archive_password"] = None
             info_label.configure(text=t("msg_retarget_detecting"))
             btn_apply.configure(state="disabled")
             btn_leave.configure(state="disabled")
@@ -1119,7 +1147,7 @@ class App:
                 try:
                     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_ui_"))
                     try:
-                        mod_root = extract_archive(Path(path), work)
+                        mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
                         groups, unmatched = weapon_retarget.detect_mod_weapons(mod_root)
                     finally:
                         shutil.rmtree(work, ignore_errors=True)
@@ -1254,7 +1282,8 @@ class App:
             def worker():
                 try:
                     weapon_retarget.retarget_archive_multi(
-                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None)
+                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None,
+                        password=state.get("archive_password"))
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),
@@ -1484,6 +1513,34 @@ class App:
     def ask_yes_no(self, title: str, message: str) -> bool:
         return self._run_on_main_thread(messagebox.askyesno, title, message)
 
+    def ask_password(self, title: str, message: str) -> str | None:
+        return self._run_on_main_thread(
+            lambda: simpledialog.askstring(title, message, show="*", parent=self.root))
+
+    def extract_archive_prompting(self, archive_path: Path, dest_dir: Path) -> tuple[Path, str | None]:
+        """`extract_archive()`, but transparently prompts for a password
+        (via `ask_password()`, safe to call from any background thread --
+        see `_run_on_main_thread()`) and retries on `PasswordRequired`
+        instead of failing outright. Raises `PasswordRequired` if the user
+        cancels the prompt, matching the underlying function's own
+        "couldn't extract" signal for callers that don't care why.
+
+        Returns `(mod_root, password)` -- the resolved password (`None` if
+        the archive never needed one) is handed back so a caller that
+        re-extracts the SAME archive later (both retarget dialogs' "Generate"
+        step does exactly this, from a fresh temp dir via
+        `retarget_archive_multi()`) doesn't have to prompt the user twice
+        for one archive."""
+        password = None
+        while True:
+            try:
+                return extract_archive(archive_path, dest_dir, password=password), password
+            except PasswordRequired as e:
+                msg_key = "ask_archive_password_wrong" if e.wrong_password else "ask_archive_password"
+                password = self.ask_password(t("dlg_archive_password_title"), t(msg_key, name=archive_path.name))
+                if not password:
+                    raise
+
     def show_info(self, title: str, message: str):
         self._run_on_main_thread(messagebox.showinfo, title, message)
 
@@ -1566,7 +1623,7 @@ class App:
         "already_current", "unresolved" for the caller to tally."""
         self.log(f"Extracting: {mod_archive.name}")
         work_dir = Path(tempfile.mkdtemp(prefix="mhwmodfix_"))
-        mod_root = extract_archive(mod_archive, work_dir)
+        mod_root, _ = self.extract_archive_prompting(mod_archive, work_dir)
 
         self.log("Diagnosing mod state...")
         file_plans, pak_plans = diagnose(mod_root, game, progress_cb=self.set_progress)

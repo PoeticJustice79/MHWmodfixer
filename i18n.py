@@ -885,6 +885,36 @@ _STRINGS = {
         "ko": " (모드: {mod})", "en": " (mod: {mod})", "zh_tw": "（模組：{mod}）",
         "zh_cn": "（模组：{mod}）", "ja": "（MOD：{mod}）",
     },
+    "note_extra_pieces_unverified": {
+        "ko": "⚠ 표준 5부위(팔/몸통/투구/다리/허리) 외 추가 파츠({pieces}번)가 있습니다. "
+              "이 파츠는 대상 슬롯과의 호환성이 검증되지 않아, 옮긴 뒤 게임에서 직접 확인이 필요합니다.",
+        "en": "⚠ This mod ships extra piece(s) beyond the standard 5 (Arm/Body/Helm/Leg/Waist) -- piece {pieces}. "
+              "Compatibility with the target slot isn't verified for these; check in-game after relocating.",
+        "zh_tw": "⚠ 此模組包含標準5部位（手臂/身體/頭盔/腿部/腰部）以外的額外部件（第{pieces}號）。"
+                 "這些部件與目標位置的相容性未經驗證，移動後請務必在遊戲中確認。",
+        "zh_cn": "⚠ 此模组包含标准5部位（手臂/身体/头盔/腿部/腰部）以外的额外部件（第{pieces}号）。"
+                 "这些部件与目标位置的兼容性未经验证，移动后请务必在游戏中确认。",
+        "ja": "⚠ このMODには標準5部位（腕/胴体/兜/脚/腰）以外の追加パーツ（{pieces}番）が含まれています。"
+              "これらのパーツは移動先スロットとの互換性が検証されていないため、移動後はゲーム内で必ず確認してください。",
+    },
+    "dlg_archive_password_title": {
+        "ko": "압축 파일 비밀번호", "en": "Archive password", "zh_tw": "壓縮檔密碼",
+        "zh_cn": "压缩包密码", "ja": "アーカイブのパスワード",
+    },
+    "ask_archive_password": {
+        "ko": "'{name}' 파일은 비밀번호로 보호되어 있습니다. 비밀번호를 입력하세요:",
+        "en": "'{name}' is password-protected. Enter the password:",
+        "zh_tw": "「{name}」已受密碼保護。請輸入密碼：",
+        "zh_cn": "“{name}”已受密码保护。请输入密码：",
+        "ja": "「{name}」はパスワードで保護されています。パスワードを入力してください：",
+    },
+    "ask_archive_password_wrong": {
+        "ko": "비밀번호가 올바르지 않습니다. '{name}'의 비밀번호를 다시 입력하세요:",
+        "en": "Incorrect password. Enter the password for '{name}' again:",
+        "zh_tw": "密碼不正確。請重新輸入「{name}」的密碼：",
+        "zh_cn": "密码不正确。请重新输入“{name}”的密码：",
+        "ja": "パスワードが正しくありません。「{name}」のパスワードをもう一度入力してください：",
+    },
     "msg_weapon_retarget_select_target": {
         "ko": "목록에서 옮길 대상 무기를 선택하세요.", "en": "Select a target weapon from the list.",
         "zh_tw": "請從清單中選擇要移動的目標武器。", "zh_cn": "请从列表中选择要移动的目标武器。",
