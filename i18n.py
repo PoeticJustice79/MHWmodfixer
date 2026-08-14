@@ -855,6 +855,15 @@ _STRINGS = {
         "ja": "MODに含まれる物理ファイル（chain2など）がこの対象では反映されない可能性があります"
               "（対象に不足している基本物理：{physics}）",
     },
+    "note_weapon_loses_gimmick": {
+        "ko": "⚠ 원본 슬롯은 전용 무기 기믹(발도 시 형태/발광 변화 등)이 있는데, 이 대상은 없어서 그 효과가 사라질 수 있음",
+        "en": "⚠ the source slot has a dedicated weapon gimmick (e.g. a sheathed/drawn transform or glow) "
+              "this target doesn't share -- that effect may be lost",
+        "zh_tw": "⚠ 原始欄位擁有專屬武器機關（例如拔刀時的變形或發光效果），此目標沒有，該效果可能會消失",
+        "zh_cn": "⚠ 原始位置拥有专属武器机关（例如拔刀时的变形或发光效果），此目标没有，该效果可能会消失",
+        "ja": "⚠ 元のスロットには専用の武器ギミック（抜刀時の変形や発光など）がありますが、"
+              "この対象にはないため、その効果が失われる可能性があります",
+    },
     "note_target_occupied": {
         "ko": "⚠ 이미 다른 모드가 사용 중",
         "en": "⚠ already used by another mod",

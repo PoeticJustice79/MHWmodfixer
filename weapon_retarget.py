@@ -393,6 +393,7 @@ class TargetWeaponCandidate:
     grade: str           # "exact" | "partial" | "refused"
     missing_physics: list[str] = field(default_factory=list)  # physics types the target lacks
     verified: bool = False
+    loses_gimmick: bool = False  # source has a dedicated WeaponGimmick bank the target doesn't share -- see find_compatible_weapon_targets()
 
 
 def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCandidate]:
@@ -427,6 +428,19 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
     src_key = source.key
     src_entry = table.get(src_key, {})
     src_physics = set(src_entry.get("physics", []))
+    # See CLAUDE.md #52/#53: a slot flagged "special_gimmick" (its own
+    # vanilla pfb references a DEDICATED WeaponGimmick motion bank, not the
+    # type's generic default) drives animation-triggered behavior (e.g. a
+    # sheathed/drawn transform glow) through that bank -- a mod with no
+    # bundled pfb of its own inherits whatever bank the TARGET slot's own
+    # vanilla pfb references, so retargeting away from a dedicated-bank
+    # source silently loses that behavior with no code-level breakage at
+    # all (confirmed empirically: GS_Artian_LVL5/"Varianza", 0002 -> 0007,
+    # transform got stuck permanently "on"). This is a warning, not a
+    # block -- most mods at a special-gimmick slot are ordinary reskins
+    # that never used the effect in the first place.
+    src_special_gimmick = bool(src_entry.get("special_gimmick"))
+    src_gimmick_bank = src_entry.get("gimmick_bank")
 
     out = []
     for key, cand in table.items():
@@ -449,9 +463,10 @@ def find_compatible_weapon_targets(source: ModWeaponInfo) -> list[TargetWeaponCa
             grade = "partial" if missing else "exact"
         else:
             grade, missing = "exact", []
+        loses_gimmick = src_special_gimmick and cand.get("gimmick_bank") != src_gimmick_bank
         out.append(TargetWeaponCandidate(
             key=key, type_code=t_code, sid=t_sid, iid=t_iid,
-            grade=grade, missing_physics=missing,
+            grade=grade, missing_physics=missing, loses_gimmick=loses_gimmick,
         ))
     grade_rank = {"exact": 0, "partial": 1, "refused": 2}
     out.sort(key=lambda c: (grade_rank[c.grade], c.sid, c.iid))

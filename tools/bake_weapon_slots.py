@@ -192,6 +192,26 @@ def scan_weapon(game: GameArchive, registry: dict, code: str, sid: str, iid: str
             physics_hit = sorted(type_names & PHYSICS_TYPE_NAMES)
             if physics_hit:
                 entry["physics"] = physics_hit
+            # WeaponGimmick motion-bank reference (CLAUDE.md #52/#53): the
+            # animation-driven sheathed/drawn transform mechanism some
+            # weapons use (e.g. GS_Artian_LVL5/"Varianza" at it00/00/0002)
+            # is wired through a per-slot .motbank string referenced here,
+            # NOT through mesh-part visibility (that hypothesis was tested
+            # and disproven -- see CLAUDE.md's correction). Most slots of a
+            # given type reference the same GENERIC bank
+            # (Motion/Player/WeaponGimmick/Wp<NN>/Wp<NN>Gimmick.motbank);
+            # a slot with a DEDICATED bank (different path, e.g. the
+            # "Wp00_01" variant) has special animation-driven behavior that
+            # retargeting to a plain slot silently loses, since a mod with
+            # no bundled pfb inherits the TARGET's own vanilla pfb/bank
+            # unmodified. Confirmed empirically 2026-08-14: retargeting
+            # 0002 (dedicated bank) -> 0007 (generic bank) left the
+            # transform stuck permanently "on" with no code change to the
+            # mod at all -- the material/mesh were never the problem.
+            strings = pfb_fix._resource_strings(pfb_bytes, parsed["rsz_off"])
+            gimmick_hits = sorted(s for s in strings if "WeaponGimmick" in s)
+            if gimmick_hits:
+                entry["gimmick_bank"] = gimmick_hits[0] if len(gimmick_hits) == 1 else gimmick_hits
         except Exception as e:  # noqa: BLE001 -- diagnostic bake, never fatal
             entry["pfb_parse_error"] = str(e)
 
@@ -218,6 +238,40 @@ def bake(game_dir: str = "") -> tuple[dict, int]:
                 out[key] = scan_weapon(game, registry, code, sid, iid)
                 total += 1
         print(f"  {code}: {len(subids)} subid group(s), running total {total}")
+
+    # Flag any slot whose gimmick_bank differs from its OWN type's most
+    # common (i.e. generic default) bank -- see scan_weapon()'s own comment
+    # for why this matters. Computed per-type by majority vote rather than
+    # hardcoding a "Wp<NN>/Wp<NN>Gimmick.motbank" pattern, since that keeps
+    # this correct even if a future title update changes the naming.
+    # gimmick_bank is a single string for a slot with one matching resource
+    # string, or a list when the RSZ header also references a companion
+    # "..._mcb.user" alongside the .motbank itself (confirmed real, e.g.
+    # it00/00/0002/0007 both) -- normalize to a tuple for comparison either
+    # way, since a list isn't hashable as a Counter key.
+    from collections import Counter
+    def _bank_key(gb):
+        if isinstance(gb, str):
+            return (gb,)
+        if isinstance(gb, list):
+            return tuple(gb)
+        return None
+    banks_by_type: dict[str, Counter] = {}
+    for key, e in out.items():
+        bk = _bank_key(e.get("gimmick_bank"))
+        if bk is not None:
+            code = key.split("/", 1)[0]
+            banks_by_type.setdefault(code, Counter())[bk] += 1
+    default_bank = {code: c.most_common(1)[0][0] for code, c in banks_by_type.items()}
+    special_count = 0
+    for key, e in out.items():
+        bk = _bank_key(e.get("gimmick_bank"))
+        if bk is not None:
+            code = key.split("/", 1)[0]
+            if bk != default_bank.get(code):
+                e["special_gimmick"] = True
+                special_count += 1
+    print(f"flagged {special_count} slot(s) with a non-default WeaponGimmick bank")
 
     print(f"baked {total} weapon models in {time.time() - t0:.1f}s")
     return out, total

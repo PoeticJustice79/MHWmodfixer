@@ -1095,10 +1095,13 @@ class App:
                  "candidates_by_key": {}, "occupancy_by_key": {}, "fluffy_index": {}}
 
         def _weapon_note_for(c) -> str:
-            if not c.missing_physics:
-                return ""
-            key = "note_weapon_missing_physics" if c.grade == "refused" else "note_weapon_partial_physics"
-            return t(key, physics=", ".join(c.missing_physics))
+            parts = []
+            if c.missing_physics:
+                key = "note_weapon_missing_physics" if c.grade == "refused" else "note_weapon_partial_physics"
+                parts.append(t(key, physics=", ".join(c.missing_physics)))
+            if c.loses_gimmick:
+                parts.append(t("note_weapon_loses_gimmick"))
+            return " ".join(parts)
 
         def set_pick_busy(busy: bool):
             btn_pick.configure(state="disabled" if busy else "normal")
