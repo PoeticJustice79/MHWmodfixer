@@ -214,6 +214,81 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
     return out
 
 
+def resolve_rodinsect_names(game_dir: str = "", entries: dict | None = None) -> dict[str, dict[str, str]]:
+    """Kinsects (it10/03/<iid>, InsectGlaive's "RodInsect" sub-equipment) are
+    NOT part of `WeaponData.cData` (subid=03 has zero rows there, confirmed
+    repeatedly -- see #42/#44/#45) and use a completely separate real game
+    data pair, found 2026-08-12 via `LartTyler/mhdb-wilds-data`'s config.toml:
+    `Common/Equip/RodInsectRecipeData.user.3` (crafting recipe rows --
+    `_Index`/`_ID`/`_KeyItemId`/.../`_PrevID`, no `_ModelId` or `_Name` GUID
+    field at all, so it can't be linked to a msg entry or a file-path iid
+    the same way WeaponData.cData is) and `Excel_Equip/RodInsect.msg.23`
+    (real per-kinsect text, all 5 languages, msg entry names literally
+    `RodInsect_<the cData row's own _ID value>` -- confirmed directly:
+    `_ID=1190390272` <-> msg entry `RodInsect_1190390272`).
+
+    Since neither table exposes the file-path iid (`it10/03/<iid>`) this
+    project's own `bake_weapon_slots.py` existence-probe already
+    established independently, the link used here is NOT id-based --
+    it's a verified TEXT match: `tools/community_mhws_weapon_zh_cn.csv`
+    (see #45) already supplied zh_cn names for all 21 of these iids, and
+    cross-checking those exact zh_cn strings against RodInsect.msg.23's own
+    zh_cn column found a 21/21 (100%) exact match, zero ambiguity -- proof
+    both sources describe the identical 21 kinsects, and the msg entry
+    matched via zh_cn text is the correct FULL-LANGUAGE source for that
+    same iid. This is a one-time, hand-verified bridge (not a general
+    "match by any language's text" mechanism) -- if `bake_weapon_slots.py`
+    ever re-probes and finds a 22nd kinsect slot with no zh_cn counterpart
+    already baked, it will simply stay unresolved here rather than guess.
+    """
+    game = GameArchive(game_dir or auto_fix.DEFAULT_GAME_DIR)
+
+    found = game.find_versioned("natives/stm/gamedesign/text/excel_equip/rodinsect", "msg", version_range=range(1, 50))
+    if found is None:
+        return {}
+    _, mdata = found
+    result = parse_msg(mdata)
+    langs = result["languages"]
+    lang_idx = {code: langs.index(via_code) for code, via_code in _LANG_CODE_MAP.items() if via_code in langs}
+    if not lang_idx:
+        return {}
+    msg_names_by_zh_cn: dict[str, dict[str, str]] = {}
+    for e in result["entries"]:
+        content = e["content"]
+        d = {code: content[idx].strip() for code, idx in lang_idx.items() if idx < len(content) and content[idx].strip()}
+        d = {lang: text for lang, text in d.items() if not _is_placeholder_name(text)}
+        zh_cn = d.get("zh_cn")
+        if zh_cn:
+            msg_names_by_zh_cn[zh_cn] = d
+
+    # `entries` lets a caller (main()) pass its own IN-MEMORY payload --
+    # required when the community-CSV zh_cn pass (this function's own
+    # cross-match source, see docstring) hasn't been written back to
+    # SLOTS_PATH yet. Re-reading the file fresh here used to silently
+    # return zero matches on a truly clean rebuild (bake_weapon_slots.py
+    # wiping all "names" fields, then this function reading the still-
+    # nameless on-disk copy before main() ever saves its own in-memory
+    # community-CSV zh_cn additions) -- confirmed real 2026-08-14, only
+    # ever "worked" before because a prior run's already-saved zh_cn names
+    # happened to still be on disk from an earlier, separate invocation.
+    if entries is None:
+        with gzip.open(SLOTS_PATH, "rt", encoding="utf-8") as f:
+            entries = json.load(f)["entries"]
+
+    out: dict[str, dict[str, str]] = {}
+    for key, entry_data in entries.items():
+        parts = key.split("/")
+        if len(parts) != 3 or parts[0] != "it10" or parts[1] != "03":
+            continue
+        existing_zh_cn = (entry_data.get("names") or {}).get("zh_cn")
+        if not existing_zh_cn:
+            continue
+        matched = msg_names_by_zh_cn.get(existing_zh_cn)
+        if matched:
+            out[key] = matched
+    return out
+
+
 def resolve_names_from_live_dump(dump_path: Path) -> dict[str, dict[str, str]]:
     """Alternative to `resolve_names()`, reading a REFramework Lua dump
     (`mhwmodfixer_weapon_name_dump.lua`'s own JSON output) instead of
@@ -288,53 +363,18 @@ CONFIRMED_MANUAL_NAMES = {
     },
 }
 
-# it10/03/* are NOT weapons at all -- they're Kinsects (the Insect Glaive's
-# bug companion), sharing it10's file-numbering convention for a completely
-# different item category. Confirmed 2026-08-13 while investigating a real
-# Nexus mod ("Artian Editor") that also led to item #47's Gogmazios
-# cross-verification: the user pointed out these 21 zh_cn-only entries
-# (from the community CSV, see COMMUNITY_ZH_CN_CSV below) looked like real
-# insect names, not weapons.
-#
-# Sourced from Kiranico's own Kinsect database (mhwilds.kiranico.com/data/
-# kinsects), fetched in en/ko/ja/zh(-simplified) -- NOT machine-translated.
-# Kiranico's own listing order does not match this project's iid-ascending
-# order, so position correspondence between the two was verified via 5
-# independent semantic anchor points before trusting the full mapping:
-# "Pseudocath"/"시나토모도키"/"シナトモドキ" = "Cynato Mimic" (pos 11),
-# "Grancathar"/"킹시나토"/"オオシナト" = "Big/King Cynato" (pos 14),
-# "Monarch Alucanid" = "Monarch"+"Bullstag" (pos 15), "OMG"/"꼬메가"/
-# "プチオメガ" = "mini/petit Omega" (pos 18), "Windchopper"/"카제키리바네"
-# ("wind"+"cut"+"wing") (pos 21) -- all 5 matched their zh_cn counterpart's
-# literal meaning AND landed at the identical position across all 4
-# fetched language pages, confirming the pages share one consistent order.
-# zh_tw intentionally omitted -- Kiranico has no working Traditional
-# Chinese locale for this game (checked several URL path conventions,
-# none returned real content) -- weapon_label()'s existing en fallback
-# covers it rather than guessing a conversion.
-CONFIRMED_MANUAL_NAMES.update({
-    "it10/03/0000": {"en": "Mauldrone", "ko": "말드론", "ja": "マルドローン", "zh_cn": "绿金龟"},
-    "it10/03/0001": {"en": "Culldrone", "ko": "쿨드론", "ja": "クルドローン", "zh_cn": "茶金龟"},
-    "it10/03/0003": {"en": "Alucanid", "ko": "아르마스태그", "ja": "アルマスタッグ", "zh_cn": "原初锹形虫"},
-    "it10/03/0004": {"en": "Monarch Alucanid", "ko": "모나크블스태그", "ja": "モナークブルスタッグ", "zh_cn": "帝王公牛锹形虫"},
-    "it10/03/0005": {"en": "Empresswing", "ko": "레지나볼란테", "ja": "レジナヴォランテ", "zh_cn": "女王飞虫"},
-    "it10/03/0006": {"en": "Rigiprayne", "ko": "가실도레", "ja": "ガシルドーレ", "zh_cn": "亮翅虾蜂"},
-    "it10/03/0007": {"en": "Cancadaman", "ko": "둔크라프", "ja": "ドゥンクラープ", "zh_cn": "土蝼蛄"},
-    "it10/03/0008": {"en": "Fiddlebrix", "ko": "우카드레", "ja": "ウカドゥーレ", "zh_cn": "利爪鲎虫"},
-    "it10/03/0009": {"en": "Windchopper", "ko": "카제키리바네", "ja": "カゼキリバネ", "zh_cn": "风雾蛾"},
-    "it10/03/0010": {"en": "Grancathar", "ko": "킹시나토", "ja": "オオシナト", "zh_cn": "大西纳托虫"},
-    "it10/03/0011": {"en": "Pseudocath", "ko": "시나토모도키", "ja": "シナトモドキ", "zh_cn": "西纳托拟态虫"},
-    "it10/03/0013": {"en": "Foebeetle", "ko": "자미르비틀", "ja": "ザミールビートル", "zh_cn": "短角独角仙"},
-    "it10/03/0014": {"en": "Carnage Beetle", "ko": "퀘니히고어비틀", "ja": "ケーニヒゴアビートル", "zh_cn": "铲刃独角仙"},
-    "it10/03/0015": {"en": "Bonnetfille", "ko": "필카노", "ja": "フィルカーノ", "zh_cn": "巨角蝉"},
-    "it10/03/0016": {"en": "Ladytarge", "ko": "하르키터", "ja": "ハルキータ", "zh_cn": "大口瓢虫"},
-    "it10/03/0017": {"en": "Ladypavise", "ko": "도룬키터", "ja": "ドルンキータ", "zh_cn": "坚甲瓢虫"},
-    "it10/03/0018": {"en": "Arkmaiden", "ko": "아르조아냐", "ja": "アルジョアーニャ", "zh_cn": "圆龟金花虫"},
-    "it10/03/0019": {"en": "Gullshad", "ko": "가르헬", "ja": "ガルーヘル", "zh_cn": "展翅蛾"},
-    "it10/03/0020": {"en": "Bullshroud", "ko": "메이버칠", "ja": "メイヴァーチル", "zh_cn": "敛翅长蛾"},
-    "it10/03/0021": {"en": "Whispervesp", "ko": "반리엘", "ja": "ヴァンリエール", "zh_cn": "叠翅凤蝶"},
-    "it10/03/0022": {"en": "OMG", "ko": "꼬메가", "ja": "プチオメガ", "zh_cn": "迷你欧米茄"},
-})
+# it10/03/* Kinsects (Insect Glaive's bug companion, sharing it10's file-
+# numbering convention for a completely different item category, NOT
+# weapons) are named via `resolve_rodinsect_names()` above, not here.
+# A parallel session independently named all 21 of the same entries via
+# Kiranico's own kinsect database (en/ko/ja/zh_cn, 5 semantic anchors
+# verifying page-order correspondence) -- cross-checked against
+# `resolve_rodinsect_names()`'s official-msg-sourced result on merge and
+# found 21/21 exact agreement on every shared language (see CLAUDE.md
+# #56). That confirms both are correct; `resolve_rodinsect_names()` is
+# kept as the single active mechanism since it also resolves zh_tw
+# (which Kiranico doesn't have for this game), so a redundant
+# `CONFIRMED_MANUAL_NAMES` block for the same 21 keys isn't carried here.
 
 # tools/community_mhws_weapon_zh_cn.csv -- a Simplified Chinese weapon-name
 # database bundled inside a third-party Chinese community MHWilds mod
@@ -344,16 +384,43 @@ CONFIRMED_MANUAL_NAMES.update({
 # (one row per representative model, "/" separating multiple known names
 # for the same model where the source itself wasn't sure which is current).
 #
-# Verified before trusting: cross-checked all 470 of its rows against this
+# **2026-08-12 correction, real bug found and fixed**: the source's own
+# "01" sid label does NOT mean this project's subid=01 (`model_id // 1000
+# == 1`) at all -- it was originally assumed to, on the strength of
+# subid=00 matching 340/340 (which never actually distinguished this,
+# since every subid=00 model_id is < 1000 and looks identical under any
+# larger divisor too). Proven wrong while investigating a user follow-up
+# request for subid=01 multi-language names: checked one specific "01"
+# row (`LONG_SWORD,01_0006,藏钩大剑`) against this project's OWN
+# independently-resolved WeaponData.cData data and found "藏钩大剑" is the
+# REAL, official name of `it00/10/0006` (model_id=10006, confirmed via
+# the official msg UUID link) -- not `it00/01/0006` at all. Systematically
+# re-checked ALL 31 "01_<iid>" rows the same way (source's `01_<iid>` vs
+# this project's own `it<code>/10/<iid>`, by real official name, tier
+# suffix ignored): **31/31 (100%) match** -- every single "01_<iid>" row
+# is really describing `it<code>/10/<iid>`, and every one of those 31
+# already has a real, better, already-baked multi-language official name
+# from this project's own live-game resolution. This retroactively also
+# explains the ALREADY-KNOWN "subid=10 matched only 1/23" finding below:
+# this project was checking the source's rows under the WRONG label the
+# whole time (real subid=10 matches were sitting under the source's own
+# "01" label, not its "10" label). **Net effect: subid=01 is fully
+# UNRESOLVED again (the CSV never actually described it), and the 32
+# wrongly-labeled zh_cn names previously shipped under `it*/01/*` have
+# been removed** -- a wrong name is worse than no name, per this
+# project's own standing "never guess" discipline. `_COMMUNITY_TRUSTED_SIDS`
+# below now excludes "01" entirely; only "00" (independently verified,
+# safe regardless of the divisor ambiguity since its model_ids are all
+# < 1000) is used. subid=03 (Kinsects, RodInsect type) is unaffected --
+# that data was never trusted via this source's own id-bucket label in
+# the first place, only via a direct TEXT cross-match against
+# `RodInsect.msg.23`'s real official content (see `resolve_rodinsect_names()`),
+# so the same id-labeling confusion never had a chance to affect it.
+#
+# Verified before trusting (original 2026-08-11 pass, subid=00 only, still
+# holds): cross-checked all 470 of the source's rows against this
 # project's own already-resolved weapon names (from live game data, not
-# this source) -- subid=00 matched 340/340 (100%), but subid=10 matched
-# only 1/23 (the other 22 are flatly DIFFERENT weapons, not just a
-# translation difference -- e.g. it11/10/0001: ours "龙穿弓" [Dragon-Piercing
-# Bow] vs theirs "护辟虐弓" [Protect-Tyrant Bow], unrelated names). This
-# means subid=10 has a real index-misalignment between the two data
-# sources (which one is wrong, or whether both are self-consistent but
-# numbered differently, is unresolved) -- subid=10 rows from this source
-# are therefore NEVER used, only subid=00/01/03. Also excludes the same
+# this source) -- subid=00 matched 340/340 (100%). Also excludes the same
 # "<TypeFile>_<N>" internal-placeholder pattern this project's own
 # `_is_placeholder_name()` already filters (confirmed: this source's
 # "LongSword_97"-style entries are the exact same `#Rejected#` dev-leftover
@@ -367,7 +434,7 @@ _COMMUNITY_TYPE_MAP = {
     "SLASH_AXE": "08", "CHARGE_AXE": "09", "ROD": "10", "RodInsect": "10",
     "BOW": "11", "HEAVY_BOWGUN": "12", "LIGHT_BOWGUN": "13",
 }
-_COMMUNITY_TRUSTED_SIDS = {"00", "01", "03"}  # NOT "10" -- see the block comment above
+_COMMUNITY_TRUSTED_SIDS = {"00", "03"}  # NOT "01" or "10" -- see the block comment above
 COMMUNITY_ZH_CN_CSV = Path(__file__).resolve().parent / "community_mhws_weapon_zh_cn.csv"
 
 
@@ -466,6 +533,16 @@ def main():
             community_applied += 1
     print(f"applied {community_applied} zh_cn-only name(s) from the trusted community CSV (subid=00/01/03 only, "
           f"never overwrites an already-resolved key)")
+
+    rodinsect_applied = 0
+    game_dir_for_rodinsect = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != "--live-dump" else ""
+    for key, name_dict in resolve_rodinsect_names(game_dir_for_rodinsect, entries=payload["entries"]).items():
+        entry = payload["entries"].get(key)
+        if entry is not None:
+            entry["names"] = name_dict
+            rodinsect_applied += 1
+    print(f"applied {rodinsect_applied} full 5-language Kinsect (it10/03) name(s), resolved from "
+          f"RodInsect.msg.23 via verified zh_cn text cross-match")
 
     payload["_meta"]["names_baked_at"] = "2026-08-10"
     payload["_meta"]["names_source"] = source
