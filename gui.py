@@ -1015,6 +1015,7 @@ class App:
         version turned out to reject a real mod outright."""
         import weapon_retarget
         import fluffy_installed
+        import mod_pages
 
         win = tk.Toplevel(self.root, bg=THEME["bg"])
         win.title(t("dlg_weapon_retarget_title"))
@@ -1086,13 +1087,108 @@ class App:
 
         def on_close():
             self._weapon_retarget_refresh_fn = None
+            _clear_temp_dirs()
             win.destroy()
 
         btn_close.configure(command=on_close)
         win.protocol("WM_DELETE_WINDOW", on_close)
 
         state = {"groups": [], "unmatched": [], "assignments": {}, "active_key": None,
-                 "candidates_by_key": {}, "occupancy_by_key": {}, "fluffy_index": {}}
+                 "candidates_by_key": {}, "occupancy_by_key": {}, "fluffy_index": {},
+                 "effective_mod_root": None, "_page_stage_dir": None, "_pick_work_dir": None,
+                 "_page_name": None, "archive_password": None}
+
+        def _clear_temp_dirs():
+            """Drops the raw-extraction workspace (do_pick()'s own `work`
+            dir -- kept alive for the whole pick, not deleted right after
+            extraction, since a page-selection pick still needs to read
+            mod_root's files from it later) and any previously-extracted-
+            and-repaired single-page mod root (_extract_and_repair_page()).
+            Picking a NEW file, or closing the dialog, must never leave
+            either behind for do_generate() to accidentally reuse or for
+            disk space to quietly leak."""
+            for key in ("_pick_work_dir", "_page_stage_dir"):
+                d = state.get(key)
+                if d is not None:
+                    shutil.rmtree(d, ignore_errors=True)
+                state[key] = None
+            state["effective_mod_root"] = None
+            state["_page_name"] = None
+
+        def _page_has_real_content(page) -> bool:
+            """A FOMOD "cover"/readme-only page (screenshot + blurb, no
+            actual weapon files) must never be offered as a selectable
+            appearance -- checked by content, not by trusting a
+            Fluffy-specific "DummyMod" flag some authors may not set."""
+            for p in page.files:
+                if p.suffix.lower() == ".pak":
+                    return True
+                try:
+                    rel = str(p.relative_to(page.folder)).lower()
+                except ValueError:
+                    rel = ""
+                if "natives" in rel:
+                    return True
+            return False
+
+        def _show_page_picker(pages):
+            """Modal chooser for detect_mod_pages()'s own list -- returns
+            the picked mod_pages.ModPage, or None if the user cancelled.
+            Blocks the caller via wait_window(), the standard synchronous
+            Tkinter modal pattern -- safe to call here since this always
+            runs on the main thread (see _handle_extracted())."""
+            picker = tk.Toplevel(win, bg=THEME["bg"])
+            picker.title(t("dlg_page_picker_title"))
+            picker.geometry("520x380")
+            picker.transient(win)
+            picker.grab_set()
+
+            ttk.Label(picker, text=t("msg_page_picker_intro"), justify="left",
+                      wraplength=480).pack(anchor="w", padx=10, pady=10)
+
+            columns = ("name", "desc")
+            tree = ttk.Treeview(picker, columns=columns, show="headings", selectmode="browse")
+            tree.heading("name", text=t("col_page_name"))
+            tree.heading("desc", text=t("col_page_desc"))
+            tree.column("name", width=160, anchor="w")
+            tree.column("desc", width=320, anchor="w")
+            vsb = ttk.Scrollbar(picker, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=vsb.set)
+            tree.pack(side="top", fill="both", expand=True, padx=10)
+            vsb.pack(side="right", fill="y")
+            for i, page in enumerate(pages):
+                tree.insert("", "end", iid=str(i), values=(
+                    page.display_name, page.info.get("description", "").strip()))
+
+            result = {"page": None}
+
+            btn_row = ttk.Frame(picker)
+            btn_row.pack(fill="x", padx=10, pady=10)
+            btn_select = ttk.Button(btn_row, text=t("btn_select_page"), state="disabled")
+            btn_select.pack(side="right")
+            btn_cancel = ttk.Button(btn_row, text=t("btn_cancel"))
+            btn_cancel.pack(side="right", padx=(0, 6))
+
+            def on_select_row(_event=None):
+                btn_select.configure(state="normal" if tree.selection() else "disabled")
+
+            def on_confirm():
+                sel = tree.selection()
+                if sel:
+                    result["page"] = pages[int(sel[0])]
+                picker.destroy()
+
+            def on_cancel():
+                picker.destroy()
+
+            tree.bind("<<TreeviewSelect>>", on_select_row)
+            tree.bind("<Double-1>", lambda e: on_confirm())
+            btn_select.configure(command=on_confirm)
+            btn_cancel.configure(command=on_cancel)
+            picker.protocol("WM_DELETE_WINDOW", on_cancel)
+
+            picker.wait_window()
+            return result["page"]
 
         def _weapon_note_for(c) -> str:
             parts = []
@@ -1127,6 +1223,80 @@ class App:
             vals[2] = text
             slot_tree.item(key, values=vals, tags=(tag,))
 
+        def _run_weapon_detection(mod_root):
+            """Runs weapon_retarget.detect_mod_weapons() on `mod_root` in a
+            background thread and lands the result in _on_detected() --
+            shared by both the plain (no page selection needed) and the
+            page-selected (already extracted+repaired) paths below."""
+            def worker():
+                try:
+                    groups, unmatched = weapon_retarget.detect_mod_weapons(mod_root)
+                except Exception as exc:
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
+                    return
+                win.after(0, lambda: _on_detected(groups, unmatched))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _extract_and_repair_page(page):
+            """Pulls `page` out of the multi-page archive as its own
+            standalone mod (mod_pages.extract_page_standalone -- strips
+            AddOnFor, ensures NameAsBundle) and runs it through the SAME
+            repair pipeline the main window's own repair flow uses
+            (process_mod() + repackage_for_fluffy()), mirroring auto_fix.py
+            CLI's own copytree-then-patch-in-place sequence. The repaired
+            result becomes state["effective_mod_root"] -- do_generate()
+            uses it instead of re-extracting the original (whole, still
+            multi-page) archive."""
+            game_dir = self.game_dir.get()
+            if not game_dir or not Path(game_dir).is_dir():
+                info_label.configure(text=t("err_no_game_dir"))
+                set_pick_busy(False)
+                return
+            info_label.configure(text=t("msg_weapon_retarget_page_repairing"))
+
+            def worker():
+                try:
+                    parent = Path(tempfile.mkdtemp(prefix="weapon_retarget_page_"))
+                    raw_stage = parent / "raw"
+                    fixed_stage = parent / "fixed"
+                    mod_pages.extract_page_standalone(page, raw_stage)
+                    shutil.copytree(raw_stage, fixed_stage)
+                    game = GameArchive(game_dir, log=lambda *a, **k: None)
+                    process_mod(raw_stage, fixed_stage, game, allow_cross_piece=True,
+                                log=lambda *a, **k: None)
+                    repackage_for_fluffy(fixed_stage, log=lambda *a, **k: None)
+                    state["_page_stage_dir"] = parent
+                    state["effective_mod_root"] = fixed_stage
+                    state["_page_name"] = page.display_name
+                except Exception as exc:
+                    err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
+                    win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
+                    return
+                win.after(0, lambda: _run_weapon_detection(fixed_stage))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _handle_extracted(mod_root, pages):
+            """Called on the main thread once the archive is extracted and
+            its FOMOD pages (if any) are known. A single-page (or no
+            page-folder-structure) mod proceeds exactly as before; a
+            multi-page mod (e.g. "Summer Fleet Weapons" bundling several
+            unrelated weapon reskins as separate pages, 2026-08-15) shows
+            the page picker first, so the user can pull out just the one
+            appearance they actually want."""
+            if len(pages) <= 1:
+                _run_weapon_detection(mod_root)
+                return
+            chosen = _show_page_picker(pages)
+            if chosen is None:
+                set_pick_busy(False)
+                info_label.configure(text=t("msg_weapon_retarget_no_file"))
+                file_var.set("")
+                return
+            _extract_and_repair_page(chosen)
+
         def do_pick():
             path = filedialog.askopenfilename(
                 title=t("dlg_choose_mod_archive"),
@@ -1140,6 +1310,7 @@ class App:
             cand_tree.delete(*cand_tree.get_children())
             state["groups"], state["unmatched"], state["assignments"], state["active_key"] = [], [], {}, None
             state["archive_password"] = None
+            _clear_temp_dirs()
             info_label.configure(text=t("msg_retarget_detecting"))
             btn_apply.configure(state="disabled")
             btn_leave.configure(state="disabled")
@@ -1148,17 +1319,23 @@ class App:
 
             def worker():
                 try:
+                    # NOT cleaned up here, unlike every other one-shot use of
+                    # extract_archive_prompting() elsewhere in this file --
+                    # mod_root (and therefore `work`) still needs to be read
+                    # from later, either by _run_weapon_detection() directly
+                    # (single/no-page case) or by _extract_and_repair_page()
+                    # copying a chosen page's own files out of it (multi-page
+                    # case). Torn down by _clear_temp_dirs() instead, once a
+                    # NEW pick starts or the dialog closes.
                     work = Path(tempfile.mkdtemp(prefix="weapon_retarget_ui_"))
-                    try:
-                        mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
-                        groups, unmatched = weapon_retarget.detect_mod_weapons(mod_root)
-                    finally:
-                        shutil.rmtree(work, ignore_errors=True)
+                    state["_pick_work_dir"] = work
+                    mod_root, state["archive_password"] = self.extract_archive_prompting(Path(path), work)
+                    pages = [p for p in mod_pages.detect_mod_pages(mod_root) if _page_has_real_content(p)]
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (info_label.configure(text=err_text), set_pick_busy(False)))
                     return
-                win.after(0, lambda: _on_detected(groups, unmatched))
+                win.after(0, lambda: _handle_extracted(mod_root, pages))
 
             threading.Thread(target=worker, daemon=True).start()
 
@@ -1270,7 +1447,7 @@ class App:
             if occupant_relpaths_all and not self._confirm_occupied(
                     state["fluffy_index"], occupant_relpaths_all, win):
                 return
-            src_stem = Path(file_var.get()).stem
+            src_stem = state.get("_page_name") or Path(file_var.get()).stem
             out_path = filedialog.asksaveasfilename(
                 title=t("dlg_save_weapon_retarget"), defaultextension=".zip",
                 initialfile=f"{src_stem} (retargeted).zip",
@@ -1282,11 +1459,24 @@ class App:
             btn_pick.configure(state="disabled")
             status_var.set(t("msg_retarget_generating"))
 
+            # A page picked out of a multi-page archive was already
+            # extracted AND repaired into its own standalone directory
+            # (_extract_and_repair_page()) -- pass that straight through
+            # instead of re-extracting the ORIGINAL, still-multi-page
+            # archive from scratch (retarget_archive_multi() accepts a
+            # plain directory just as readily as an archive path, and
+            # skips its own extraction step entirely when given one).
+            # password is only meaningful for the original-archive path;
+            # an already-extracted directory needs none.
+            effective_root = state.get("effective_mod_root")
+            source_for_generate = effective_root if effective_root is not None else Path(file_var.get())
+            password_for_generate = None if effective_root is not None else state.get("archive_password")
+
             def worker():
                 try:
                     weapon_retarget.retarget_archive_multi(
-                        Path(file_var.get()), Path(out_path), assignments, log=lambda s: None,
-                        password=state.get("archive_password"))
+                        source_for_generate, Path(out_path), assignments, log=lambda s: None,
+                        password=password_for_generate)
                 except Exception as exc:
                     err_text = t("err_unhandled", e=exc)  # format now -- exc unbinds when this block exits
                     win.after(0, lambda: (messagebox.showerror(APP_TITLE, err_text, parent=win),

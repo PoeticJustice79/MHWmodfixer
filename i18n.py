@@ -864,6 +864,37 @@ _STRINGS = {
         "ja": "⚠ 元のスロットには専用の武器ギミック（抜刀時の変形や発光など）がありますが、"
               "この対象にはないため、その効果が失われる可能性があります",
     },
+    "dlg_page_picker_title": {
+        "ko": "원하는 외형 선택", "en": "Choose an appearance",
+        "zh_tw": "選擇外觀", "zh_cn": "选择外观", "ja": "外見を選択",
+    },
+    "msg_page_picker_intro": {
+        "ko": "이 모드는 여러 외형(페이지)을 포함하고 있습니다. 하나만 골라서 별도의 모드로 만들 수 있습니다.",
+        "en": "This mod bundles several appearances (pages). Pick one to pull out as its own standalone mod.",
+        "zh_tw": "這個模組包含多種外觀（頁面）。選一個就能把它獨立製作成一個模組。",
+        "zh_cn": "这个模组包含多种外观（页面）。选一个就能把它独立制作成一个模组。",
+        "ja": "このMODには複数の外見（ページ）が含まれています。1つ選んで単独のMODとして取り出せます。",
+    },
+    "col_page_name": {
+        "ko": "이름", "en": "Name", "zh_tw": "名稱", "zh_cn": "名称", "ja": "名前",
+    },
+    "col_page_desc": {
+        "ko": "설명", "en": "Description", "zh_tw": "說明", "zh_cn": "说明", "ja": "説明",
+    },
+    "btn_select_page": {
+        "ko": "이 외형 선택", "en": "Select this appearance",
+        "zh_tw": "選擇此外觀", "zh_cn": "选择此外观", "ja": "この外見を選択",
+    },
+    "btn_cancel": {
+        "ko": "취소", "en": "Cancel", "zh_tw": "取消", "zh_cn": "取消", "ja": "キャンセル",
+    },
+    "msg_weapon_retarget_page_repairing": {
+        "ko": "선택한 외형을 추출하고 최신 게임 버전에 맞게 수리하는 중...",
+        "en": "Extracting the selected appearance and repairing it against the current game version...",
+        "zh_tw": "正在擷取所選外觀並依目前遊戲版本進行修復...",
+        "zh_cn": "正在提取所选外观并依当前游戏版本进行修复...",
+        "ja": "選択した外見を抽出し、現在のゲームバージョンに合わせて修復しています...",
+    },
     "note_target_occupied": {
         "ko": "⚠ 이미 다른 모드가 사용 중",
         "en": "⚠ already used by another mod",
