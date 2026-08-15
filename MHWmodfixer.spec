@@ -9,7 +9,7 @@ datas = [('tools/mdf2_filelist.txt', 'tools'),
          ('tools/weapon_slots.json.gz', 'tools')]
 datas += [(p, 'tools/rsz_archive') for p in glob.glob('tools/rsz_archive/*.json.gz')]
 binaries = []
-hiddenimports = ['pak_mod_fix', 'whole_game_index', 'slot_retarget', 'weapon_retarget', 'fluffy_installed']
+hiddenimports = ['pak_mod_fix', 'whole_game_index', 'slot_retarget', 'weapon_retarget', 'fluffy_installed', 'mod_pages']
 tmp_ret = collect_all('tkinterdnd2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('backports.zstd')
