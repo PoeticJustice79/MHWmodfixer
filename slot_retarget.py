@@ -36,8 +36,88 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pak_mod_fix import find_pak_files
+from pak_reader import PakArchive, pak_path_hash64
+from pak_writer import write_pak
+
 _HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 SLOT_TABLE_PATH = _HERE / "tools" / "armor_slots_ch03.json.gz"
+
+# Mods packaged as their own standalone .pak (Fluffy-installed alongside a
+# modinfo.ini, no loose files at all) carry no filename per entry, only a
+# hash64 -- mirrors weapon_retarget.py's identical pak-detection technique
+# (see that module's own docstring for the full "why hash-matching is
+# unambiguous" reasoning). Confirmed real 2026-08-16: "Shiranui Mai's
+# Outfit" (a real Nexus armor mod) is packaged exactly this way and was
+# completely invisible to detect_mod_slot()'s path-regex approach, since
+# there are no paths to match at all in a standalone pak.
+_PIECE_DIRS_BY_NUM = {1: "Arm", 2: "Body", 3: "Helm", 4: "Leg", 5: "Waist"}
+_MDF2_VERSIONS = range(1, 80)
+_MESH_VERSIONS = [241111606, 240820143, 230517984]
+_PFB_VERSIONS = range(1, 50)
+_AVP_VERSIONS = range(1, 50)
+
+
+def _pak_candidate_hashes(set_no: str, variant: str):
+    """Yields (kind, code, piece, ext, version, hash64) for every plausible
+    pak-entry hash a real armor slot at (set_no, variant) could occupy --
+    both ch02 (male) and ch03 (female) model files (mdf2/mesh) per piece,
+    both genders' equip pfb, and both genders' avp.user. A hash simply
+    won't be present in the mod's own pak if that particular file doesn't
+    exist for this slot/mod, which is fine -- membership testing doesn't
+    need to know that in advance."""
+    for code in ("ch02", "ch03"):
+        gender_dir = "male" if code == "ch02" else "female"
+        for piece, piece_dir in _PIECE_DIRS_BY_NUM.items():
+            model_base = (f"natives/stm/art/model/character/{code}/{set_no}/{variant}/"
+                          f"{piece}/{code}_{set_no}_{variant}{piece}")
+            for n in _MDF2_VERSIONS:
+                yield ("model", code, piece, "mdf2", n, pak_path_hash64(f"{model_base}.mdf2.{n}"))
+            for n in _MESH_VERSIONS:
+                yield ("model", code, piece, "mesh", n, pak_path_hash64(f"{model_base}.mesh.{n}"))
+            pfb_base = (f"natives/stm/gamedesign/equip/_prefab/armor/{gender_dir}/{set_no}/{variant}/"
+                       f"{piece_dir}/{code}_{set_no}_{variant}{piece}")
+            for n in _PFB_VERSIONS:
+                yield ("pfb", code, piece, "pfb", n, pak_path_hash64(f"{pfb_base}.pfb.{n}"))
+    for gender_dir in ("female", "male"):
+        avp_base = f"natives/stm/gamedesign/equip/_prefab/armor/{gender_dir}/{set_no}/{variant}/{set_no}_{variant}_avp"
+        for n in _AVP_VERSIONS:
+            yield ("avp", gender_dir, 0, "user", n, pak_path_hash64(f"{avp_base}.user.{n}"))
+
+
+def detect_mod_slot_pak(pak_path: Path) -> tuple[ModSlotInfo, None] | tuple[None, list[str]]:
+    """Same contract as detect_mod_slot(), for a single standalone-.pak mod
+    file. Returns (info, None) on exactly one matched (set, variant), or
+    (None, sorted_key_list) on zero/multiple."""
+    archive = PakArchive(pak_path)
+    pak_hashes = set(archive.entries.keys())
+
+    pairs: set[tuple[str, str]] = set()
+    pieces_by_pair: dict[tuple[str, str], set[int]] = {}
+    matches: list[dict] = []
+    for key, entry in slot_table().items():
+        set_no, variant = entry["set"], entry["variant"]
+        for kind, code, piece, ext, version, h in _pak_candidate_hashes(set_no, variant):
+            if h in pak_hashes:
+                pair = (set_no, variant)
+                pairs.add(pair)
+                if kind == "model":
+                    pieces_by_pair.setdefault(pair, set()).add(piece)
+                matches.append({"hash64": h, "kind": kind, "code": code, "piece": piece,
+                                 "ext": ext, "version": version})
+
+    if len(pairs) != 1:
+        return None, sorted(f"{s}/{v}" for s, v in pairs)
+
+    set_no, variant = next(iter(pairs))
+    entry = slot_table().get(f"{set_no}/{variant}")
+    info = ModSlotInfo(
+        set_no=set_no, variant=variant, pieces_shipped=pieces_by_pair.get((set_no, variant), set()),
+        name=entry["name"] if entry else "?", names=entry.get("names", {}) if entry else {},
+        gender=entry["gender"] if entry else None,
+        pak_path=pak_path, pak_matches=[m for m in matches],
+    )
+    return info, None
 
 _slot_table_cache: dict | None = None
 
@@ -103,6 +183,8 @@ class ModSlotInfo:
     name: str = "?"
     names: dict = field(default_factory=dict)   # see armor_name()
     gender: str | None = None          # "male" | "female" | None (see gender_label())
+    pak_path: Path | None = None       # set when this mod is its own standalone .pak, not loose files
+    pak_matches: list = field(default_factory=list)  # {"hash64","kind","code","piece","ext","version"}
 
     @property
     def key(self) -> str:
@@ -114,7 +196,13 @@ def detect_mod_slot(mod_root: Path) -> ModSlotInfo | list[str]:
     ModSlotInfo when exactly ONE (set, variant) pair is found -- or the
     list of distinct pair keys when zero/multiple are found (multi-option
     FOMOD-style mods aren't supported for automatic retargeting; the
-    caller shows which slots were seen so the user understands why)."""
+    caller shows which slots were seen so the user understands why).
+
+    Tries loose-file path matching first; if that finds nothing at all,
+    falls back to treating any bundled .pak file(s) as a standalone-pak
+    mod (see detect_mod_slot_pak -- mirrors weapon_retarget.detect_mod_weapon's
+    identical fallback, confirmed real 2026-08-16 against "Shiranui Mai's
+    Outfit", a standalone-pak armor mod)."""
     pairs: set[tuple[str, str]] = set()
     files = []
     for p in mod_root.rglob("*"):
@@ -126,6 +214,23 @@ def detect_mod_slot(mod_root: Path) -> ModSlotInfo | list[str]:
             m = rx.search(rel)
             if m:
                 pairs.add((m.group(1), m.group(2)))
+
+    if not pairs:
+        pak_files = list(find_pak_files(mod_root))
+        if len(pak_files) == 1:
+            info, unmatched = detect_mod_slot_pak(pak_files[0])
+            if info is not None:
+                return info
+            if unmatched:
+                return unmatched
+        elif len(pak_files) > 1:
+            per_pak: set[tuple[str, str]] = set()
+            for pf in pak_files:
+                _, unmatched = detect_mod_slot_pak(pf)
+                per_pak.update(tuple(k.split("/")) for k in (unmatched or []))
+            if per_pak:
+                return sorted(f"{s}/{v}" for s, v in per_pak)
+
     if len(pairs) != 1:
         return sorted(f"{s}/{v}" for s, v in pairs)
     set_no, variant = next(iter(pairs))
@@ -247,6 +352,54 @@ def verify_target_vanilla(game, source: ModSlotInfo, target: TargetCandidate) ->
     return (not missing), missing
 
 
+def retarget_pak(pak_path: Path, out_pak_path: Path, source: ModSlotInfo,
+                  dst_set: str, dst_variant: str, log=lambda s: None) -> int:
+    """Rebuilds a standalone-.pak armor mod at a new slot -- mirrors
+    weapon_retarget.retarget_pak() exactly. Every entry identified (in
+    source.pak_matches) as the SOURCE slot's own model/pfb/avp file gets
+    re-hashed under the TARGET slot's equivalent path (same code/ext/
+    version, only set/variant substituted); every OTHER entry (custom-
+    hashed textures etc.) passes through with its ORIGINAL hash64
+    untouched."""
+    archive = PakArchive(pak_path)
+    hash_to_match = {m["hash64"]: m for m in source.pak_matches}
+
+    def _dst_hash(m: dict) -> int:
+        if m["kind"] == "avp":
+            base = f"natives/stm/gamedesign/equip/_prefab/armor/{m['code']}/{dst_set}/{dst_variant}/{dst_set}_{dst_variant}_avp"
+            return pak_path_hash64(f"{base}.{m['ext']}.{m['version']}")
+        if m["kind"] == "pfb":
+            gender_dir = "male" if m["code"] == "ch02" else "female"
+            piece_dir = _PIECE_DIRS_BY_NUM[m["piece"]]
+            base = (f"natives/stm/gamedesign/equip/_prefab/armor/{gender_dir}/{dst_set}/{dst_variant}/"
+                    f"{piece_dir}/{m['code']}_{dst_set}_{dst_variant}{m['piece']}")
+            return pak_path_hash64(f"{base}.{m['ext']}.{m['version']}")
+        base = (f"natives/stm/art/model/character/{m['code']}/{dst_set}/{dst_variant}/"
+                f"{m['piece']}/{m['code']}_{dst_set}_{dst_variant}{m['piece']}")
+        return pak_path_hash64(f"{base}.{m['ext']}.{m['version']}")
+
+    out_entries = []
+    relocated = 0
+    for h, entry in archive.entries.items():
+        new_hash = h
+        m = hash_to_match.get(h)
+        if m is not None:
+            new_hash = _dst_hash(m)
+            relocated += 1
+        out_entries.append({
+            "hash64": new_hash,
+            "data": archive.read_raw_compressed(entry),
+            "decompressed_size": entry.decompressed_size,
+            "compression": entry.compression,
+        })
+
+    write_pak(out_entries, str(out_pak_path))
+    log(f"    [retarget] {relocated} pak entr{'y' if relocated == 1 else 'ies'} relocated "
+        f"{source.set_no}/{source.variant} -> {dst_set}/{dst_variant} "
+        f"({len(out_entries) - relocated} other entr{'y' if len(out_entries) - relocated == 1 else 'ies'} unchanged)")
+    return relocated
+
+
 def retarget_tree(mod_root: Path, out_root: Path, source: ModSlotInfo,
                    dst_set: str, dst_variant: str, log=lambda s: None) -> int:
     """Copies the mod into out_root with every slot-identifying path part
@@ -295,7 +448,8 @@ def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_set: str, dst_vari
                       log=lambda s: None) -> ModSlotInfo:
     """End-to-end: extract (if an archive), detect, relocate, and write
     out_zip. Raises ValueError with the detected slot list when the mod
-    doesn't target exactly one slot."""
+    doesn't target exactly one slot. Handles both loose-file mods
+    (retarget_tree) and standalone-.pak mods (retarget_pak)."""
     import tempfile
     from archive_extract import extract_archive
     work = Path(tempfile.mkdtemp(prefix="retarget_"))
@@ -308,7 +462,23 @@ def retarget_archive(archive_or_dir: Path, out_zip: Path, dst_set: str, dst_vari
         if not isinstance(info, ModSlotInfo):
             raise ValueError(f"mod does not target exactly one armor slot (found: {info or 'none'})")
         out_root = work / "out"
-        retarget_tree(mod_root, out_root, info, dst_set, dst_variant, log=log)
+        out_root.mkdir(parents=True, exist_ok=True)
+        if info.pak_path is not None:
+            # Copy the whole mod tree through unchanged (modinfo.ini,
+            # preview image, ...), then overwrite just the pak itself with
+            # the relocated build. File list materialized BEFORE copying
+            # starts -- see weapon_retarget.retarget_archive()'s own
+            # docstring for why a live rglob() here would recurse forever.
+            for p in list(mod_root.rglob("*")):
+                if not p.is_file():
+                    continue
+                dst = out_root / p.relative_to(mod_root)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, dst)
+            out_pak = out_root / info.pak_path.relative_to(mod_root)
+            retarget_pak(info.pak_path, out_pak, info, dst_set, dst_variant, log=log)
+        else:
+            retarget_tree(mod_root, out_root, info, dst_set, dst_variant, log=log)
         out_zip.parent.mkdir(parents=True, exist_ok=True)
         if out_zip.exists():
             out_zip.unlink()
@@ -344,6 +514,8 @@ class ModSlotGroup:
     name: str = "?"
     names: dict = field(default_factory=dict)
     gender: str | None = None
+    pak_path: Path | None = None       # set when this group is its own standalone .pak, not loose files
+    pak_matches: list = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -357,7 +529,13 @@ def detect_mod_slots(mod_root: Path) -> tuple[list[ModSlotGroup], list[Path]]:
     through untouched regardless of what any group is assigned to. Groups
     are sorted with the largest (by file count -- almost always the mod's
     real main target) first, purely for a sane default UI order; nothing
-    downstream treats "first" as special."""
+    downstream treats "first" as special.
+
+    Falls back to pak-based detection when no loose slot-pattern files are
+    found at all, mirroring detect_mod_slot()'s own fallback (and
+    weapon_retarget.detect_mod_weapons()'s identical shape) -- each bundled
+    .pak that resolves to exactly ONE (set, variant) becomes its own group
+    (ModSlotGroup.pak_path set)."""
     piece_files: dict[tuple[str, str], list[Path]] = {}
     unmatched: list[Path] = []
     for p in mod_root.rglob("*"):
@@ -377,19 +555,33 @@ def detect_mod_slots(mod_root: Path) -> tuple[list[ModSlotGroup], list[Path]]:
 
     groups = []
     table = slot_table()
-    for (set_no, variant), files in piece_files.items():
-        piece_re = re.compile(_PIECE_FILE_RE_TMPL.format(set=set_no, var=variant), re.IGNORECASE)
-        pieces = set()
-        for f in files:
-            m = piece_re.search(f.name)
-            if m:
-                pieces.add(int(m.group(1)))
-        entry = table.get(f"{set_no}/{variant}")
-        groups.append(ModSlotGroup(
-            set_no=set_no, variant=variant, pieces_shipped=pieces, files=files,
-            name=entry["name"] if entry else "?", names=entry.get("names", {}) if entry else {},
-            gender=entry["gender"] if entry else None,
-        ))
+    if not piece_files:
+        pak_files = list(find_pak_files(mod_root))
+        resolved_pak_paths = set()
+        for pf in pak_files:
+            info, _unmatched_keys = detect_mod_slot_pak(pf)
+            if info is not None:
+                groups.append(ModSlotGroup(
+                    set_no=info.set_no, variant=info.variant, pieces_shipped=info.pieces_shipped,
+                    name=info.name, names=info.names, gender=info.gender,
+                    pak_path=info.pak_path, pak_matches=info.pak_matches,
+                ))
+                resolved_pak_paths.add(pf)
+        unmatched = [p for p in mod_root.rglob("*") if p.is_file() and p not in resolved_pak_paths]
+    else:
+        for (set_no, variant), files in piece_files.items():
+            piece_re = re.compile(_PIECE_FILE_RE_TMPL.format(set=set_no, var=variant), re.IGNORECASE)
+            pieces = set()
+            for f in files:
+                m = piece_re.search(f.name)
+                if m:
+                    pieces.add(int(m.group(1)))
+            entry = table.get(f"{set_no}/{variant}")
+            groups.append(ModSlotGroup(
+                set_no=set_no, variant=variant, pieces_shipped=pieces, files=files,
+                name=entry["name"] if entry else "?", names=entry.get("names", {}) if entry else {},
+                gender=entry["gender"] if entry else None,
+            ))
     groups.sort(key=lambda g: (-len(g.files), g.set_no, g.variant))
     return groups, unmatched
 
@@ -408,11 +600,32 @@ def retarget_tree_multi(mod_root: Path, out_root: Path, groups: list[ModSlotGrou
     then merged into out_root -- retarget_tree()'s own leftover-trace
     safety scan covers the whole tree it's given, and running several
     groups directly into a shared out_root would let one group's own
-    output accidentally satisfy (or fail) another's scan."""
+    output accidentally satisfy (or fail) another's scan.
+
+    Handles BOTH loose-file groups and pak-bearing groups (`pak_path` set,
+    from detect_mod_slots()'s pak fallback) -- a pak group rebuilds its own
+    pak directly via retarget_pak() instead of going through the loose-file
+    retarget_tree() path, mirroring weapon_retarget.retarget_tree_multi()."""
     import tempfile
     moved_counts = {}
     for group in groups:
         dst = assignments.get(group.key)
+        if group.pak_path is not None:
+            out_pak = out_root / group.pak_path.relative_to(mod_root)
+            out_pak.parent.mkdir(parents=True, exist_ok=True)
+            if dst is None:
+                shutil.copyfile(group.pak_path, out_pak)
+                moved_counts[group.key] = 0
+                log(f"    [retarget] {group.key} (pak) left unchanged")
+            else:
+                dst_set, dst_variant = dst
+                info = ModSlotInfo(set_no=group.set_no, variant=group.variant,
+                                    pieces_shipped=group.pieces_shipped, name=group.name,
+                                    gender=group.gender, pak_path=group.pak_path,
+                                    pak_matches=group.pak_matches)
+                moved_counts[group.key] = retarget_pak(
+                    group.pak_path, out_pak, info, dst_set, dst_variant, log=log)
+            continue
         if dst is None:
             for p in group.files:
                 out = out_root / p.relative_to(mod_root)
