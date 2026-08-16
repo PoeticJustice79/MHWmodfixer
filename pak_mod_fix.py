@@ -25,6 +25,7 @@ from mdf2 import Mdf2File, detect_numVersion
 from mdf2_slice import assemble_mdf2, extract_material
 from pak_reader import PakArchive
 from pak_writer import compress_for, write_pak
+import rsz_layout
 from pfb_fix import _crc_only_fix, _find_substitution, _parse_rsz, _resource_strings
 from slot_merge import find_donor_for_material
 
@@ -148,6 +149,27 @@ def _plan_pak_rsz_entry(mod_bytes: bytes, donor_bytes: bytes | None, ext: str,
     if crc_result is not None:
         patch, used_extra = crc_result
         return PakRszEntryPlan(hash64=0, ext=ext, result=patch, kind="crc_extra" if used_extra else "crc")
+
+    # A wholesale-replace below trusts the DONOR's bytes wholesale -- but if
+    # the donor itself (freshly read from the currently-installed game, so
+    # by definition structurally correct) doesn't verify as fitting the
+    # current registry, that's not evidence the file is stale -- it's proof
+    # the registry has no reliable field data for one of this entry's
+    # types at all (a real, repeatedly-confirmed gap for native/effect-
+    # script types, see rsz_layout.py's own module docstring). Substituting
+    # in that state is a blind guess, not a verified fix: confirmed real,
+    # 2026-08-15 ("Wyvern Impact2.2" GS reskin) -- a custom VFX pfb
+    # (`via.effect.script.EPVStandardData`/`app.EPVExpertCommonData`, a
+    # weapon's own rocket-burst charge effect) got wholesale-replaced with
+    # unrelated donor VFX content and silently lost that effect, even
+    # though BOTH the mod's own bytes and the live donor's own bytes failed
+    # `fits_current_layout()` identically -- i.e. this project never had
+    # any real structural ground truth for this type family to act on.
+    # Refuse the same way an entry with no donor at all would, unless the
+    # user explicitly opts into force_unresolved (matching every other
+    # "trust it anyway despite ambiguity" override in this project).
+    if not force_unresolved and rsz_layout.fits_current_layout(donor_info) is not True:
+        return PakRszEntryPlan(hash64=0, ext=ext, result=None, kind="unresolved")
 
     mod_strings = _resource_strings(mod_bytes, mod_info["rsz_off"])
     donor_strings = _resource_strings(donor_bytes, donor_info["rsz_off"])
