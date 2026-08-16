@@ -193,10 +193,20 @@ def resolve_names(game_dir: str = "") -> dict[str, dict[str, str]]:
         if not rows or not msg_names:
             print(f"it{code} ({type_file}): no data rows or no msg names, skipping")
             continue
-        # lowest msg index per unique model_id -> that model's representative row
+        # HIGHEST msg index per unique model_id -> that model's representative
+        # row. Multiple tiers (I, II, III, ...) commonly share one visual
+        # model/_ModelId, and a weapon's display name often changes at its
+        # final tier for that model -- not just a numeral bump, sometimes a
+        # wholly different name (confirmed real, 2026-08-15: model_id 0's
+        # tier I is "Jawblade I" but its actual final tier -- still the same
+        # model -- is "Giant Jawblade"). Showing the first tier's name here
+        # is what a player is LEAST likely to recognize, since upgrading
+        # trees to their final tier is the normal way weapons get used --
+        # picking the highest index (= latest tier still sharing this exact
+        # model) instead surfaces the name a player actually expects to see.
         best_row_by_model: dict[int, tuple[int, str]] = {}
         for idx, model_id, name_guid in rows:
-            if model_id not in best_row_by_model or idx < best_row_by_model[model_id][0]:
+            if model_id not in best_row_by_model or idx > best_row_by_model[model_id][0]:
                 best_row_by_model[model_id] = (idx, name_guid)
         resolved = 0
         for model_id, (idx, name_guid) in best_row_by_model.items():
@@ -310,11 +320,15 @@ def resolve_names_from_live_dump(dump_path: Path) -> dict[str, dict[str, str]]:
 
     out: dict[str, dict[str, str]] = {}
     for type_key, rows in weapons.items():  # type_key already "it00".."it13"
+        # Highest index per model_id, matching resolve_names()'s own fix
+        # (2026-08-15) for the identical "first-tier name is what a player
+        # is least likely to recognize" reason -- see that function's
+        # docstring comment for the real example that motivated this.
         best_row_by_model: dict[int, tuple[int, dict]] = {}
         for row in rows:
             model_id = row["model_id"]
             idx = row["index"]
-            if model_id not in best_row_by_model or idx < best_row_by_model[model_id][0]:
+            if model_id not in best_row_by_model or idx > best_row_by_model[model_id][0]:
                 best_row_by_model[model_id] = (idx, row)
         for model_id, (idx, row) in best_row_by_model.items():
             names = {lang: text for lang, text in row["names"].items()
