@@ -753,12 +753,7 @@ class App:
             vals[4] = text
             slot_tree.item(key, values=vals, tags=(tag,))
 
-        def do_pick():
-            path = filedialog.askopenfilename(
-                title=t("dlg_choose_mod_archive"),
-                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
-                           (t("filetype_allfiles"), "*.*")],
-            )
+        def start_pick(path):
             if not path:
                 return
             file_var.set(path)
@@ -789,6 +784,25 @@ class App:
                 win.after(0, lambda: _on_detected(groups, unmatched))
 
             threading.Thread(target=worker, daemon=True).start()
+
+        def do_pick():
+            path = filedialog.askopenfilename(
+                title=t("dlg_choose_mod_archive"),
+                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
+                           (t("filetype_allfiles"), "*.*")],
+            )
+            start_pick(path)
+
+        def on_drop(event):
+            for raw in win.tk.splitlist(event.data):
+                p = Path(raw)
+                if p.is_file() and p.suffix.lower() in ARCHIVE_EXTS:
+                    start_pick(str(p))
+                    return
+
+        if _HAS_DND:
+            win.drop_target_register(DND_FILES)
+            win.dnd_bind("<<Drop>>", on_drop)
 
         def _on_detected(groups, unmatched):
             set_pick_busy(False)
@@ -1297,12 +1311,7 @@ class App:
                 return
             _extract_and_repair_page(chosen)
 
-        def do_pick():
-            path = filedialog.askopenfilename(
-                title=t("dlg_choose_mod_archive"),
-                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
-                           (t("filetype_allfiles"), "*.*")],
-            )
+        def start_pick(path):
             if not path:
                 return
             file_var.set(path)
@@ -1338,6 +1347,25 @@ class App:
                 win.after(0, lambda: _handle_extracted(mod_root, pages))
 
             threading.Thread(target=worker, daemon=True).start()
+
+        def do_pick():
+            path = filedialog.askopenfilename(
+                title=t("dlg_choose_mod_archive"),
+                filetypes=[(t("filetype_mod_archive"), ("*.zip", "*.7z", "*.rar")),
+                           (t("filetype_allfiles"), "*.*")],
+            )
+            start_pick(path)
+
+        def on_drop(event):
+            for raw in win.tk.splitlist(event.data):
+                p = Path(raw)
+                if p.is_file() and p.suffix.lower() in ARCHIVE_EXTS:
+                    start_pick(str(p))
+                    return
+
+        if _HAS_DND:
+            win.drop_target_register(DND_FILES)
+            win.dnd_bind("<<Drop>>", on_drop)
 
         def _on_detected(groups, unmatched):
             set_pick_busy(False)

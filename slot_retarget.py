@@ -302,7 +302,7 @@ def find_compatible_targets(source: ModSlotInfo) -> list[TargetCandidate]:
 
 
 def find_target_occupants(game_dir, source: ModSlotInfo, target: TargetCandidate) -> list[str]:
-    """Checks every piece the source mod ships for a REAL loose mdf2 file
+    """Checks every piece the source mod ships for a REAL loose file
     already sitting at the TARGET slot's path under <game_dir>/natives/...
     -- meaning some other currently-active mod (Fluffy Mod Manager, or any
     tool that does real loose-file deployment -- MO2's virtualized overlay
@@ -313,18 +313,46 @@ def find_target_occupants(game_dir, source: ModSlotInfo, target: TargetCandidate
     for name resolution, same shape weapon_retarget.find_target_occupant()
     produces for gui.py's shared _occupied_note() helper. Mirrors that
     function's same cheap, GameArchive-free glob check (see
-    game_archive.find_loose_files's own docstring)."""
+    game_archive.find_loose_files's own docstring).
+
+    Piece 6 (Slinger) checks `.mesh`, not `.mdf2` -- mirroring
+    verify_target_vanilla()'s own established convention ("piece 6 checks
+    mesh+pfb only -- some slots have no slinger mdf2"). An earlier version
+    of this function unconditionally SKIPPED piece 6 entirely (`if p ==
+    6: continue`), reasoning only about the missing mdf2 and never
+    substituting a check that could actually see piece 6's real file
+    (mesh-only, per item #53's "extra piece" pattern). Confirmed real via
+    3 live occupied slots the GUI was silently missing (2026-08-17): two
+    (013/001, 017/001) had ONLY a piece-6 mesh file on disk and nothing
+    else, so every piece 1-5 mdf2 check correctly found nothing while the
+    real occupying mesh sat right there, invisible to this function the
+    whole time.
+
+    Checks BOTH ch02 (male hunter model) and ch03 (female) paths per
+    piece, not ch03 alone -- `detect_mod_slots()`'s own regexes
+    (`_MODEL_SLOT_RE`/`_PIECE_FILE_RE_TMPL`) have matched `ch0[23]` since
+    item #35 (a mod can legitimately ship only one gender's files, e.g. a
+    female-only "OVR" outfit, or both), but this function was never
+    updated to match -- an occupying mod that only deployed ch02 loose
+    files (or only ch03, while the source being checked ships both) at
+    the same target slot would have been silently invisible. No live
+    example confirmed yet for this half specifically, but it's the exact
+    same asymmetry class as the piece-6 gap above, in the same function,
+    so it's fixed alongside it rather than left for a future report."""
     from game_archive import find_loose_files
     piece_dirs = {1: "Arm", 2: "Body", 3: "Helm", 4: "Leg", 5: "Waist", 6: "Slinger"}
     s, v = target.set_no, target.variant
     occupied = []
     for p in sorted(source.pieces_shipped):
-        if p not in piece_dirs or p == 6:
-            continue  # slinger has no mdf2 of its own (see verify_target_vanilla)
-        base = f"natives/stm/art/model/character/ch03/{s}/{v}/{p}/ch03_{s}_{v}{p}"
-        found = find_loose_files(game_dir, base, "mdf2")
-        if found:
-            occupied.append(str(found[0].relative_to(Path(game_dir))))
+        if p not in piece_dirs:
+            continue
+        ext = "mesh" if p == 6 else "mdf2"
+        for code in ("ch02", "ch03"):
+            base = f"natives/stm/art/model/character/{code}/{s}/{v}/{p}/{code}_{s}_{v}{p}"
+            found = find_loose_files(game_dir, base, ext)
+            if found:
+                occupied.append(str(found[0].relative_to(Path(game_dir))))
+                break
     return occupied
 
 
